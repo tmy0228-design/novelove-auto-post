@@ -1164,7 +1164,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v7.3.3.7 【超クリーン版】 起動")
+    logger.info("Novelove エンジン v7.3.3.8 【超クリーン版】 起動")
     init_db()
     fetch_and_stock_all()
     promote_watching()
