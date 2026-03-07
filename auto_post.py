@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v7.3.2.2
-【DBスキーマ不一致修正・堅牢化版】
+Novelove 自動投稿エンジン v7.3.3
+【10分審査・30分投稿 分散処理安定版】
 ==========================================================
-【変更点 v7.0 → v7.3.2.2】
+【変更点 v7.0 → v7.3.3】
+ - 効率化：10分ごとの審査（promote）と30分ごとの慎重投稿を両立 (v7.3.3)
  - 修正：DBのカラム順序に依存しないRowオブジェクト方式を採用 (v7.3.2.2)
  - 環境適応：.env読み込みをポータブル化 (Windows/Linux両対応)
  - 効率化：内容のない「作成中」あらすじを判定前に早期スキップ (v7.3.1)
@@ -739,7 +740,7 @@ def promote_watching():
                 """SELECT product_id, title, image_url, description, release_date, status, retry_count
                    FROM novelove_posts
                    WHERE (status='watching' OR (status='failed_stock' AND retry_count < 3))
-                   AND (last_checked_at IS NULL OR last_checked_at < datetime('now', '-24 hours'))
+                   AND (last_checked_at IS NULL OR last_checked_at < datetime('now', '-10 minutes'))
                    ORDER BY release_date ASC LIMIT 20"""
             ).fetchall()
 
@@ -1150,6 +1151,28 @@ def main():
     reset_dlsite_failures() # DLsiteの失敗分をリセット
     fetch_and_stock_all()
     promote_watching()
+
+    # --- 30分投稿ガードレール ---
+    # 直近30分（余裕を見て25分）以内に投稿があるかチェック
+    is_cool_down = False
+    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE]:
+        if not os.path.exists(db_path): continue
+        tmp_conn = sqlite3.connect(db_path)
+        last_pub = tmp_conn.execute("SELECT published_at FROM novelove_posts WHERE status='published' ORDER BY published_at DESC LIMIT 1").fetchone()
+        tmp_conn.close()
+        if last_pub and last_pub[0]:
+            from datetime import datetime
+            try:
+                lp_dt = datetime.strptime(last_pub[0], "%Y-%m-%d %H:%M:%S")
+                diff = (datetime.now() - lp_dt).total_seconds() / 60
+                if diff < 25: # 25分以内ならクールダウン
+                    is_cool_down = True
+                    break
+            except: pass
+    
+    if is_cool_down:
+        logger.info("🕒 クールダウン中（前回の投稿から30分未経過）。審査のみ行い終了します。")
+        return
 
     # 投稿ループ（ラウンドロビン）
     posted    = False
