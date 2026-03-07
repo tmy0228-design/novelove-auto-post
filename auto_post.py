@@ -158,11 +158,11 @@ DB_FILE_FANZA = os.path.join(SCRIPT_DIR, "novelove.db")
 DB_FILE_DLSITE = os.path.join(SCRIPT_DIR, "novelove_dlsite.db")
 LOG_FILE      = os.path.join(SCRIPT_DIR, "novelove.log")
 
-# 投稿用モデル（品質重視順）
+# 投稿用モデル（品質重視順 - 厳守順序）
 PRO_MODELS = [
-    "gemini-3.1-pro",
-    "gemini-2.5-pro",
-    "gemini-3-flash-preview",
+    "gemini-2.5-pro",             # 2.5pro (最優先)
+    "gemini-3-flash-preview",      # 3.0フラッシュ
+    "gemini-3.1-flash-lite-preview", # 3.1フラッシュライト
 ]
 
 # 審査用モデル（バックアップ優先順位）
@@ -649,6 +649,17 @@ def _check_desc_ok(title, desc, release_date_str=None):
 点数（1〜5の数字のみ）と理由を以下の形式で答えてください：
 点数: X
 理由: （一言）"""
+
+    # 全モデルがスヌーズ（429）状態かチェック
+    snoozed_count = 0
+    if hasattr(_check_desc_ok, "snoozed_models"):
+        for m in CHECK_MODELS:
+            if m in _check_desc_ok.snoozed_models:
+                snoozed_count += 1
+    
+    if snoozed_count >= len(CHECK_MODELS):
+        logger.warning(f"  [API制限中] 全ての審査モデルが制限にかかっています。スキップします。")
+        return "limit_skip"
 
     # 「常にメイン(2.5-flash)から試行」するバックアップ方式
     for model_name in CHECK_MODELS:
@@ -1166,7 +1177,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v7.3.3.4 【精鋭バックアップ・超安全低速版】 起動")
+    logger.info("Novelove エンジン v7.3.3.5 【構成完全固定版】 起動")
     init_db()
     reset_dlsite_failures() # DLsiteの失敗分をリセット
     fetch_and_stock_all()
