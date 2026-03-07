@@ -28,8 +28,23 @@ import os
 import sqlite3
 import time
 import logging
+import re
 from bs4 import BeautifulSoup
 from google import genai
+from datetime import datetime
+
+# --- Discord通知機能を内包 ---
+def notify_discord(message, username="ノベラブ通知くん", avatar_url=None):
+    """Discordに通知を送信（外部レポジトリ依存を解消）"""
+    webhook_url = "https://discord.com/api/webhooks/1479116788343242833/CCuc9YCVfq38-bwlq2Ku2w8_5ru5W90Ezo-UrNvLri5QHR_t288EIvATRVBcXZlPRRMo"
+    if not webhook_url: return False
+    payload = {"content": message, "username": username}
+    if avatar_url: payload["avatar_url"] = avatar_url
+    try:
+        r = requests.post(webhook_url, json=payload, timeout=10)
+        return r.status_code in (200, 204)
+    except: return False
+from datetime import datetime
 
 # === 設定欄 ===
 GEMINI_API_KEY        = "AIzaSyDwdQFxohNN3ZfdBZDLx4x1BJmCvEdRszE"
@@ -49,10 +64,16 @@ FETCH_TARGETS = [
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_bl",    "label": "BL同人",         "keyword": "ボーイズラブ"},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_tl",    "label": "乙女同人",       "keyword": "乙女向け"},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_voice", "label": "ボイス",         "keyword": "ボイス 女性向け"},
+    # FANZAゲーム
+    {"site": "FANZA",   "service": "pcgame", "floor": "pcgame",         "genre": "pcgame",       "label": "PCゲーム",       "keyword": None},
+    {"site": "FANZA",   "service": "pcgame", "floor": "pcgame",         "genre": "pcgame",       "label": "PCゲーム",       "keyword": None},
     # DMMブックス（一般向け・腐女子刺さり系）
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_bl",     "label": "一般BL",         "keyword": "ボーイズラブ"},
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_tl",     "label": "一般TL",         "keyword": "ティーンズラブ"},
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_women",  "label": "女性向けコミック", "keyword": "女性向け"},
+    # DLsite（乙女・BL・同人）
+    {"site": "DLsite",  "service": None,     "floor": "girls",          "genre": "doujin_tl",    "label": "DLsite乙女",     "keyword": None},
+    {"site": "DLsite",  "service": None,     "floor": "bl",             "genre": "doujin_bl",    "label": "DLsiteBL",      "keyword": None},
 ]
 
 GENRE_TAGS = {
@@ -64,6 +85,7 @@ GENRE_TAGS = {
     "comic_bl":     ["BL", "BLコミック", "一般"],
     "comic_tl":     ["TL", "TLコミック", "一般"],
     "comic_women":  ["女性向け", "一般"],
+    "pcgame":       ["ゲーム", "女性向け", "FANZA"],
 }
 
 # === カテゴリ定義（ジャンル別） ===
@@ -71,56 +93,29 @@ GENRE_CATEGORIES = {
     "BL": 23, "doujin_bl": 23, "comic_bl": 23,     # BL作品
     "TL": 24, "doujin_tl": 24, "comic_tl": 24,     # TL作品
     "comic_women": 25,                             # 女性向け
-    "doujin_voice": 25                             # ボイスは一旦女性向けに
+    "doujin_voice": 25,                            # ボイスは一旦女性向けに
+    "pcgame": 25                                   # ゲーム
 }
 
 # === 入力フィルター（3段階マスクマップ） ===
+# DLsite版の開発を経て洗練された「最強辞書」を同期
 MASK_LIGHT_MAP = {
-    "セックス": "熱く溶け合う",
-    "SEX": "熱く溶け合う",
-    "sex": "熱く溶け合う",
-    "強姦": "無理やり関係を迫る",
-    "レイプ": "無理やり関係を迫る",
-    "輪姦": "複数人との強制的な関係",
-    "複数人で押さえつけ": "複数人に囲まれ",
-    "陵辱": "辱め",
-    "生ハメ": "無防備な行為",
-    "やりまくり": "溺れるように求め合い",
-    "ナカに入れ": "深く求め",
-    "クリトリス": "最も敏感な秘密の場所",
-    "膣内": "最奥",
-    "肉棒": "熱い塊",
-    "蜜壺": "蜜の泉",
-    "乳首": "敏感な突起",
-    "性器": "秘めた部分",
-    "精液": "愛の証",
-    "孕ませ": "子を宿させ",
-    "種付け": "命を宿させ",
+    "セックス": "●●●ス", "SEX": "S●X", "sex": "熱く溶け合う",
+    "強姦": "無理やり関係を迫る", "レイプ": "無理やり関係を迫る",
+    "陵辱": "辱め", "生ハメ": "無防備な行為", "ナカに入れ": "深く求め",
+    "乳首": "敏感な場所", "性器": "秘めた部分", "精液": "愛の雫",
+    "孕ませ": "宿らせ", "種付け": "命を宿らせ",
 }
 
 MASK_EXTRA_MAP = {
-    "SMクラブ": "背徳の社交場",
-    "M奴隷": "快楽に身を委ねた存在",
-    "ご主人様": "支配者",
-    "拷問": "激しい責め",
-    "調教": "快楽に染めていく",
-    "ナカ": "最奥",
-    "クリ": "最も敏感な場所",
-    "イく": "限界を超える",
-    "イっ": "限界を超え",
-    "イき": "限界を超えた",
-    "クリイキ": "限界を超えた",
-    "絶頂": "理性が溶ける瞬間",
-    "オナニー": "自己愛撫",
-    "性感ほぐし": "体の奥のほぐし",
-    "アダルトグッズ": "大人向けグッズ",
-    "催淫": "抗えない甘い誘惑",
-    "淫ら": "官能的",
-    "薬物": "謎めいた物質",
-    "ドラッグ": "禁断の誘惑",
-    "LSD": "幻想的な体験",
-    "アヤワスカ": "神秘の儀式",
+    "巨根": "大きすぎるモノ", "アクメ": "絶頂", "絶頂": "クライマックス",
+    "アクメ堕ち": "絶頂", "孕み堕ち": "宿らせ", "おま◯こ": "秘部",
+    "ド巨根": "大きなモノ", "中出し": "最奥への放出", "膣内": "最奥",
+    "肉棒": "熱い塊", "クリトリス": "秘密の突起",
+    "SMクラブ": "背徳の社交場", "M奴隷": "快楽に身を委ねた存在",
+    "ご主人様": "支配者", "拷問": "激しい責め", "調教": "快楽に染めていく",
 }
+
 
 def mask_input(text, level=0):
     """
@@ -141,17 +136,20 @@ def mask_input(text, level=0):
 
 # === システム設定 ===
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_FILE    = os.path.join(SCRIPT_DIR, "novelove.db")
-LOG_FILE   = os.path.join(SCRIPT_DIR, "novelove.log")
+DB_FILE_FANZA = os.path.join(SCRIPT_DIR, "novelove.db")
+DB_FILE_DLSITE = os.path.join(SCRIPT_DIR, "novelove_dlsite.db")
+LOG_FILE      = os.path.join(SCRIPT_DIR, "novelove.log")
 
-# モデルリスト（品質重視順・無料枠確定モデルのみ）
-# v6.0変更: 3.1-pro（有料）・2.0-flash（廃止）を削除、新モデルを追加
+# モデルリスト（品質重視順）
 PRO_MODELS = [
-    "gemini-3-flash-preview",         # 最高品質・無料枠あり（最優先）
-    "gemini-3.1-flash-lite-preview",  # 高速・軽量・新モデル
-    "gemini-2.5-flash",               # 安定版・無料枠確定
-    "gemini-2.5-flash-lite",          # 軽量・無料枠確定
-    "gemini-1.5-flash-latest",        # 最終手段
+    "gemini-2.0-flash",
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+]
+
+CHECK_MODELS = [
+    "gemini-2.0-flash-lite",
+    "gemini-flash-lite-latest",
 ]
 
 logger = logging.getLogger("novelove")
@@ -235,39 +233,64 @@ def _genre_label(genre):
     }
     return labels.get(genre, "作品")
 
-# === データベース ===
+# === データベース管理（分離・不整合防止設計） ===
+def get_db_path(site_raw):
+    """サイト情報から適切なDBパスを返す"""
+    if site_raw and "DLsite" in str(site_raw):
+        return DB_FILE_DLSITE
+    return DB_FILE_FANZA
+
 def init_db():
-    """DBの初期化・スキーマのマイグレーション"""
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS novelove_posts (
-        product_id TEXT PRIMARY KEY,
-        title TEXT,
-        author TEXT DEFAULT '',
-        genre TEXT,
-        site TEXT DEFAULT 'FANZA',
-        status TEXT DEFAULT 'watching',
-        release_date TEXT DEFAULT '',
-        description TEXT DEFAULT '',
-        affiliate_url TEXT DEFAULT '',
-        image_url TEXT DEFAULT '',
-        product_url TEXT DEFAULT '',
-        wp_post_url TEXT DEFAULT '',
-        retry_count INTEGER DEFAULT 0,
-        last_error TEXT DEFAULT '',
-        inserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        published_at TIMESTAMP
-    )''')
-    for col, definition in [
-        ("retry_count", "INTEGER DEFAULT 0"),
-        ("last_error",  "TEXT DEFAULT ''"),
-    ]:
-        try:
-            c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
-        except Exception:
-            pass
-    conn.commit()
-    conn.close()
+    """DBの初期化・スキーマ同期"""
+    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE]:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS novelove_posts (
+            product_id TEXT PRIMARY KEY,
+            title TEXT,
+            author TEXT DEFAULT '',
+            genre TEXT,
+            site TEXT DEFAULT 'FANZA',
+            status TEXT DEFAULT 'watching',
+            release_date TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            affiliate_url TEXT DEFAULT '',
+            image_url TEXT DEFAULT '',
+            product_url TEXT DEFAULT '',
+            wp_post_url TEXT DEFAULT '',
+            retry_count INTEGER DEFAULT 0,
+            last_error TEXT DEFAULT '',
+            inserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_checked_at TEXT DEFAULT '',
+            published_at TIMESTAMP
+        )''')
+        # カラム追加のマイグレーション
+        for col, definition in [
+            ("retry_count", "INTEGER DEFAULT 0"),
+            ("last_error",  "TEXT DEFAULT ''"),
+            ("last_checked_at", "TEXT DEFAULT ''"),
+            ("site", "TEXT DEFAULT ''"),
+        ]:
+            try:
+                c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
+            except Exception: pass
+        conn.commit()
+        conn.close()
+
+def reset_dlsite_failures():
+    """DLsiteの失敗作品をリセットして新エンジンで再起させる"""
+    if not os.path.exists(DB_FILE_DLSITE): return
+    try:
+        conn = sqlite3.connect(DB_FILE_DLSITE, timeout=30)
+        c = conn.cursor()
+        c.execute("UPDATE novelove_posts SET status='watching', retry_count=0 WHERE status!='published'")
+        conn.commit()
+        conn.close()
+        logger.info("DLsiteリセット完了: 未投稿作品を再審査(watching)に設定しました")
+    except Exception as e:
+        logger.error(f"DLsiteリセット失敗: {e}")
+
+# === 以前のDB定義を置換 ===
 
 def _make_fanza_session():
     """年齢確認クッキーを持ったセッションを作成"""
@@ -277,8 +300,120 @@ def _make_fanza_session():
         session.cookies.set("ckcy", "1", domain=domain)
     return session
 
-def scrape_description(product_url):
-    """商品ページからあらすじをスクレイピング（年齢確認Cookie対応）"""
+HEADERS = {"User-Agent": "Mozilla/5.0"} # Added for the new scrape_dlsite_description function
+
+def scrape_dlsite_description(url):
+    """DLsiteのあらすじを確実かつクリーンに抽出する (v7.5 超硬化版)"""
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=15)
+        if r.status_code != 200: return ""
+        soup = BeautifulSoup(r.text, 'html.parser')
+        
+        # 不要な要素を事前に削除
+        for trash in soup.select('.work_outline, .work_parts_area.outline, .work_parts_area.chobit, .work_edition'):
+            trash.decompose()
+
+        # 1. 作品画像 (OGPから確実に取得)
+        image_url = ""
+        og_img = soup.select_one('meta[property="og:image"]')
+        if og_img:
+            image_url = og_img.get("content", "")
+        
+        if not image_url:
+            # 代替
+            main_img = soup.select_one('.product_image_main img')
+            if main_img: image_url = main_img.get('src')
+        
+        if image_url and image_url.startswith("//"):
+            image_url = "https:" + image_url
+        if "sam.jpg" in image_url:
+            image_url = image_url.replace("sam.jpg", "main.jpg")
+
+        # 2. あらすじ
+        container = soup.select_one('.work_parts_container')
+        if container:
+            text = container.get_text(separator="\n", strip=True)
+            # スペック情報を念のためさらに除去（"販売日"などが含まれていたらそれ以降を取る）
+            if "作品内容" in text:
+                text = text.split("作品内容")[-1]
+            if len(text) > 100: return text.strip()
+
+        # 2. 次点：見出し「作品内容」の直後の要素を探す
+        for h3 in soup.find_all(['h3', 'div'], text=re.compile(r'作品内容')):
+            next_div = h3.find_next_sibling('div')
+            if next_div:
+                text = next_div.get_text(separator="\n", strip=True)
+                if len(text) > 50: return text.strip()
+
+        # 3. 最終手段：og:description
+        meta_desc = soup.select_one('meta[property="og:description"]')
+        if meta_desc and meta_desc.get('content'):
+            return meta_desc.get('content').strip()
+            
+        return ""
+    except Exception as e:
+        logger.error(f"DLsiteスクレイピングエラー: {e}")
+        return ""
+
+def _fetch_dlsite_items(target):
+    """DLsiteの新着スクレイピング（詳細ページから確実な情報を取得）"""
+    floor = target.get("floor", "girls")
+    url = f"https://www.dlsite.com/{floor}/new/=/work_type/TOW" # とりあえず小説(TOW)
+    items = []
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get(url, headers=headers, timeout=20)
+        soup = BeautifulSoup(r.text, "html.parser")
+        works = soup.select(".n_worklist_item")
+        for work in works[:10]:
+            title_tag = work.select_one(".work_name a")
+            if not title_tag: continue
+            
+            detail_url = title_tag.get("href")
+            pid = detail_url.rstrip("/").split("/")[-1].replace(".html", "")
+            if not pid: continue
+            
+            # 詳細ページからOGP等を取得して精度を高める
+            image_url = ""
+            try:
+                dr = requests.get(detail_url, headers=headers, timeout=10)
+                dsoup = BeautifulSoup(dr.text, "html.parser")
+                og_img = dsoup.select_one('meta[property="og:image"]')
+                if og_img:
+                    image_url = og_img.get("content", "")
+            except: pass
+
+            if not image_url:
+                # 予備：サムネイル
+                img_tag = work.select_one("img")
+                if img_tag:
+                    image_url = img_tag.get("src") or img_tag.get("data-src") or ""
+            
+            if image_url.startswith("//"):
+                image_url = "https:" + image_url
+            
+            # 高画質化
+            if "sam.jpg" in image_url:
+                image_url = image_url.replace("sam.jpg", "main.jpg")
+
+            items.append({
+                "content_id": pid,
+                "title": title_tag.text.strip(),
+                "URL": detail_url,
+                "imageURL": {"large": image_url},
+                "article": [{"name": work.select_one(".maker_name").text.strip()}] if work.select_one(".maker_name") else [],
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+            time.sleep(1) # 負荷軽減
+    except Exception as e:
+        logger.error(f"DLsite取得エラー: {e}")
+    return items
+
+def scrape_description(product_url, site="FANZA"):
+    """商品ページからあらすじをスクレイピング"""
+    if "dlsite" in str(product_url).lower():
+        return scrape_dlsite_description(product_url)
+    
     if not product_url:
         return ""
     session = _make_fanza_session()
@@ -350,100 +485,152 @@ def _extract_author(item):
     return ""
 
 def fetch_and_stock_all():
-    """DMM/FANZA APIから全ジャンルの新着作品を取得してDBに蓄積"""
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    added = 0
-
+    """全ジャンルの新着作品を取得して適切なDBに蓄積"""
+    from datetime import datetime
     for target in FETCH_TARGETS:
         site = target.get("site", "FANZA")
-        params = {
-            "api_id": DMM_API_ID,
-            "affiliate_id": DMM_AFFILIATE_API_ID,
-            "site": site,
-            "service": target["service"],
-            "floor": target["floor"],
-            "hits": 100,  # v6.0: 20→100に増加（ストック枯渇防止）
-            "sort": "date",
-            "output": "json",
-        }
-        if target.get("keyword"):
-            params["keyword"] = target["keyword"]
+        db_path = get_db_path(site)
+        api_items = []
+        
+        if site == "DLsite":
+            api_items = _fetch_dlsite_items(target)
+        else:
+            params = {
+                "api_id": DMM_API_ID,
+                "affiliate_id": DMM_AFFILIATE_API_ID,
+                "site": site,
+                "service": target["service"],
+                "floor": target["floor"],
+                "hits": 20,
+                "sort": "date",
+                "output": "json",
+            }
+            if target.get("keyword"):
+                params["keyword"] = target["keyword"]
 
-        try:
-            res = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15).json()
-            for item in res.get("result", {}).get("items", []):
-                pid = item.get("content_id")
-                if not pid:
-                    continue
-                if c.execute("SELECT 1 FROM novelove_posts WHERE product_id=?", (pid,)).fetchone():
-                    continue
-                desc = scrape_description(item.get("URL", ""))
-                time.sleep(1.0)
-                image_url = item.get("imageURL", {}).get("large", "")
-                aff_url = (item.get("affiliateURL") or "").replace(DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID)
-                is_r18 = 1 if _is_r18_item(item, site=site) else 0
-                author = _extract_author(item)
+            try:
+                res = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15).json()
+                api_items = res.get("result", {}).get("items", [])
+            except Exception as e:
+                logger.error(f"API エラー ({site}/{target['label']}): {e}")
+                continue
 
-                # v7.0: 画像チェック+Geminiあらすじ判定でpending/watching振り分け
-                status = _check_stock_status(image_url, desc, item.get("title", ""))
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        added = 0
+        for item in api_items:
+            pid = item.get("content_id")
+            if not pid: continue
+            if c.execute("SELECT 1 FROM novelove_posts WHERE product_id=?", (pid,)).fetchone():
+                continue
+            
+            desc = scrape_description(item.get("URL", ""), site=site)
+            time.sleep(1.0)
+            
+            image_url = item.get("imageURL", {}).get("large", "")
+            # アフィリエイトURL生成
+            if site == "DLsite":
+                 aff_url = f"{item.get('URL')}?affiliate_id=novelove-001"
+            else:
+                 aff_url = (item.get("affiliateURL") or "").replace(DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID)
+            
+            is_r18 = 1 if _is_r18_item(item, site=site) else 0
+            author = _extract_author(item)
+            status = "watching"
 
-                c.execute(
-                    """INSERT INTO novelove_posts
-                       (product_id, title, author, genre, site, status, description,
-                        affiliate_url, image_url, product_url, release_date)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                    (pid, item.get("title"), author, target["genre"],
-                     f"{site}:r18={is_r18}", status, desc, aff_url,
-                     image_url, item.get("URL", ""), item.get("date", ""))
-                )
-                logger.info(f"[確保] {item.get('title','')[:40]} ({target['label']}/{status}/r18={is_r18}/author={author[:10]})")
-                added += 1
-        except Exception as e:
-            logger.error(f"API エラー ({site}/{target['label']}): {e}")
-            continue
-
-    conn.commit()
-    conn.close()
-    logger.info(f"ストック完了: {added}件追加")
+            c.execute(
+                """INSERT INTO novelove_posts
+                    (product_id, title, author, genre, site, status, description,
+                    affiliate_url, image_url, product_url, release_date)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (pid, item.get("title"), author, target["genre"],
+                    f"{site}:r18={is_r18}", status, desc, aff_url,
+                    image_url, item.get("URL", ""), item.get("date", ""))
+            )
+            logger.info(f"[{site}] [確保] {item.get('title','')[:40]} ({target['label']})")
+            added += 1
+        conn.commit()
+        conn.close()
+        if added > 0: logger.info(f"{site}/{target['label']}: {added}件蓄積")
 
 def _check_image_ok(image_url):
-    """画像URLが実在するか確認（302リダイレクト=NG）"""
-    if not image_url:
+    """画像URLが実在するか、およびプレースホルダでないか確認"""
+    if not image_url or not isinstance(image_url, str):
         return False
+    
+    # プレースホルダ文字列のチェック
+    low_url = image_url.lower()
+    placeholders = ["now_printing", "no_image", "noimage", "comingsoon", "dummy", "common/img"]
+    if any(p in low_url for p in placeholders):
+        return False
+
     try:
+        # FANZAの302（画像なし）を検出しやすくするためセッションを使用
         r = _make_fanza_session().head(
             image_url,
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=10,
             allow_redirects=False
         )
+        # 302リダイレクトは画像未準備
+        if r.status_code == 302:
+            return False
+        # 200かつある程度のファイルサイズがあるか等を見る（可能なら）
         return r.status_code == 200
     except Exception:
         return False
 
-def _check_desc_ok(title, desc):
-    """Geminiにあらすじが記事執筆に十分か判定させる"""
+def _check_desc_ok(title, desc, release_date_str=None):
+    """Geminiにあらすじが記事執筆に十分か判定させる（モデルローテーション対応）"""
     if not desc or len(desc.strip()) < 5:
         return False
+
+    # 未来フィルター：発売日が今日から7日より先の場合は判定をスキップ（後回し）
+    if release_date_str:
+        try:
+            from datetime import datetime, timedelta
+            today = datetime.now()
+            release_date = datetime.strptime(release_date_str[:10], "%Y-%m-%d")
+            if release_date > today + timedelta(days=7):
+                # logger.info(f"  [スキップ] 発売まで7日以上: {title[:30]}")
+                return False
+        except Exception:
+            pass
+
     client = genai.Client(api_key=GEMINI_API_KEY)
     prompt = f"""以下の作品のあらすじを見て、レビュー記事を書くのに十分な情報があるか判定してください。
 「はい」か「いいえ」だけ答えてください。
 
 作品タイトル: {title}
 あらすじ: {desc}"""
-    try:
-        resp = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
-            contents=prompt,
-        )
-        text = resp.text.strip() if hasattr(resp, "text") and resp.text else ""
-        return "はい" in text
-    except Exception as e:
-        logger.warning(f"Geminiあらすじ判定エラー: {e}")
-        return False
+    
+    # グローバルなカウンタを使用してモデルを順次切り替える（ローテーション）
+    if not hasattr(_check_desc_ok, "counter"):
+        _check_desc_ok.counter = 0
+    
+    # 3つのモデルをローテーションして試す
+    for _ in range(len(CHECK_MODELS)):
+        idx = _check_desc_ok.counter % len(CHECK_MODELS)
+        model_name = CHECK_MODELS[idx]
+        _check_desc_ok.counter += 1
+        
+        try:
+            resp = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            text = resp.text.strip() if hasattr(resp, "text") and resp.text else ""
+            if text:
+                # 判定ごとに2秒待機（負荷分散・429回避）
+                time.sleep(2)
+                return "はい" in text
+        except Exception as e:
+            logger.warning(f"Geminiあらすじ判定エラー ({model_name}): {e}")
+            time.sleep(2)
+            
+    return False
 
-def _check_stock_status(image_url, desc, title):
+def _check_stock_status(image_url, desc, title, release_date=""):
     """
     画像チェック + Geminiあらすじ判定でpending/watchingを返す
     画像なし → watching
@@ -451,59 +638,76 @@ def _check_stock_status(image_url, desc, title):
     """
     if not _check_image_ok(image_url):
         return "watching"
-    if _check_desc_ok(title, desc):
+    if _check_desc_ok(title, desc, release_date):
         return "pending"
     return "watching"
 
 def promote_watching():
-    """
-    watching状態の作品を再チェックしてpendingに昇格させる（v7.0）
-    - 発売日が今日以前のwatchingのみ対象
-    - OK → pending昇格
-    - NG → failed_stock（売る気なし商品としてお蔵入り）
-    毎回main()実行時に呼び出す
-    """
+    """watching作品の昇格（DB分離対応・FANZA救済基準）"""
     from datetime import datetime
-    today = datetime.now().strftime("%Y-%m-%d")
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+    now_date = now.date()
 
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    rows = c.execute(
-        """SELECT product_id, title, image_url, description FROM novelove_posts
-           WHERE status='watching' AND release_date <= ?""",
-        (today + " 23:59:59",)
-    ).fetchall()
+    # 両方のDBを巡回
+    # --- 昇格フェーズ ---
+    dbs_to_post = [DB_FILE_FANZA, DB_FILE_DLSITE] # Re-enable DLsite in dbs_to_post
+    
+    for db_path in dbs_to_post:
+        # サイト名（ログ用）
+        site_tag = "FANZA/DMM" if db_path == DB_FILE_FANZA else "DLsite"
+        
+        try:
+            conn = sqlite3.connect(db_path, timeout=30)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            
+            # 救済対象を抽出
+            # 1. 発売日が今日より先（未来の商品）であること
+            # 2. 最後にチェックしてから24時間経過していること
+            rows_to_process = c.execute(
+                """SELECT product_id, title, image_url, description, release_date, status, retry_count
+                   FROM novelove_posts
+                   WHERE (status='watching' OR (status='failed_stock' AND retry_count < 3))
+                   AND release_date > ?
+                   AND (last_checked_at IS NULL OR last_checked_at < datetime('now', '-24 hours'))
+                   ORDER BY release_date ASC LIMIT 20""",
+                (today_str + " 23:59:59",)
+            ).fetchall()
 
-    promoted = 0
-    failed = 0
-    for product_id, title, image_url, desc in rows:
-        status = _check_stock_status(image_url, desc, title)
-        if status == "pending":
+            # 逆に「発売日を過ぎてしまった未完成品」は一括でお蔵入りに（ルール徹底）
             c.execute(
-                "UPDATE novelove_posts SET status='pending' WHERE product_id=?",
-                (product_id,)
+                "UPDATE novelove_posts SET status='failed_stock', last_error='発売日経過のため除外' WHERE status IN ('watching', 'failed_stock') AND release_date <= ?",
+                (today_str + " 00:00:00",)
             )
-            logger.info(f"[昇格] watching→pending: {title[:40]}")
-            promoted += 1
-        else:
-            c.execute(
-                "UPDATE novelove_posts SET status='failed_stock', last_error='発売日当日でも画像/あらすじ不備' WHERE product_id=?",
-                (product_id,)
-            )
-            logger.info(f"[お蔵入り] watching→failed_stock: {title[:40]}")
-            failed += 1
 
-    conn.commit()
-    conn.close()
-    logger.info(f"watching再チェック完了: {promoted}件昇格 / {failed}件お蔵入り")
+            promoted_count = 0
+            for r_item in rows_to_process:
+                p_id, title, img, desc, r_date = r_item["product_id"], r_item["title"], r_item["image_url"], r_item["description"], r_item["release_date"]
+                
+                # チェック開始（日時更新）
+                c.execute("UPDATE novelove_posts SET last_checked_at=datetime('now') WHERE product_id=?", (p_id,))
+                
+                status = _check_stock_status(img, desc, title, r_date)
+                if status == "pending":
+                    c.execute("UPDATE novelove_posts SET status='pending' WHERE product_id=?", (p_id,))
+                    logger.info(f"[{site_tag}] [昇格] {title[:40]}")
+                    promoted_count += 1
+            
+            conn.commit()
+            conn.close()
+            if promoted_count > 0:
+                logger.info(f"[{site_tag}] 昇格完了: {promoted_count}件")
+        except Exception as e:
+            logger.error(f"[{site_tag}] 昇格処理エラー: {e}")
 
-def get_internal_link(product_id, author, genre):
+def get_internal_link(product_id, author, genre, db_path=DB_FILE_FANZA):
     """
     内部リンク取得（優先度: ①同じ作者 → ②同じジャンル）
     リンク切れの場合は最大5件まで後続を探す
     戻り値: {"title": ..., "url": ...} or None
     """
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(db_path)
     c = conn.cursor()
     candidates = []
 
@@ -638,7 +842,7 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None):
 def call_gemini(prompt):
     """
     Gemini API呼び出し（BLOCK_NONE・フォールバック付き）
-    戻り値: (text, error_type)
+    戻り値: (text, error_type, model_name)
     """
     client = genai.Client(api_key=GEMINI_API_KEY)
     safety_settings = [
@@ -651,11 +855,15 @@ def call_gemini(prompt):
     for model_name in PRO_MODELS:
         try:
             logger.info(f"  [{model_name}] 執筆依頼...")
+            t_start = time.time()
             resp = client.models.generate_content(
                 model=model_name,
                 contents=prompt,
                 config={"safety_settings": safety_settings}
             )
+            t_end = time.time()
+            proc_time = round(t_end - t_start, 1)
+            # テキスト抽出
             text = None
             try:
                 if hasattr(resp, "text") and resp.text:
@@ -668,8 +876,8 @@ def call_gemini(prompt):
                 except Exception:
                     pass
             if text and len(text.strip()) > 50:
-                logger.info(f"  [{model_name}] 執筆完了（{len(text)}文字）")
-                return text.strip(), "ok"
+                logger.info(f"  [{model_name}] 執筆完了（{len(text)}文字 / {proc_time}秒）")
+                return text.strip(), "ok", model_name, proc_time
             logger.warning(f"  [{model_name}] 空答（コンテンツ拒絶の可能性）")
             last_error_type = "content_block"
         except Exception as e:
@@ -680,7 +888,7 @@ def call_gemini(prompt):
                 time.sleep(5)
             else:
                 last_error_type = "content_block"
-    return "", last_error_type
+    return "", last_error_type, "None", 0.0
 
 def make_excerpt(description, title, genre):
     """あらすじからSEO用のexcerptを生成する"""
@@ -698,15 +906,17 @@ def generate_article(target):
     """
     段階的フィルターで記事を生成する。
     1回目: マスクなし → 2回目: 軽めマスク → 3回目: ガチガチマスク
-    戻り値: (wp_title, content, excerpt, seo_title, is_r18, error_type)
+    戻り値: (wp_title, content, excerpt, seo_title, is_r18, error_type, model_name, filter_level)
     """
     reviewer = _get_reviewer_for_genre(target["genre"])
 
     # 内部リンクを取得（①同じ作者 → ②同じジャンル）
+    db_path = get_db_path(target.get("site", "FANZA"))
     internal_link = get_internal_link(
         target["product_id"],
         target.get("author", ""),
-        target["genre"]
+        target["genre"],
+        db_path=db_path
     )
     if internal_link:
         logger.info(f"  [内部リンク] 取得成功: {internal_link['title'][:30]}")
@@ -714,22 +924,53 @@ def generate_article(target):
         logger.info(f"  [内部リンク] 該当なし（今回はなし）")
 
     final_error = "content_block"
+    final_model = "None"
+    final_proc_time = 0.0
     for mask_level in [0, 1, 2]:
         level_name = ["フィルターなし", "軽めフィルター", "ガチガチフィルター"][mask_level]
         logger.info(f"  [{level_name}] で執筆試行中...")
         prompt  = build_prompt(target, reviewer, mask_level, internal_link)
-        content, error_type = call_gemini(prompt)
+        content, error_type, model_name, proc_time = call_gemini(prompt)
         final_error = error_type
+        final_model = model_name
+        final_proc_time = proc_time
 
         if content:
-            img_html   = f'<p style="text-align:center;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow"><img src="{target["image_url"]}" alt="{target["title"]}" style="max-width:300px;border-radius:8px;box-shadow:0 4px 15px rgba(0,0,0,0.15);" /></a></p>\n'
-            text_link  = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:5px; margin-bottom:15px;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow">▶ 『{target["title"]}』の詳細をチェック！</a></p>\n'
+            # 【最終画像チェック】投稿直前にもう一度確認
+            if not _check_image_ok(target["image_url"]):
+                logger.warning(f"  [画像NG] 投稿直前のチェックで画像が無効と判定されました: {target['image_url']}")
+                return None, None, None, None, False, "image_missing", model_name, level_name, proc_time, 0
 
-            is_r18 = target.get("is_r18", False)
-            if is_r18:
-                credit_html = '<p style="text-align:center; margin-top:30px; padding-top:10px; border-top:1px solid #eee;">\n<a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.co.jp/p/affiliate/web_service/r18_135_17.gif" width="135" height="17" alt="WEB SERVICE BY FANZA" /></a>\n</p>\n'
-            else:
-                credit_html = '<p style="text-align:center; margin-top:30px; padding-top:10px; border-top:1px solid #eee;">\n<a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/com_135_17.gif" width="135" height="17" alt="WEB SERVICE BY DMM.com" /></a>\n</p>\n'
+            img_html   = f'<p style="text-align:center;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow"><img src="{target["image_url"]}" alt="{target["title"]}" style="max-width:300px;border-radius:8px;box-shadow:0 4px 15px rgba(0,0,0,0.15);" /></a></p>\n'
+            # サイト表示名の正規化
+            site_raw = target.get("site", "FANZA")
+            site_display = site_raw.split(":")[0] if isinstance(site_raw, str) and ":" in site_raw else str(site_raw)
+            
+            format_name = _genre_label(target["genre"])
+            icon = "📖"
+            if "ボイス" in format_name: icon = "🎧"
+            elif "コミック" in format_name or "漫画" in format_name: icon = "🎨"
+            elif "同人" in format_name: icon = "📚"
+
+            badge_html = f'''
+<p style="text-align:center; margin-bottom:20px;">
+<span style="background:#fefefe; border:1px solid #ddd; padding:6px 16px; border-radius:25px; font-weight:bold; color:#444; box-shadow:0 2px 4px rgba(0,0,0,0.05); display:inline-block;">{icon} {site_display} {format_name}</span>
+</p>'''
+
+            # アフィリンクとテキストリンク
+            text_link  = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:5px; margin-bottom:15px;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{target["title"]}』の詳細をチェック！</a></p>\n'
+
+            # PR表記
+            service_name = site_display
+            credit_html = f'<p style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee; font-size:0.8em; color:#bbb;">\nPRESENTED BY {service_name} / Novelove Affiliate Program\n</p>\n'
+
+            # 発売日表示
+            release_display = ""
+            if target.get("release_date"):
+                try:
+                    rd = target["release_date"][:10].replace("-", "/")
+                    release_display = f'<p style="text-align:center; color:#666; font-size:0.9em; margin-bottom:10px;">発売日：{rd}</p>\n'
+                except: pass
 
             excerpt    = make_excerpt(target["description"], target["title"], target["genre"])
             label      = _genre_label(target["genre"])
@@ -738,8 +979,12 @@ def generate_article(target):
                 seo_title = f"{target['title'][:30]}…を{reviewer['name']}が紹介 | Novelove"
             wp_title   = target["title"]
 
-            full_content = img_html + text_link + content + credit_html
-            return wp_title, full_content, excerpt, seo_title, is_r18, "ok"
+            full_content = badge_html + img_html + release_display + text_link + content + credit_html
+            word_count = len(content)
+            # site情報を正規化してis_r18判定
+            site_raw = target.get("site", "FANZA")
+            is_r18_val = ":r18=1" in str(site_raw)
+            return wp_title, full_content, excerpt, seo_title, is_r18_val, "ok", model_name, level_name, proc_time, word_count
 
         if error_type == "rate_limit":
             logger.warning(f"  レート制限エラー → フィルター試行を中断")
@@ -747,7 +992,7 @@ def generate_article(target):
 
         logger.warning(f"  [{level_name}] 失敗 → 次のフィルターレベルへ")
 
-    return None, None, None, None, False, final_error
+    return None, None, None, None, False, final_error, final_model, "None", final_proc_time, 0
 
 # === WordPress投稿（REST API）===
 def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False):
@@ -831,52 +1076,67 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 def main():
     logger.info("Novelove エンジン v7.3 【関連記事強化・口調分離・バランス調整版】 起動")
     init_db()
+    reset_dlsite_failures() # DLsiteの失敗分をリセット
     fetch_and_stock_all()
     promote_watching()
 
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-
+    # 投稿ループ（ラウンドロビン）
     posted    = False
     max_tries = 10
     tries     = 0
-
+    
     while not posted and tries < max_tries:
         tries += 1
+        if not hasattr(main, "genre_index"):
+            main.genre_index = 0
+        current_genre_info = FETCH_TARGETS[main.genre_index % len(FETCH_TARGETS)]
+        main.genre_index += 1
+        
+        site_for_db = current_genre_info.get("site", "FANZA")
+        db_path = get_db_path(site_for_db)
+        genre = current_genre_info["genre"]
 
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        
+        # 指定ジャンルのpendingを探す
         row = c.execute(
-            """SELECT product_id, title, author, genre, description, affiliate_url,
-                      image_url, retry_count, site
-               FROM novelove_posts
-               WHERE status='pending' AND retry_count < 3
-               ORDER BY release_date DESC LIMIT 1"""
+            "SELECT * FROM novelove_posts WHERE status='pending' AND genre=? LIMIT 1", (genre,)
         ).fetchone()
 
         if not row:
-            logger.info("【待機中】 pending状態の作品がありません。")
-            break
+            # 該当ジャンルがなければ、同じDB内の別ジャンルをランダムに
+            row = c.execute(
+                "SELECT * FROM novelove_posts WHERE status='pending' ORDER BY RANDOM() LIMIT 1"
+            ).fetchone()
 
-        site_raw = row[8] or ""
-        is_r18 = ":r18=1" in site_raw
+        if not row:
+            conn.close()
+            continue
+
+        # DBのカラム位置に合わせてマッピング (Rowオブジェクトでないため)
+        # 0:product_id, 1:title, 2:author, 3:genre, 4:site, 5:status, 6:release_date, 7:description, 8:affiliate_url, 9:image_url, 10:product_url, 11:wp_post_url, 12:retry_count, 13:published_at, 14:last_checked_at, 15:last_error
         target = {
-            "product_id":   row[0],
-            "title":        row[1],
-            "author":       row[2] or "",
-            "genre":        row[3],
-            "description":  row[4],
-            "affiliate_url": row[5],
-            "image_url":    row[6],
-            "is_r18":       is_r18,
+            "product_id": row[0], "title": row[1], "author": row[2] or "",
+            "genre": row[3], "site": row[4], "description": row[7],
+            "affiliate_url": row[8], "image_url": row[9],
+            "release_date": row[6] or "", "is_r18": ":r18=1" in str(row[4])
         }
-        retry_count = row[7]
-        logger.info(f"【ターゲット決定】 {target['title']} (retry:{retry_count}/author:{target['author'][:15]})")
+        retry_count = row[12] if len(row) > 12 else 0 # retry_count
 
-        wp_title, content, excerpt, seo_title, is_r18, error_type = generate_article(target)
+        logger.info(f"【ターゲット決定】 {target['title']} (DB: {os.path.basename(db_path)})")
+
+        res_data = generate_article(target)
+        if not res_data:
+             conn.close()
+             continue
+        
+        wp_title, content, excerpt, seo_title, is_r18_val, error_type, model_name, filter_level, proc_time, word_count = res_data
 
         if content:
             url = post_to_wordpress(
                 wp_title, content, target["genre"], target["image_url"],
-                excerpt, seo_title, slug=target["product_id"], is_r18=is_r18
+                excerpt, seo_title, slug=target["product_id"], is_r18=is_r18_val
             )
             if url:
                 c.execute(
@@ -884,33 +1144,38 @@ def main():
                     (url, target["product_id"])
                 )
                 conn.commit()
-                logger.info(f"✅ 投稿成功！ URL: {url}")
+                
+                # 統計情報の取得
+                daily_count = c.execute("SELECT COUNT(*) FROM novelove_posts WHERE status='published' AND published_at >= date('now', 'localtime')").fetchone()[0]
+                pending_count = c.execute("SELECT COUNT(*) FROM novelove_posts WHERE status='pending'").fetchone()[0]
+                
+                site_name = str(target.get('site') or 'Unknown').split(':')[0]
+                logger.info(f"✅ 投稿成功！ URL: {url} (Site: {site_name})")
+                
+                notify_discord(
+                    f"✅ **投稿成功！** ({site_name})\n"
+                    f"**タイトル**: {wp_title}\n"
+                    f"**モデル**: `{model_name}` ({proc_time}秒)\n"
+                    f"**記事**: `{word_count}文字` / フィルター: `{filter_level}`\n"
+                    f"**統計**: 今日 {daily_count}件目 / 残り待機 {pending_count}件\n"
+                    f"**URL**: {url}"
+                )
                 posted = True
             else:
-                logger.error("❌ WordPress投稿に失敗しました。")
-                break
+                logger.error("WP投稿失敗")
+                conn.close() # Close connection on WP post failure
+                break # Break the loop if WP posting fails
         else:
-            new_retry = retry_count + 1
-            if error_type == "rate_limit":
-                logger.warning(f"⏳ レート制限エラー → retry_count={new_retry}。次回再挑戦します。")
-                c.execute(
-                    "UPDATE novelove_posts SET retry_count=?, last_error='rate_limit' WHERE product_id=?",
-                    (new_retry, target["product_id"])
-                )
-                conn.commit()
-            else:
-                logger.error(f"❌ 3段階フィルター全滅 → failed_ai に変更")
-                c.execute(
-                    "UPDATE novelove_posts SET status='failed_ai', retry_count=?, last_error='content_block' WHERE product_id=?",
-                    (new_retry, target["product_id"])
-                )
-                conn.commit()
-            c.execute(
-                "UPDATE novelove_posts SET status='failed_ai' WHERE status='pending' AND retry_count >= 3"
-            )
-            conn.commit()
+             # 生成失敗時のリトライ・NG処理
+             new_retry = retry_count + 1
+             if error_type == "rate_limit":
+                 c.execute("UPDATE novelove_posts SET retry_count=? WHERE product_id=?", (new_retry, target["product_id"]))
+             else:
+                 c.execute("UPDATE novelove_posts SET status='failed_ai' WHERE product_id=?", (target["product_id"],))
+             conn.commit()
+        
+        conn.close()
 
-    conn.close()
     logger.info("=" * 60)
 
 if __name__ == "__main__":
