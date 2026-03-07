@@ -2,15 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v7.3
-【pending判定改善・Geminiあらすじチェック・画像Cookie修正版】
+Novelove 自動投稿エンジン v7.3.2
+【早期スキップ・ソフト洗浄改善・環境ポータブル版】
 ==========================================================
-【変更点 v6.0 → v7.0】
- - fetch_and_stock_all(): 画像チェック+Geminiあらすじ判定でpending/watching振り分け
-    promote_watching()
- - promote_watching(): watching作品を毎回再チェックしてpendingに昇格
-   （画像なし→watching継続、画像あり→Geminiあらすじ判定→OK:pending/NG:watching）
- - post_to_wordpress(): 画像取得にFANZA用Cookieセッションを適用（NOW PRINTING対策）
+【変更点 v7.0 → v7.3.2】
+ - 判定ロジック：5段階スコアリング制の導入 (v7.3)
+ - 環境適応：.env読み込みをポータブル化 (Windows/Linux両対応)
+ - 効率化：内容のない「作成中」あらすじを判定前に早期スキップ (v7.3.1)
+ - クレンジング：シリーズ名・作家・声優情報を保護するよう再調整 (v7.3.2)
 ==========================================================
 【戦略】
  - モデル: 品質重視順（2.5-pro → 3-flash-preview → 3.1-flash-lite-preview）
