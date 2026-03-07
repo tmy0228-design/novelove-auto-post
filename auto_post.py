@@ -32,11 +32,13 @@ import re
 from bs4 import BeautifulSoup
 from google import genai
 from datetime import datetime
+from dotenv import load_dotenv
+load_dotenv("/home/kusanagi/scripts/.env")
 
 # --- Discord通知機能を内包 ---
 def notify_discord(message, username="ノベラブ通知くん", avatar_url=None):
     """Discordに通知を送信（外部レポジトリ依存を解消）"""
-    webhook_url = "https://discord.com/api/webhooks/1479116788343242833/CCuc9YCVfq38-bwlq2Ku2w8_5ru5W90Ezo-UrNvLri5QHR_t288EIvATRVBcXZlPRRMo"
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "")
     if not webhook_url: return False
     payload = {"content": message, "username": username}
     if avatar_url: payload["avatar_url"] = avatar_url
@@ -47,13 +49,13 @@ def notify_discord(message, username="ノベラブ通知くん", avatar_url=None
 from datetime import datetime
 
 # === 設定欄 ===
-GEMINI_API_KEY        = "AIzaSyDwdQFxohNN3ZfdBZDLx4x1BJmCvEdRszE"
+GEMINI_API_KEY        = os.environ.get("GEMINI_API_KEY", "")
 WP_SITE_URL           = "https://novelove.jp"
-WP_USER               = "tomomin"
-WP_APP_PASSWORD       = "FDn0z9epvJDer5v5inalAFPj"
-DMM_API_ID            = "utU2Uz7rK9kSaVGD2NDU"
-DMM_AFFILIATE_API_ID  = "novelove-990"
-DMM_AFFILIATE_LINK_ID = "novelove-001"
+WP_USER               = os.environ.get("WP_USER", "")
+WP_APP_PASSWORD       = os.environ.get("WP_APP_PASSWORD", "")
+DMM_API_ID            = os.environ.get("DMM_API_ID", "")
+DMM_AFFILIATE_API_ID  = os.environ.get("DMM_AFFILIATE_API_ID", "")
+DMM_AFFILIATE_LINK_ID = os.environ.get("DMM_AFFILIATE_LINK_ID", "")
 
 # === 取得対象ジャンル定義 ===
 FETCH_TARGETS = [
