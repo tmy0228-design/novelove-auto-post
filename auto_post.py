@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v7.2
+Novelove 自動投稿エンジン v7.3
 【pending判定改善・Geminiあらすじチェック・画像Cookie修正版】
 ==========================================================
 【変更点 v6.0 → v7.0】
@@ -149,6 +149,11 @@ CHECK_MODELS = [
     "gemini-2.5-flash-lite",
     "gemini-2.0-flash-lite",
 ]
+
+# あらすじスコア閾値（1〜5点）
+DESC_SCORE_PENDING  = 4  # 4点以上 → pending（投稿対象）
+DESC_SCORE_WATCHING = 3  # 3点     → watching継続
+# 1〜2点 → failed_stock（お蔵入り）
 
 logger = logging.getLogger("novelove")
 logger.setLevel(logging.INFO)
@@ -579,66 +584,112 @@ def _check_image_ok(image_url):
         return False
 
 def _check_desc_ok(title, desc, release_date_str=None):
-    """Geminiにあらすじが記事執筆に十分か判定させる（モデルローテーション対応）"""
+    """
+    Geminiにあらすじを1〜5点でスコアリングさせる（v7.3 スコア制）
+    戻り値:
+      "pending"      → スコア >= DESC_SCORE_PENDING（投稿OK）
+      "watching"     → スコア == DESC_SCORE_WATCHING（保留）
+      "failed_stock" → スコア < DESC_SCORE_WATCHING（お蔵入り）
+      False          → API失敗・短すぎ・未来作品（スキップ）
+    """
     if not desc or len(desc.strip()) < 5:
         return False
 
-    # 未来フィルター：発売日が今日から7日より先の場合は判定をスキップ（後回し）
     if release_date_str:
         try:
             from datetime import datetime, timedelta
             today = datetime.now()
             release_date = datetime.strptime(release_date_str[:10], "%Y-%m-%d")
             if release_date > today + timedelta(days=7):
-                # logger.info(f"  [スキップ] 発売まで7日以上: {title[:30]}")
                 return False
         except Exception:
             pass
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    prompt = f"""以下の作品のあらすじを見て、レビュー記事を書くのに十分な情報があるか判定してください。
-「はい」か「いいえ」だけ答えてください。
+    prompt = f"""以下のBL・TL・女性向け作品のあらすじを読んで、レビュー記事が書けるか1〜5点で評価してください。
+
+【採点基準】
+5点: ストーリーと魅力が明確。すぐ記事が書ける神あらすじ
+4点: 十分な情報あり。問題なく記事が書ける
+3点: 情報がやや不足。もう少し詳細があれば書けそう
+2点: 情報が少なすぎる。記事を書くのが困難
+1点: あらすじがほぼない・意味不明・無関係な文章
 
 作品タイトル: {title}
-あらすじ: {desc}"""
-    
-    # グローバルなカウンタを使用してモデルを順次切り替える（ローテーション）
+あらすじ: {desc}
+
+点数（1〜5の数字のみ）と理由を以下の形式で答えてください：
+点数: X
+理由: （一言）"""
+
     if not hasattr(_check_desc_ok, "counter"):
         _check_desc_ok.counter = 0
-    
-    # 3つのモデルをローテーションして試す
+
     for _ in range(len(CHECK_MODELS)):
         idx = _check_desc_ok.counter % len(CHECK_MODELS)
         model_name = CHECK_MODELS[idx]
         _check_desc_ok.counter += 1
-        
+
         try:
             resp = client.models.generate_content(
                 model=model_name,
                 contents=prompt,
             )
             text = resp.text.strip() if hasattr(resp, "text") and resp.text else ""
-            if text:
-                # 判定ごとに2秒待機（負荷分散・429回避）
+            if not text:
                 time.sleep(2)
-                return "はい" in text
-        except Exception as e:
-            logger.warning(f"Geminiあらすじ判定エラー ({model_name}): {e}")
+                continue
+
+            score = 0
+            m = re.search(r"点数[：:]\s*([1-5])", text)
+            if m:
+                score = int(m.group(1))
+            else:
+                m2 = re.search(r"^([1-5])", text.strip())
+                if m2:
+                    score = int(m2.group(1))
+
+            reason = ""
+            m3 = re.search(r"理由[：:]\s*(.+)", text)
+            if m3:
+                reason = m3.group(1).strip()[:50]
+
+            logger.info(f"  [スコア判定] {title[:25]} → {score}点 ({reason}) [{model_name}]")
             time.sleep(2)
-            
+
+            if score >= DESC_SCORE_PENDING:
+                return "pending"
+            elif score == DESC_SCORE_WATCHING:
+                return "watching"
+            elif score >= 1:
+                return "failed_stock"
+            else:
+                return "watching"
+
+        except Exception as e:
+            logger.warning(f"Geminiスコア判定エラー ({model_name}): {e}")
+            time.sleep(2)
+
     return False
 
 def _check_stock_status(image_url, desc, title, release_date=""):
     """
-    画像チェック + Geminiあらすじ判定でpending/watchingを返す
-    画像なし → watching
-    画像あり → Geminiで判定 → OK:pending / NG:watching
+    画像チェック + Geminiスコア判定でステータスを返す（v7.3）
+    画像なし       → watching
+    スコア4〜5点   → pending
+    スコア3点      → watching
+    スコア1〜2点   → failed_stock
+    API失敗等      → watching（保守的）
     """
     if not _check_image_ok(image_url):
         return "watching"
-    if _check_desc_ok(title, desc, release_date):
+    result = _check_desc_ok(title, desc, release_date)
+    if result == "pending":
         return "pending"
-    return "watching"
+    elif result == "failed_stock":
+        return "failed_stock"
+    else:
+        return "watching"
 
 def promote_watching():
     """watching作品の昇格（DB分離対応・FANZA救済基準）"""
@@ -1071,7 +1122,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v7.3 【関連記事強化・口調分離・バランス調整版】 起動")
+    logger.info("Novelove エンジン v7.3 【5段階スコア判定・高品質優先投稿版】 起動")
     init_db()
     reset_dlsite_failures() # DLsiteの失敗分をリセット
     fetch_and_stock_all()
