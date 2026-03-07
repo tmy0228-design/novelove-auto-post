@@ -33,7 +33,13 @@ from bs4 import BeautifulSoup
 from google import genai
 from datetime import datetime
 from dotenv import load_dotenv
-load_dotenv("/home/kusanagi/scripts/.env")
+
+# --- 環境変数の読み込み ---
+env_path = "/home/kusanagi/scripts/.env"
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+else:
+    load_dotenv() # 存在しない場合はカレントディレクトリ等から読み込み
 
 # --- Discord通知機能を内包 ---
 def notify_discord(message, username="ノベラブ通知くん", avatar_url=None):
@@ -46,7 +52,19 @@ def notify_discord(message, username="ノベラブ通知くん", avatar_url=None
         r = requests.post(webhook_url, json=payload, timeout=10)
         return r.status_code in (200, 204)
     except: return False
-from datetime import datetime
+
+def _clean_description(text):
+    """あらすじのクリーンアップ（本文を削りすぎないソフト版）"""
+    if not text: return ""
+    import re
+    # 行頭から始まる明確なスペック項目のみを除去
+    soft_pattern = r"(?m)^(?:販売日|公開日|配信予定日|ジャンル|ページ数|ファイル容量|連続再生時間|対応OS|動作環境|年齢指定|作品形式).*[:：].*$"
+    result = re.sub(soft_pattern, "", text)
+    # HTMLタグの除去
+    result = re.sub(r"<[^>]+>", "", result)
+    # 連続する改行を整理
+    result = re.sub(r"\n\s*\n", "\n", result)
+    return result.strip()
 
 # === 設定欄 ===
 GEMINI_API_KEY        = os.environ.get("GEMINI_API_KEY", "")
@@ -114,7 +132,6 @@ MASK_EXTRA_MAP = {
     "ご主人様": "支配者", "拷問": "激しい責め", "調教": "快楽に染めていく",
 }
 
-
 def mask_input(text, level=0):
     """
     入力テキストを指定レベルでマスキングする。
@@ -131,6 +148,7 @@ def mask_input(text, level=0):
         for word, replacement in MASK_EXTRA_MAP.items():
             result = result.replace(word, replacement)
     return result
+
 
 # === システム設定 ===
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -616,7 +634,7 @@ def _check_desc_ok(title, desc, release_date_str=None):
 1点: あらすじがほぼない・意味不明・無関係な文章
 
 作品タイトル: {title}
-あらすじ: {desc}
+あらすじ: {_clean_description(desc)}
 
 点数（1〜5の数字のみ）と理由を以下の形式で答えてください：
 点数: X
