@@ -164,12 +164,12 @@ PRO_MODELS = [
     "gemini-3-flash-preview",
 ]
 
-# 審査用モデル（高速・低コスト、4台体制）
+# 審査用モデル（2.5 & 2.0 Flash/Flash-lite 限定）
 CHECK_MODELS = [
-    "gemini-3.1-flash-lite-preview",
     "gemini-2.5-flash-lite",
     "gemini-2.0-flash-lite",
     "gemini-2.5-flash",
+    "gemini-2.0-flash",
 ]
 
 # あらすじスコア閾値（1〜5点）
@@ -652,10 +652,17 @@ def _check_desc_ok(title, desc, release_date_str=None):
     if not hasattr(_check_desc_ok, "counter"):
         _check_desc_ok.counter = 0
 
+    # 429エラーが出たモデルを記録して、この実行中だけ避ける
+    if not hasattr(_check_desc_ok, "snoozed_models"):
+        _check_desc_ok.snoozed_models = set()
+
     for _ in range(len(CHECK_MODELS)):
         idx = _check_desc_ok.counter % len(CHECK_MODELS)
         model_name = CHECK_MODELS[idx]
         _check_desc_ok.counter += 1
+
+        if model_name in _check_desc_ok.snoozed_models:
+            continue
 
         try:
             resp = client.models.generate_content(
@@ -694,7 +701,11 @@ def _check_desc_ok(title, desc, release_date_str=None):
                 return "watching"
 
         except Exception as e:
-            logger.warning(f"Geminiスコア判定エラー ({model_name}): {e}")
+            if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
+                logger.warning(f"⚠️ {model_name} が制限(429)に達しました。この回はお休みさせます。")
+                _check_desc_ok.snoozed_models.add(model_name)
+            else:
+                logger.warning(f"Geminiスコア判定エラー ({model_name}): {e}")
             time.sleep(3)
 
     return False
@@ -744,7 +755,7 @@ def promote_watching():
                    FROM novelove_posts
                    WHERE (status='watching' OR (status='failed_stock' AND retry_count < 3))
                    AND (last_checked_at IS NULL OR last_checked_at < datetime('now', '-10 minutes'))
-                   ORDER BY release_date ASC LIMIT 20"""
+                   ORDER BY release_date ASC LIMIT 10"""
             ).fetchall()
 
             promoted_count = 0
@@ -768,13 +779,17 @@ def promote_watching():
                             logger.info(f"[{site_tag}] [除外] 発売日経過につきお蔵入り: {title[:40]}")
                     except:
                         pass
-            
+
             conn.commit()
             conn.close()
             if promoted_count > 0:
                 logger.info(f"[{site_tag}] 昇格完了: {promoted_count}件")
         except Exception as e:
             logger.error(f"[{site_tag}] 昇格処理エラー: {e}")
+
+    # 429お休みリストをリセット
+    if hasattr(_check_desc_ok, "snoozed_models"):
+        _check_desc_ok.snoozed_models = set()
 
 def get_internal_link(product_id, author, genre, db_path=DB_FILE_FANZA):
     """
@@ -1158,7 +1173,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v7.3 【5段階スコア判定・高品質優先投稿版】 起動")
+    logger.info("Novelove エンジン v7.3.3.3 【審査モデルお休み機能・分散安定版】 起動")
     init_db()
     reset_dlsite_failures() # DLsiteの失敗分をリセット
     fetch_and_stock_all()
