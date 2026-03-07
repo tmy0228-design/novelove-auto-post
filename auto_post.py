@@ -923,8 +923,17 @@ def call_gemini(prompt):
         {"category": "HARM_CATEGORY_HARASSMENT",        "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
     ]
+    if not hasattr(call_gemini, "counter"):
+        call_gemini.counter = 0
+    
+    start_idx = call_gemini.counter % len(PRO_MODELS)
+    call_gemini.counter += 1
+    
+    # モデルリストを回転
+    rotated_models = PRO_MODELS[start_idx:] + PRO_MODELS[:start_idx]
+    
     last_error_type = "content_block"
-    for model_name in PRO_MODELS:
+    for model_name in rotated_models:
         try:
             logger.info(f"  [{model_name}] 執筆依頼...")
             t_start = time.time()
