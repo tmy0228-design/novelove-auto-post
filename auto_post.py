@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v7.3.2.1
-【早期スキップ・ソフト洗浄改善・環境ポータブル版】
+Novelove 自動投稿エンジン v7.3.2.2
+【DBスキーマ不一致修正・堅牢化版】
 ==========================================================
-【変更点 v7.0 → v7.3.2】
- - 判定ロジック：5段階スコアリング制の導入 (v7.3)
+【変更点 v7.0 → v7.3.2.2】
+ - 修正：DBのカラム順序に依存しないRowオブジェクト方式を採用 (v7.3.2.2)
  - 環境適応：.env読み込みをポータブル化 (Windows/Linux両対応)
  - 効率化：内容のない「作成中」あらすじを判定前に早期スキップ (v7.3.1)
  - クレンジング：シリーズ名・作家・声優情報を保護するよう再調整 (v7.3.2)
@@ -1168,6 +1168,7 @@ def main():
         genre = current_genre_info["genre"]
 
         conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
         c = conn.cursor()
         
         # 指定ジャンルのpendingを探す
@@ -1185,15 +1186,20 @@ def main():
             conn.close()
             continue
 
-        # DBのカラム位置に合わせてマッピング (Rowオブジェクトでないため)
-        # 0:product_id, 1:title, 2:author, 3:genre, 4:site, 5:status, 6:release_date, 7:description, 8:affiliate_url, 9:image_url, 10:product_url, 11:wp_post_url, 12:retry_count, 13:published_at, 14:last_checked_at, 15:last_error
+        # DBのカラム名でマッピング
         target = {
-            "product_id": row[0], "title": row[1], "author": row[2] or "",
-            "genre": row[3], "site": row[4], "description": row[7],
-            "affiliate_url": row[8], "image_url": row[9],
-            "release_date": row[6] or "", "is_r18": ":r18=1" in str(row[4])
+            "product_id": row["product_id"], 
+            "title": row["title"], 
+            "author": row["author"] or "",
+            "genre": row["genre"], 
+            "site": row["site"], 
+            "description": row["description"],
+            "affiliate_url": row["affiliate_url"], 
+            "image_url": row["image_url"],
+            "release_date": row["release_date"] or "", 
+            "is_r18": ":r18=1" in str(row["site"])
         }
-        retry_count = int(row[12] or 0) if len(row) > 12 else 0
+        retry_count = int(row["retry_count"] or 0)
 
         logger.info(f"【ターゲット決定】 {target['title']} (DB: {os.path.basename(db_path)})")
 
