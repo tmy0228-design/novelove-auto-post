@@ -71,7 +71,6 @@ FETCH_TARGETS = [
     # DMMブックス（一般向け・腐女子刺さり系）
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_bl",     "label": "一般BL",         "keyword": "ボーイズラブ"},
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_tl",     "label": "一般TL",         "keyword": "ティーンズラブ"},
-    {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_women",  "label": "女性向けコミック", "keyword": "女性向け"},
     # DLsite（乙女・BL・同人）
     {"site": "DLsite",  "service": None,     "floor": "girls",          "genre": "doujin_tl",    "label": "DLsite乙女",     "keyword": None},
     {"site": "DLsite",  "service": None,     "floor": "bl",             "genre": "doujin_bl",    "label": "DLsiteBL",      "keyword": None},
@@ -85,7 +84,6 @@ GENRE_TAGS = {
     "doujin_voice": ["同人", "FANZA"],
     "comic_bl":     ["BL", "BLコミック", "一般"],
     "comic_tl":     ["TL", "TLコミック", "一般"],
-    "comic_women":  ["女性向け", "一般"],
     "pcgame":       ["ゲーム", "女性向け", "FANZA"],
 }
 
@@ -93,7 +91,6 @@ GENRE_TAGS = {
 GENRE_CATEGORIES = {
     "BL": 23, "doujin_bl": 23, "comic_bl": 23,     # BL作品
     "TL": 24, "doujin_tl": 24, "comic_tl": 24,     # TL作品
-    "comic_women": 25,                             # 女性向け
     "doujin_voice": 25,                            # ボイスは一旦女性向けに
     "pcgame": 25                                   # ゲーム
 }
