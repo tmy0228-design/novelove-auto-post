@@ -157,16 +157,19 @@ DB_FILE_FANZA = os.path.join(SCRIPT_DIR, "novelove.db")
 DB_FILE_DLSITE = os.path.join(SCRIPT_DIR, "novelove_dlsite.db")
 LOG_FILE      = os.path.join(SCRIPT_DIR, "novelove.log")
 
-# モデルリスト（品質重視順）
+# 投稿用モデル（品質重視順）
 PRO_MODELS = [
+    "gemini-3.1-pro",
     "gemini-2.5-pro",
     "gemini-3-flash-preview",
-    "gemini-3.1-flash-lite-preview",
 ]
 
+# 審査用モデル（高速・低コスト、4台体制）
 CHECK_MODELS = [
+    "gemini-3.1-flash-lite-preview",
     "gemini-2.5-flash-lite",
     "gemini-2.0-flash-lite",
+    "gemini-2.5-flash",
 ]
 
 # あらすじスコア閾値（1〜5点）
