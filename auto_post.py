@@ -13,7 +13,7 @@ Novelove 自動投稿エンジン v7.1
  - post_to_wordpress(): 画像取得にFANZA用Cookieセッションを適用（NOW PRINTING対策）
 ==========================================================
 【戦略】
- - モデル: 品質重視順（3-flash → 3.1-flash-lite → 2.5-flash → 2.5-flash-lite → 1.5-flash-latest）
+ - モデル: 品質重視順（2.5-pro → 3-flash-preview → 3.1-flash-lite-preview）
  - 入力フィルター: 3段階（なし→軽め→ガチガチ）で順次試行
  - エラー分類: 429（レート制限）は3回まで再挑戦、内容NGは同一実行で3段階フィルター
  - ジャンル: FANZA（BL/TL小説・BL/乙女同人・ボイス）+ DMMブックス（一般BL/TL・女性向けコミック）
@@ -143,14 +143,14 @@ LOG_FILE      = os.path.join(SCRIPT_DIR, "novelove.log")
 
 # モデルリスト（品質重視順）
 PRO_MODELS = [
-    "gemini-2.0-flash",
-    "gemini-2.5-flash",
-    "gemini-flash-latest",
+    "gemini-2.5-pro",
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite-preview",
 ]
 
 CHECK_MODELS = [
+    "gemini-2.5-flash-lite",
     "gemini-2.0-flash-lite",
-    "gemini-flash-lite-latest",
 ]
 
 logger = logging.getLogger("novelove")
