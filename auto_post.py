@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v7.3.3.4
-【精鋭審査優先・超安全低速運転版】
+Novelove 自動投稿エンジン v7.3.3.6
+【構成完全固定・失敗作品救済リセット版】
 ==========================================================
-【変更点 v7.0 → v7.3.3.4】
- - 安定化：2.5-flash優先のバックアップ方式 & 8秒インターバル (v7.3.3.4)
- - 効率化：10分ごとの審査（promote）と30分ごとの慎重投稿を両立 (v7.3.3)
+【変更点 v7.0 → v7.3.3.6】
+ - 救済：全DBの「お蔵入り(failed_stock)」を一括リセットする機能を追加 (v7.3.3.6)
+ - 防止：全API制限時に作品をお蔵入りにせずスキップする保護 (v7.3.3.5)
  - 修正：DBのカラム順序に依存しないRowオブジェクト方式を採用 (v7.3.2.2)
  - 環境適応：.env読み込みをポータブル化 (Windows/Linux両対応)
  - 効率化：内容のない「作成中」あらすじを判定前に早期スキップ (v7.3.1)
@@ -302,22 +302,6 @@ def init_db():
             except Exception: pass
         conn.commit()
         conn.close()
-
-def reset_all_failed_stocks():
-    """FANZA/DLsite 両方の失敗・お蔵入り作品をリセットして再審査させる"""
-    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE]:
-        if not os.path.exists(db_path): continue
-        db_name = os.path.basename(db_path)
-        try:
-            conn = sqlite3.connect(db_path, timeout=30)
-            c = conn.cursor()
-            # failed_stock(お蔵入り) と failed_ai(執筆失敗) を watching に戻す
-            c.execute("UPDATE novelove_posts SET status='watching', retry_count=0 WHERE status IN ('failed_stock', 'failed_ai')")
-            conn.commit()
-            conn.close()
-            logger.info(f"救済リセット完了 ({db_name}): お蔵入り作品を再審査(watching)に設定しました")
-        except Exception as e:
-            logger.error(f"救済リセット失敗 ({db_name}): {e}")
 
 # === 以前のDB定義を置換 ===
 
@@ -1180,9 +1164,8 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v7.3.3.6 【過去記事救済リセット版】 起動")
+    logger.info("Novelove エンジン v7.3.3.7 【超クリーン版】 起動")
     init_db()
-    reset_all_failed_stocks() # 全DBのお蔵入り分を再審査待ちにリセット
     fetch_and_stock_all()
     promote_watching()
 
