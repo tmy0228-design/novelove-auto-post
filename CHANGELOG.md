@@ -63,3 +63,7 @@ Novelove 自動投稿エンジンの主要な修正履歴です。
 - pending / watching 振り分けロジックの導入。
 - 3段階マスキングフィルターの実装。
 - キャラクター（紫苑、茉莉花など）によるレビュー形式の採用。
+
+## [次回対応] クリーンアップメモ
+- `_genre_label()` と `GENRE_CATEGORIES` の `comic_women` 定義を削除予定
+  （FETCH_TARGETSから除外済みのため不要。動作影響なし）
