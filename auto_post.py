@@ -664,7 +664,7 @@ def _check_desc_ok(title, desc, release_date_str=None):
             )
             text = resp.text.strip() if hasattr(resp, "text") and resp.text else ""
             if not text:
-                time.sleep(2)
+                time.sleep(3)
                 continue
 
             score = 0
@@ -682,7 +682,7 @@ def _check_desc_ok(title, desc, release_date_str=None):
                 reason = m3.group(1).strip()[:50]
 
             logger.info(f"  [スコア判定] {title[:25]} → {score}点 ({reason}) [{model_name}]")
-            time.sleep(2)
+            time.sleep(3)
 
             if score >= DESC_SCORE_PENDING:
                 return "pending"
@@ -695,7 +695,7 @@ def _check_desc_ok(title, desc, release_date_str=None):
 
         except Exception as e:
             logger.warning(f"Geminiスコア判定エラー ({model_name}): {e}")
-            time.sleep(2)
+            time.sleep(3)
 
     return False
 
