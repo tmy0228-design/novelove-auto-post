@@ -1193,7 +1193,7 @@ def main():
             "affiliate_url": row[8], "image_url": row[9],
             "release_date": row[6] or "", "is_r18": ":r18=1" in str(row[4])
         }
-        retry_count = row[12] if len(row) > 12 else 0 # retry_count
+        retry_count = int(row[12] or 0) if len(row) > 12 else 0
 
         logger.info(f"【ターゲット決定】 {target['title']} (DB: {os.path.basename(db_path)})")
 
