@@ -65,7 +65,7 @@ FETCH_TARGETS = [
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_tl",    "label": "乙女同人",       "keyword": "乙女向け"},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_voice", "label": "ボイス",         "keyword": "ボイス 女性向け"},
     # FANZAゲーム
-    {"site": "FANZA",   "service": "pcgame", "floor": "pcgame",         "genre": "pcgame",       "label": "PCゲーム",       "keyword": None},
+    {"site": "FANZA",   "service": "mono",   "floor": "pcgame",         "genre": "pcgame",       "label": "PCゲーム",       "keyword": None},
     # DMMブックス（一般向け・腐女子刺さり系）
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_bl",     "label": "一般BL",         "keyword": "ボーイズラブ"},
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_tl",     "label": "一般TL",         "keyword": "ティーンズラブ"},
