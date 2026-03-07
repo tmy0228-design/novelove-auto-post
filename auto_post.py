@@ -164,12 +164,12 @@ PRO_MODELS = [
     "gemini-3-flash-preview",
 ]
 
-# 審査用モデル（2.5 & 2.0 Flash/Flash-lite 限定）
+# 審査用モデル（バックアップ優先順位）
 CHECK_MODELS = [
-    "gemini-2.5-flash-lite",
-    "gemini-2.0-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
+    "gemini-2.5-flash",        # メイン（最高精度）
+    "gemini-2.0-flash",        # バックアップ1
+    "gemini-2.5-flash-lite",   # バックアップ2
+    "gemini-2.0-flash-lite",   # バックアップ3
 ]
 
 # あらすじスコア閾値（1〜5点）
@@ -649,19 +649,9 @@ def _check_desc_ok(title, desc, release_date_str=None):
 点数: X
 理由: （一言）"""
 
-    if not hasattr(_check_desc_ok, "counter"):
-        _check_desc_ok.counter = 0
-
-    # 429エラーが出たモデルを記録して、この実行中だけ避ける
-    if not hasattr(_check_desc_ok, "snoozed_models"):
-        _check_desc_ok.snoozed_models = set()
-
-    for _ in range(len(CHECK_MODELS)):
-        idx = _check_desc_ok.counter % len(CHECK_MODELS)
-        model_name = CHECK_MODELS[idx]
-        _check_desc_ok.counter += 1
-
-        if model_name in _check_desc_ok.snoozed_models:
+    # 「常にメイン(2.5-flash)から試行」するバックアップ方式
+    for model_name in CHECK_MODELS:
+        if hasattr(_check_desc_ok, "snoozed_models") and model_name in _check_desc_ok.snoozed_models:
             continue
 
         try:
@@ -689,7 +679,7 @@ def _check_desc_ok(title, desc, release_date_str=None):
                 reason = m3.group(1).strip()[:50]
 
             logger.info(f"  [スコア判定] {title[:25]} → {score}点 ({reason}) [{model_name}]")
-            time.sleep(3)
+            time.sleep(8) # 超・安全インターバル
 
             if score >= DESC_SCORE_PENDING:
                 return "pending"
@@ -702,11 +692,13 @@ def _check_desc_ok(title, desc, release_date_str=None):
 
         except Exception as e:
             if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
-                logger.warning(f"⚠️ {model_name} が制限(429)に達しました。この回はお休みさせます。")
+                logger.warning(f"⚠️ {model_name} が制限(429)に達しました。予備モデルへ切り替えます。")
+                if not hasattr(_check_desc_ok, "snoozed_models"):
+                    _check_desc_ok.snoozed_models = set()
                 _check_desc_ok.snoozed_models.add(model_name)
             else:
                 logger.warning(f"Geminiスコア判定エラー ({model_name}): {e}")
-            time.sleep(3)
+            time.sleep(8)
 
     return False
 
@@ -755,7 +747,7 @@ def promote_watching():
                    FROM novelove_posts
                    WHERE (status='watching' OR (status='failed_stock' AND retry_count < 3))
                    AND (last_checked_at IS NULL OR last_checked_at < datetime('now', '-10 minutes'))
-                   ORDER BY release_date ASC LIMIT 10"""
+                   ORDER BY release_date ASC LIMIT 3"""
             ).fetchall()
 
             promoted_count = 0
@@ -1173,7 +1165,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v7.3.3.3 【審査モデルお休み機能・分散安定版】 起動")
+    logger.info("Novelove エンジン v7.3.3.4 【精鋭バックアップ・超安全低速版】 起動")
     init_db()
     reset_dlsite_failures() # DLsiteの失敗分をリセット
     fetch_and_stock_all()
