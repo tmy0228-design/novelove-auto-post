@@ -66,7 +66,6 @@ FETCH_TARGETS = [
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_voice", "label": "ボイス",         "keyword": "ボイス 女性向け"},
     # FANZAゲーム
     {"site": "FANZA",   "service": "pcgame", "floor": "pcgame",         "genre": "pcgame",       "label": "PCゲーム",       "keyword": None},
-    {"site": "FANZA",   "service": "pcgame", "floor": "pcgame",         "genre": "pcgame",       "label": "PCゲーム",       "keyword": None},
     # DMMブックス（一般向け・腐女子刺さり系）
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_bl",     "label": "一般BL",         "keyword": "ボーイズラブ"},
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_tl",     "label": "一般TL",         "keyword": "ティーンズラブ"},
@@ -662,24 +661,14 @@ def promote_watching():
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             
-            # 救済対象を抽出
-            # 1. 発売日が今日より先（未来の商品）であること
-            # 2. 最後にチェックしてから24時間経過していること
+            # 救済対象を抽出（発売済み・未発売問わず、前回チェックから24時間経過したもの）
             rows_to_process = c.execute(
                 """SELECT product_id, title, image_url, description, release_date, status, retry_count
                    FROM novelove_posts
                    WHERE (status='watching' OR (status='failed_stock' AND retry_count < 3))
-                   AND release_date > ?
                    AND (last_checked_at IS NULL OR last_checked_at < datetime('now', '-24 hours'))
-                   ORDER BY release_date ASC LIMIT 20""",
-                (today_str + " 23:59:59",)
+                   ORDER BY release_date ASC LIMIT 20"""
             ).fetchall()
-
-            # 逆に「発売日を過ぎてしまった未完成品」は一括でお蔵入りに（ルール徹底）
-            c.execute(
-                "UPDATE novelove_posts SET status='failed_stock', last_error='発売日経過のため除外' WHERE status IN ('watching', 'failed_stock') AND release_date <= ?",
-                (today_str + " 00:00:00",)
-            )
 
             promoted_count = 0
             for r_item in rows_to_process:
@@ -693,6 +682,15 @@ def promote_watching():
                     c.execute("UPDATE novelove_posts SET status='pending' WHERE product_id=?", (p_id,))
                     logger.info(f"[{site_tag}] [昇格] {title[:40]}")
                     promoted_count += 1
+                else:
+                    # 昇格失敗時：もし発売日を過ぎていたら、これ以上追わずに「お蔵入り(failed_stock)」へ
+                    try:
+                        r_date_dt = datetime.strptime(r_date[:10], "%Y-%m-%d").date()
+                        if r_date_dt <= now_date:
+                            c.execute("UPDATE novelove_posts SET status='failed_stock', last_error='発売日経過かつ情報不足のため除外' WHERE product_id=?", (p_id,))
+                            logger.info(f"[{site_tag}] [除外] 発売日経過につきお蔵入り: {title[:40]}")
+                    except:
+                        pass
             
             conn.commit()
             conn.close()
