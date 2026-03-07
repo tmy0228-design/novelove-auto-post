@@ -58,8 +58,8 @@ def _clean_description(text):
     if not text: return ""
     import re
     # スペック項目（FANZA/DLsite両対応）を除去
-    # 行頭から始まる明確な項目のみを対象にする
-    soft_pattern = r"(?m)^(?:販売日|公開日|配信予定日|ジャンル|ページ数|ファイル容量|連続再生時間|対応OS|動作環境|年齢指定|作品形式|品番|シリーズ名|作家|シナリオ|イラスト|声優).*[:：].*$"
+    # 本当に不要な情報（品番、容量、OS等）のみを対象にし、シリーズ名や声優などは残す
+    soft_pattern = r"(?m)^(?:販売日|公開日|配信予定日|ページ数|ファイル容量|連続再生時間|対応OS|動作環境|作品形式|品番).*[:：].*$"
     result = re.sub(soft_pattern, "", text)
     # HTMLタグの除去
     result = re.sub(r"<[^>]+>", "", result)
