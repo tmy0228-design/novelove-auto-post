@@ -303,18 +303,21 @@ def init_db():
         conn.commit()
         conn.close()
 
-def reset_dlsite_failures():
-    """DLsiteの失敗作品をリセットして新エンジンで再起させる"""
-    if not os.path.exists(DB_FILE_DLSITE): return
-    try:
-        conn = sqlite3.connect(DB_FILE_DLSITE, timeout=30)
-        c = conn.cursor()
-        c.execute("UPDATE novelove_posts SET status='watching', retry_count=0 WHERE status!='published'")
-        conn.commit()
-        conn.close()
-        logger.info("DLsiteリセット完了: 未投稿作品を再審査(watching)に設定しました")
-    except Exception as e:
-        logger.error(f"DLsiteリセット失敗: {e}")
+def reset_all_failed_stocks():
+    """FANZA/DLsite 両方の失敗・お蔵入り作品をリセットして再審査させる"""
+    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE]:
+        if not os.path.exists(db_path): continue
+        db_name = os.path.basename(db_path)
+        try:
+            conn = sqlite3.connect(db_path, timeout=30)
+            c = conn.cursor()
+            # failed_stock(お蔵入り) と failed_ai(執筆失敗) を watching に戻す
+            c.execute("UPDATE novelove_posts SET status='watching', retry_count=0 WHERE status IN ('failed_stock', 'failed_ai')")
+            conn.commit()
+            conn.close()
+            logger.info(f"救済リセット完了 ({db_name}): お蔵入り作品を再審査(watching)に設定しました")
+        except Exception as e:
+            logger.error(f"救済リセット失敗 ({db_name}): {e}")
 
 # === 以前のDB定義を置換 ===
 
@@ -1177,9 +1180,9 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v7.3.3.5 【構成完全固定版】 起動")
+    logger.info("Novelove エンジン v7.3.3.6 【過去記事救済リセット版】 起動")
     init_db()
-    reset_dlsite_failures() # DLsiteの失敗分をリセット
+    reset_all_failed_stocks() # 全DBのお蔵入り分を再審査待ちにリセット
     fetch_and_stock_all()
     promote_watching()
 
