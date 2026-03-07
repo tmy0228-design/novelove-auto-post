@@ -57,8 +57,9 @@ def _clean_description(text):
     """あらすじのクリーンアップ（本文を削りすぎないソフト版）"""
     if not text: return ""
     import re
-    # 行頭から始まる明確なスペック項目のみを除去
-    soft_pattern = r"(?m)^(?:販売日|公開日|配信予定日|ジャンル|ページ数|ファイル容量|連続再生時間|対応OS|動作環境|年齢指定|作品形式).*[:：].*$"
+    # スペック項目（FANZA/DLsite両対応）を除去
+    # 行頭から始まる明確な項目のみを対象にする
+    soft_pattern = r"(?m)^(?:販売日|公開日|配信予定日|ジャンル|ページ数|ファイル容量|連続再生時間|対応OS|動作環境|年齢指定|作品形式|品番|シリーズ名|作家|シナリオ|イラスト|声優).*[:：].*$"
     result = re.sub(soft_pattern, "", text)
     # HTMLタグの除去
     result = re.sub(r"<[^>]+>", "", result)
@@ -611,6 +612,11 @@ def _check_desc_ok(title, desc, release_date_str=None):
       False          → API失敗・短すぎ・未来作品（スキップ）
     """
     if not desc or len(desc.strip()) < 5:
+        return False
+
+    # 作成中・準備中テキストは即スキップ
+    SKIP_PATTERNS = ["作成中でございます", "作成出来ましたら", "準備中です"]
+    if any(p in desc for p in SKIP_PATTERNS):
         return False
 
     if release_date_str:
