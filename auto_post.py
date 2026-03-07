@@ -143,14 +143,14 @@ LOG_FILE      = os.path.join(SCRIPT_DIR, "novelove.log")
 
 # モデルリスト（品質重視順）
 PRO_MODELS = [
-    "gemini-2.0-flash",
-    "gemini-2.5-flash",
-    "gemini-flash-latest",
+    "gemini-2.5-pro",
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite-preview",
 ]
 
 CHECK_MODELS = [
+    "gemini-2.5-flash-lite",
     "gemini-2.0-flash-lite",
-    "gemini-flash-lite-latest",
 ]
 
 logger = logging.getLogger("novelove")
