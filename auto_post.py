@@ -448,34 +448,53 @@ def _fetch_dlsite_items(target):
     return items
 
 def scrape_description(product_url, site="FANZA"):
-    """商品ページからあらすじをスクレイピング"""
+    """商品ページからあらすじをスクレイピング（v7.3.6.0 強化版）"""
+    if not product_url:
+        return ""
     if "dlsite" in str(product_url).lower():
         return scrape_dlsite_description(product_url)
     
-    if not product_url:
-        return ""
     session = _make_fanza_session()
     try:
         r = session.get(
             product_url,
-            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://book.dmm.co.jp/"},
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.dmm.co.jp/"},
             timeout=20
         )
+        r.encoding = r.apparent_encoding
         soup = BeautifulSoup(r.text, "html.parser")
+        
+        # 1. __NEXT_DATA__ (Next.js / Books)
         next_tag = soup.find("script", id="__NEXT_DATA__")
         if next_tag:
             try:
                 ndata = json.loads(next_tag.string)
-                desc = ndata.get("props", {}).get("pageProps", {}).get("product", {}).get("description", "")
-                if len(desc.strip()) > 10:
+                # 複数のパスを試行
+                p = ndata.get("props", {}).get("pageProps", {})
+                desc = p.get("product", {}).get("description") or p.get("data", {}).get("description", "")
+                if desc and len(desc.strip()) > 10:
                     return desc.strip()
             except Exception:
                 pass
+
+        # 2. .summary__txt (同人 / ボイス / ゲーム 等の主要パターン)
+        summary = soup.select_one(".summary__txt")
+        if summary and len(summary.text.strip()) > 10:
+            return summary.text.strip()
+
+        # 3. .mg-b20 / .common-description (旧来の mono / PCゲーム 等)
+        for selector in [".mg-b20", ".common-description", ".product-description__text"]:
+            el = soup.select_one(selector)
+            if el and len(el.text.strip()) > 10:
+                return el.text.strip()
+
+        # 4. og:description (最終手段)
         og = soup.find("meta", property="og:description")
         if og and len(og.get("content", "")) > 10:
             return og.get("content").strip()
+
     except Exception as e:
-        logger.warning(f"スクレイピング失敗: {e}")
+        logger.warning(f"スクレイピング失敗 ({product_url}): {e}")
     return ""
 
 def _is_r18_item(item, site=None):
@@ -1186,7 +1205,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v7.3.5.0 【超クリーン版】 起動")
+    logger.info("Novelove エンジン v7.3.6.0 【超クリーン版】 起動")
     init_db()
     fetch_and_stock_all()
     promote_watching()
