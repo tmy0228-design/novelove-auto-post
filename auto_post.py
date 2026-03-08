@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v7.3.3.9
+Novelove 自動投稿エンジン v7.3.4.0
 【精鋭・完全クリーン版】
 ==========================================================
 【変更点 v7.0 → v7.3.3.9】
@@ -681,7 +681,7 @@ def _check_desc_ok(title, desc, release_date_str=None):
                 reason = m3.group(1).strip()[:50]
 
             logger.info(f"  [スコア判定] {title[:25]} → {score}点 ({reason}) [{model_name}]")
-            time.sleep(8) # 超・安全インターバル
+            time.sleep(30) # 超・安全インターバル（429対策で30秒に延長）
 
             if score >= DESC_SCORE_PENDING:
                 return "pending"
@@ -700,7 +700,7 @@ def _check_desc_ok(title, desc, release_date_str=None):
                 _check_desc_ok.snoozed_models.add(model_name)
             else:
                 logger.warning(f"Geminiスコア判定エラー ({model_name}): {e}")
-            time.sleep(8)
+            time.sleep(30)
 
     return False
 
@@ -1167,7 +1167,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v7.3.3.9 【超クリーン版】 起動")
+    logger.info("Novelove エンジン v7.3.4.0 【超クリーン版】 起動")
     init_db()
     fetch_and_stock_all()
     promote_watching()
