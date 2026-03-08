@@ -3,6 +3,13 @@
 
 Novelove 自動投稿エンジンの主要な修正履歴です。
 
+## [v7.3.7.0] - 2026-03-08
+- 修正：`scrape_description()` の `Referer` を `https://book.dmm.co.jp/` に変更
+- 調整：`DESC_SCORE_PENDING` を 5 に引き上げ、Gemini 採点基準を厳格化
+- 延長：投稿クールダウン間隔を 1時間（内部判定 55分）に延長
+- 廃止：`call_gemini()` および `_check_desc_ok()` のモデルローテーションを廃止
+- 更新：バージョン情報を `v7.3.7.0` に統一
+
 ### v7.3.6.0
 - [x] FANZA 各ジャンルのあらすじ取得ロジック強化
     - [x] 同人・ボイス・ボイスドラマサイト (`www.dmm.co.jp/dc/doujin/`) 対応

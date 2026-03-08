@@ -2,10 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v7.3.6.0
+Novelove 自動投稿エンジン v7.3.7.0
 【精鋭・完全クリーン版】
 ==========================================================
-【変更点 v7.0 → v7.3.6.0】
+【変更点 v7.0 → v7.3.7.0】
+ - 修正：scrape_description() の Referer を book.dmm.co.jp に戻す (v7.3.7.0)
+ - 調整：DESC_SCORE_PENDING を 5 に変更し採点プロンプトを厳格化 (v7.3.7.0)
+ - 延長：投稿クールダウン間隔を 1時間 (-55 minutes) に延長 (v7.3.7.0)
+ - 廃止：call_gemini() のモデルローテーションを廃止し固定順試行に変更 (v7.3.7.0)
  - 強化：FANZA 各ジャンルのあらすじ取得ロジック（同人・PCゲーム等） (v7.3.6.0)
  - 追加：desc_scoreカラムをDBに保存するよう変更 (v7.3.5.0)
  - 修正：ジャンルインデックスをファイルで永続化しFANZA偏り問題を解消 (v7.3.5.0)
@@ -182,8 +186,9 @@ CHECK_MODELS = [
 ]
 
 # あらすじスコア閾値（1〜5点）
-DESC_SCORE_PENDING  = 4  # 4点以上 → pending（投稿対象）
-DESC_SCORE_WATCHING = 3  # 3点     → watching継続
+DESC_SCORE_PENDING  = 5  # 5点のみ → pending（投稿対象）
+DESC_SCORE_WATCHING = 4  # 4点以下 → watching継続
+# 1〜3点 → failed_stock（お蔵入り）も検討が必要だが、一旦指示通りスコア基準を更新
 # 1〜2点 → failed_stock（お蔵入り）
 
 logger = logging.getLogger("novelove")
@@ -459,7 +464,7 @@ def scrape_description(product_url, site="FANZA"):
     try:
         r = session.get(
             product_url,
-            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.dmm.co.jp/"},
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://book.dmm.co.jp/"},
             timeout=20
         )
         r.encoding = r.apparent_encoding
@@ -669,11 +674,11 @@ def _check_desc_ok(title, desc, release_date_str=None):
     prompt = f"""以下のBL・TL・女性向け作品のあらすじを読んで、レビュー記事が書けるか1〜5点で評価してください。
 
 【採点基準】
-5点: ストーリーと魅力が明確。すぐ記事が書ける神あらすじ
-4点: 十分な情報あり。問題なく記事が書ける
-3点: 情報がやや不足。もう少し詳細があれば書けそう
-2点: 情報が少なすぎる。記事を書くのが困難
-1点: あらすじがほぼない・意味不明・無関係な文章
+5点: ストーリーと魅力が明確で、読んでいて面白そうと感じる。すぐ記事が書ける
+4点: 情報は十分だが、ストーリーの面白さが伝わりにくい
+3点: 情報がやや不足
+2点: 情報が少なすぎる
+1点: あらすじがほぼない・意味不明
 
 作品タイトル: {title}
 あらすじ: {_clean_description(desc)}
@@ -693,8 +698,10 @@ def _check_desc_ok(title, desc, release_date_str=None):
         logger.warning(f"  [API制限中] 全ての審査モデルが制限にかかっています。スキップします。")
         return "limit_skip", 0
 
-    # 「常にメイン(2.5-flash)から試行」するバックアップ方式
-    for model_name in CHECK_MODELS:
+    # モデルローテーションを廃止し、固定順で試行
+    models_to_try = CHECK_MODELS
+    
+    for model_name in models_to_try:
         if hasattr(_check_desc_ok, "snoozed_models") and model_name in _check_desc_ok.snoozed_models:
             continue
 
@@ -974,17 +981,11 @@ def call_gemini(prompt):
         {"category": "HARM_CATEGORY_HARASSMENT",        "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
     ]
-    if not hasattr(call_gemini, "counter"):
-        call_gemini.counter = 0
-    
-    start_idx = call_gemini.counter % len(PRO_MODELS)
-    call_gemini.counter += 1
-    
-    # モデルリストを回転
-    rotated_models = PRO_MODELS[start_idx:] + PRO_MODELS[:start_idx]
+    # モデルローテーションを廃止し、固定順で試行
+    models_to_try = PRO_MODELS
     
     last_error_type = "content_block"
-    for model_name in rotated_models:
+    for model_name in models_to_try:
         try:
             logger.info(f"  [{model_name}] 執筆依頼...")
             t_start = time.time()
@@ -1206,13 +1207,13 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v7.3.6.0 【超クリーン版】 起動")
+    logger.info("Novelove エンジン v7.3.7.0 【超クリーン版】 起動")
     init_db()
     fetch_and_stock_all()
     promote_watching()
 
-    # --- 30分投稿ガードレール ---
-    # 直近30分（余裕を見て25分）以内に投稿があるかチェック
+    # --- 1時間投稿ガードレール ---
+    # 直近1時間（余裕を見て55分）以内に投稿があるかチェック
     is_cool_down = False
     for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE]:
         if not os.path.exists(db_path): continue
@@ -1226,13 +1227,13 @@ def main():
                 lp_dt_utc = lp_dt.replace(tzinfo=timezone.utc)
                 now_utc = datetime.now(timezone.utc)
                 diff = (now_utc - lp_dt_utc).total_seconds() / 60
-                if diff < 25: # 25分以内ならクールダウン
+                if diff < 55: # 55分以内ならクールダウン
                     is_cool_down = True
                     break
             except: pass
     
     if is_cool_down:
-        logger.info("🕒 クールダウン中（前回の投稿から30分未経過）。審査のみ行い終了します。")
+        logger.info("🕒 クールダウン中（前回の投稿から1時間未経過）。審査のみ行い終了します。")
         return
 
     # 投稿ループ（ラウンドロビン）
