@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v7.3.4.0
+Novelove 自動投稿エンジン v7.3.4.1
 【精鋭・完全クリーン版】
 ==========================================================
-【変更点 v7.0 → v7.3.4.0】
+【変更点 v7.0 → v7.3.4.1】
+ - 修正：DLsite アフィリエイト ID を環境変数化 (v7.3.4.1)
+ - 削除：_genre_label() の comic_women 定義を削除 (v7.3.4.1)
  - 修正：_check_desc_ok() の time.sleep を 30秒に延長 (v7.3.4.0)
  - 修正：ロガー2重登録バグを修正（if not logger.handlers追加）(v7.3.3.9)
  - 修正：クールダウン判定のタイムゾーンズレを修正（UTC統一）(v7.3.3.9)
@@ -259,7 +261,6 @@ def _genre_label(genre):
         "doujin_voice": "女性向けボイス作品",
         "comic_bl": "BLコミック",
         "comic_tl": "TLコミック",
-        "comic_women": "女性向けコミック",
     }
     return labels.get(genre, "作品")
 
@@ -547,7 +548,7 @@ def fetch_and_stock_all():
             image_url = item.get("imageURL", {}).get("large", "")
             # アフィリエイトURL生成
             if site == "DLsite":
-                 aff_url = f"{item.get('URL')}?affiliate_id=novelove-001"
+                 aff_url = f"{item.get('URL')}?affiliate_id={os.environ.get('DLSITE_AFFILIATE_ID', 'novelove')}"
             else:
                  aff_url = (item.get("affiliateURL") or "").replace(DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID)
             
@@ -1168,7 +1169,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v7.3.4.0 【超クリーン版】 起動")
+    logger.info("Novelove エンジン v7.3.4.1 【超クリーン版】 起動")
     init_db()
     fetch_and_stock_all()
     promote_watching()
