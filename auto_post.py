@@ -181,13 +181,14 @@ DESC_SCORE_WATCHING = 3  # 3点     → watching継続
 logger = logging.getLogger("novelove")
 logger.setLevel(logging.INFO)
 logger.propagate = False
-_fh = logging.FileHandler(LOG_FILE, encoding="utf-8")
-_sh = logging.StreamHandler()
-_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-_fh.setFormatter(_fmt)
-_sh.setFormatter(_fmt)
-logger.addHandler(_fh)
-logger.addHandler(_sh)
+if not logger.handlers:
+    _fh = logging.FileHandler(LOG_FILE, encoding="utf-8")
+    _sh = logging.StreamHandler()
+    _fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    _fh.setFormatter(_fmt)
+    _sh.setFormatter(_fmt)
+    logger.addHandler(_fh)
+    logger.addHandler(_sh)
 
 # === キャラクター設定 ===
 REVIEWERS = [
