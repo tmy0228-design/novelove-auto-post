@@ -1179,10 +1179,12 @@ def main():
         last_pub = tmp_conn.execute("SELECT published_at FROM novelove_posts WHERE status='published' ORDER BY published_at DESC LIMIT 1").fetchone()
         tmp_conn.close()
         if last_pub and last_pub[0]:
-            from datetime import datetime
+            from datetime import datetime, timezone
             try:
                 lp_dt = datetime.strptime(last_pub[0], "%Y-%m-%d %H:%M:%S")
-                diff = (datetime.now() - lp_dt).total_seconds() / 60
+                lp_dt_utc = lp_dt.replace(tzinfo=timezone.utc)
+                now_utc = datetime.now(timezone.utc)
+                diff = (now_utc - lp_dt_utc).total_seconds() / 60
                 if diff < 25: # 25分以内ならクールダウン
                     is_cool_down = True
                     break
