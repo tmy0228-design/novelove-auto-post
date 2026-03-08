@@ -478,10 +478,21 @@ def scrape_description(product_url, site="FANZA"):
                 # 複数のパスを試行
                 p = ndata.get("props", {}).get("pageProps", {})
                 desc = p.get("product", {}).get("description") or p.get("data", {}).get("description", "")
-                if desc and len(desc.strip()) > 10:
+                if desc and len(desc.strip()) > 50:
                     return desc.strip()
             except Exception:
                 pass
+
+        # 1.5. book.dmm.co.jp 新デザイン: sc-*クラスのpタグから最長テキストを採用
+        best_desc = ""
+        for p_tag in soup.find_all("p"):
+            classes = " ".join(p_tag.get("class", []))
+            if "sc-" in classes:
+                text = p_tag.get_text(separator="\n", strip=True)
+                if len(text) > len(best_desc):
+                    best_desc = text
+        if len(best_desc) > 50:
+            return best_desc
 
         # 2. .summary__txt (同人 / ボイス / ゲーム 等の主要パターン)
         summary = soup.select_one(".summary__txt")
