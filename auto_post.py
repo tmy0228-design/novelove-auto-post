@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v7.3.4.1
+Novelove 自動投稿エンジン v7.3.5.0
 【精鋭・完全クリーン版】
 ==========================================================
-【変更点 v7.0 → v7.3.4.1】
+【変更点 v7.0 → v7.3.5.0】
+ - 追加：desc_scoreカラムをDBに保存するよう変更 (v7.3.5.0)
+ - 修正：ジャンルインデックスをファイルで永続化しFANZA偏り問題を解消 (v7.3.5.0)
  - 修正：DLsite アフィリエイト ID を環境変数化 (v7.3.4.1)
  - 削除：_genre_label() の comic_women 定義を削除 (v7.3.4.1)
  - 修正：_check_desc_ok() の time.sleep を 30秒に延長 (v7.3.4.0)
@@ -301,12 +303,30 @@ def init_db():
             ("last_error",  "TEXT DEFAULT ''"),
             ("last_checked_at", "TEXT DEFAULT ''"),
             ("site", "TEXT DEFAULT ''"),
+            ("desc_score", "INTEGER DEFAULT 0"),
         ]:
             try:
                 c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
             except Exception: pass
         conn.commit()
         conn.close()
+
+# === インデックス永続化用ヘルパー ===
+INDEX_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "genre_index.txt")
+
+def get_genre_index():
+    try:
+        if os.path.exists(INDEX_FILE):
+            with open(INDEX_FILE, "r") as f:
+                return int(f.read().strip())
+    except: pass
+    return 0
+
+def save_genre_index(idx):
+    try:
+        with open(INDEX_FILE, "w") as f:
+            f.write(str(idx))
+    except: pass
 
 # === 以前のDB定義を置換 ===
 
@@ -601,19 +621,19 @@ def _check_image_ok(image_url):
 def _check_desc_ok(title, desc, release_date_str=None):
     """
     Geminiにあらすじを1〜5点でスコアリングさせる（v7.3 スコア制）
-    戻り値:
       "pending"      → スコア >= DESC_SCORE_PENDING（投稿OK）
       "watching"     → スコア == DESC_SCORE_WATCHING（保留）
       "failed_stock" → スコア < DESC_SCORE_WATCHING（お蔵入り）
       False          → API失敗・短すぎ・未来作品（スキップ）
+    戻り値: (status, score)
     """
     if not desc or len(desc.strip()) < 5:
-        return False
+        return False, 0
 
     # 作成中・準備中テキストは即スキップ
     SKIP_PATTERNS = ["作成中でございます", "作成出来ましたら", "準備中です"]
     if any(p in desc for p in SKIP_PATTERNS):
-        return False
+        return False, 0
 
     if release_date_str:
         try:
@@ -621,7 +641,7 @@ def _check_desc_ok(title, desc, release_date_str=None):
             today = datetime.now()
             release_date = datetime.strptime(release_date_str[:10], "%Y-%m-%d")
             if release_date > today + timedelta(days=7):
-                return False
+                return False, 0
         except Exception:
             pass
 
@@ -651,7 +671,7 @@ def _check_desc_ok(title, desc, release_date_str=None):
     
     if snoozed_count >= len(CHECK_MODELS):
         logger.warning(f"  [API制限中] 全ての審査モデルが制限にかかっています。スキップします。")
-        return "limit_skip"
+        return "limit_skip", 0
 
     # 「常にメイン(2.5-flash)から試行」するバックアップ方式
     for model_name in CHECK_MODELS:
@@ -686,13 +706,13 @@ def _check_desc_ok(title, desc, release_date_str=None):
             time.sleep(30) # 超・安全インターバル（429対策で30秒に延長）
 
             if score >= DESC_SCORE_PENDING:
-                return "pending"
+                return "pending", score
             elif score == DESC_SCORE_WATCHING:
-                return "watching"
+                return "watching", score
             elif score >= 1:
-                return "failed_stock"
+                return "failed_stock", score
             else:
-                return "watching"
+                return "watching", score
 
         except Exception as e:
             if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
@@ -704,7 +724,7 @@ def _check_desc_ok(title, desc, release_date_str=None):
                 logger.warning(f"Geminiスコア判定エラー ({model_name}): {e}")
             time.sleep(30)
 
-    return False
+    return False, 0
 
 def _check_stock_status(image_url, desc, title, release_date=""):
     """
@@ -716,14 +736,9 @@ def _check_stock_status(image_url, desc, title, release_date=""):
     API失敗等      → watching（保守的）
     """
     if not _check_image_ok(image_url):
-        return "watching"
-    result = _check_desc_ok(title, desc, release_date)
-    if result == "pending":
-        return "pending"
-    elif result == "failed_stock":
-        return "failed_stock"
-    else:
-        return "watching"
+        return "watching", 0
+    status, score = _check_desc_ok(title, desc, release_date)
+    return status, score
 
 def promote_watching():
     """watching作品の昇格（DB分離対応・FANZA救済基準）"""
@@ -761,12 +776,14 @@ def promote_watching():
                 # チェック開始（日時更新）
                 c.execute("UPDATE novelove_posts SET last_checked_at=datetime('now') WHERE product_id=?", (p_id,))
                 
-                status = _check_stock_status(img, desc, title, r_date)
+                status, score = _check_stock_status(img, desc, title, r_date)
                 if status == "pending":
-                    c.execute("UPDATE novelove_posts SET status='pending' WHERE product_id=?", (p_id,))
-                    logger.info(f"[{site_tag}] [昇格] {title[:40]}")
+                    c.execute("UPDATE novelove_posts SET status='pending', desc_score=? WHERE product_id=?", (score, p_id))
+                    logger.info(f"[{site_tag}] [昇格] {title[:40]} (Score: {score})")
                     promoted_count += 1
                 else:
+                    # スコアだけは更新
+                    c.execute("UPDATE novelove_posts SET desc_score=? WHERE product_id=?", (score, p_id))
                     # 昇格失敗時：もし発売日を過ぎていたら、これ以上追わずに「お蔵入り(failed_stock)」へ
                     try:
                         r_date_dt = datetime.strptime(r_date[:10], "%Y-%m-%d").date()
@@ -1169,7 +1186,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v7.3.4.1 【超クリーン版】 起動")
+    logger.info("Novelove エンジン v7.3.5.0 【超クリーン版】 起動")
     init_db()
     fetch_and_stock_all()
     promote_watching()
@@ -1205,10 +1222,9 @@ def main():
     
     while not posted and tries < max_tries:
         tries += 1
-        if not hasattr(main, "genre_index"):
-            main.genre_index = 0
-        current_genre_info = FETCH_TARGETS[main.genre_index % len(FETCH_TARGETS)]
-        main.genre_index += 1
+        genre_index = get_genre_index()
+        current_genre_info = FETCH_TARGETS[genre_index % len(FETCH_TARGETS)]
+        save_genre_index(genre_index + 1)
         
         site_for_db = current_genre_info.get("site", "FANZA")
         db_path = get_db_path(site_for_db)
