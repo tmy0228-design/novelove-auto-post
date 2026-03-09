@@ -1455,7 +1455,7 @@ def process_ranking_articles():
 
             btn_html = f'''
 <div class="custom-button-container" style="text-align: center; margin: 30px 0;">
-  <a href="{item["url"]}" target="_blank" rel="noopener" style="display: inline-flex; align-items: center; justify-content: center; min-width: 280px; padding: 18px 45px; background: linear-gradient(135deg, #ff4785 0%, #ff5f9e 100%); color: #fff; text-decoration: none; font-weight: bold; font-size: 1.25em; border-radius: 50px; box-shadow: 0 4px 15px rgba(255, 71, 133, 0.4); text-shadow: 0 1px 2px rgba(0,0,0,0.2); line-height: 1;">
+  <a href="{item["url"]}" target="_blank" rel="noopener" style="display: inline-block; width: 300px; height: 64px; line-height: 64px; background: linear-gradient(135deg, #ff4785 0%, #ff5f9e 100%); color: #fff !important; text-decoration: none !important; font-weight: bold; font-size: 1.2em; border-radius: 50px; box-shadow: 0 4px 15px rgba(255, 71, 133, 0.4); text-shadow: 0 1px 2px rgba(0,0,0,0.2); text-align: center; vertical-align: middle;">
     作品の詳細を見る
   </a>
 </div>
