@@ -2,13 +2,15 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v7.4.1.0
-【DeepSeek完全移行版・4カテゴリ構成】
+Novelove 自動投稿エンジン v7.4.2.0
+【DeepSeek完全移行版・シンプルカテゴリ構成】
 ==========================================================
-【変更点 v7.4.0.0 → v7.4.1.0】
- - 変更：カテゴリ構成を 4カテゴリ（BL, BL R-18, TL, TL R-18）に細分化
- - 削除：ボイス・PCゲームを取得対象 (FETCH_TARGETS) から除外
- - 修正：投稿時に is_r18 判定に基づいてカテゴリを自動的に R-18 か全年齢に振り分けるロジックを導入
+【変更点 v7.4.1.0 → v7.4.2.0】
+ - 変更：カテゴリ構成をシンプルな「BL」「TL」の 2カテゴリに集約（R-18判定による分割を廃止）
+ - 調整：`GENRE_CATEGORIES` をジャンル名（BL/TL）から直接カテゴリIDを引く形式に差し戻し
+ - 修正：投稿時の R-18 カテゴリ自動振り分けロジックを削除（タグとしての R-18 は維持）
+ - 追加：将来用の「ランキング」「セール」カテゴリ対応の準備
+ - 更新：WordPress メインメニューを ホーム/BL/TL/ノベラブについて に最適化
  - 移行：Gemini API → DeepSeek API（審査・執筆ともに完全移行）
  - 追加：call_deepseek()関数（OpenAI互換API使用）
  - 変更：_check_desc_ok() をDeepSeek対応に書き換え
@@ -98,13 +100,14 @@ GENRE_TAGS = {
 }
 
 GENRE_CATEGORIES = {
-    # 4カテゴリ構成 (Key: genre, Value: {0: non-r18, 1: r18})
-    "BL":           {0: 23, 1: 28},
-    "doujin_bl":    {0: 23, 1: 28},
-    "comic_bl":     {0: 23, 1: 28},
-    "TL":           {0: 24, 1: 29},
-    "doujin_tl":    {0: 24, 1: 29},
-    "comic_tl":     {0: 24, 1: 29},
+    "BL":           23,
+    "doujin_bl":    23,
+    "comic_bl":     23,
+    "TL":           24,
+    "doujin_tl":    24,
+    "comic_tl":     24,
+    "ranking":      30,
+    "sale":         31,
 }
 
 # === 入力フィルター（3段階） ===
@@ -991,9 +994,8 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         except Exception:
             return None
 
-    # カテゴリ決定 (v7.4.x 4カテゴリ構成対応)
-    cat_info = GENRE_CATEGORIES.get(genre, {0: 25, 1: 25})
-    cat_id = cat_info.get(1 if is_r18 else 0, 25)
+    # カテゴリ決定 (v7.4.2.0 シンプル構成)
+    cat_id = GENRE_CATEGORIES.get(genre, 25)
     tag_names = list(GENRE_TAGS.get(genre, ["その他"]))
 
     tl_kws = {"TL", "ティーンズラブ", "乙女", "花嫁", "娘", "お嬢", "令嬢", "女性向け"}
