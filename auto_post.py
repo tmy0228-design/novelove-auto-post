@@ -1018,13 +1018,21 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
     tag_ids = [t for t in [get_or_create_term(name, "tags") for name in tag_names] if t]
 
+    # カテゴリ・タグ設定
+    categories = [cat_id] if cat_id else []
+    # ランキング記事の場合はランキングカテゴリ(30)を追加
+    if "ranking" in str(slug).lower() or "ランキング" in title:
+        ranking_cat_id = 30
+        if ranking_cat_id not in categories:
+            categories.append(ranking_cat_id)
+
     post_data = {
         "title": title,
         "content": content,
         "excerpt": excerpt,
         "status": "publish",
         "slug": slug,
-        "categories": [cat_id] if cat_id else [],
+        "categories": categories,
         "tags": tag_ids,
         "featured_media": media_id,
         "meta": {
@@ -1453,14 +1461,8 @@ def process_ranking_articles():
                 if row and row[0]:
                     internal_link_html = f'<p style="text-align:center; font-size:0.9em; margin-top:-10px; margin-bottom:20px;"><a href="{row[0]}" style="color:#d81b60; text-decoration:none;">📝 詳しいレビューはこちら</a></p>'
 
-            btn_html = f'''
-<div class="custom-button-container" style="margin: 35px 0; text-align: center;">
-  <a href="{item["url"]}" target="_blank" rel="noopener" style="display: block; width: 300px; margin: 0 auto; padding: 20px 0; background: linear-gradient(135deg, #ff4785 0%, #ff5f9e 100%); color: #fff !important; text-decoration: none !important; font-weight: bold; font-size: 1.25em; border-radius: 50px; box-shadow: 0 4px 15px rgba(255, 71, 133, 0.4); text-shadow: 0 1px 2px rgba(0,0,0,0.2); text-align: center; line-height: 1.2;">
-    作品の詳細を見る
-  </a>
-</div>
-{internal_link_html}
-            '''
+            btn_style = "display:block;width:300px;margin:0 auto;padding:22px 0;background:linear-gradient(135deg,#ff4785 0%,#ff5f9e 100%);color:#fff !important;text-decoration:none !important;font-weight:bold;font-size:1.25em;border-radius:50px;box-shadow:0 4px 15px rgba(255,71,133,0.4);text-shadow:0 1px 2px rgba(0,0,0,0.2);text-align:center;line-height:1;border:none !important;outline:none !important;"
+            btn_html = f'<div class="custom-button-container" style="margin:35px 0;text-align:center;"><a href="{item["url"]}" target="_blank" rel="noopener" style="{btn_style}">作品の詳細を見る</a></div>{internal_link_html}'
             content = content.replace(f"[BUTTON_{rank}]", btn_html)
             
         conn.close()
