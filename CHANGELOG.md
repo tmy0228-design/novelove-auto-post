@@ -2,7 +2,28 @@
 # CHANGELOG (変更履歴)
 
 Novelove 自動投稿エンジンの主要な修正履歴です。
+## [v7.4.0.0] - 2026-03-09
 
+### 🔄 API移行
+- Gemini API → DeepSeek API に完全移行（審査・執筆ともに）
+- モデル: `deepseek-chat`（DeepSeek V3.2）固定
+- `GEMINI_API_KEY` → `DEEPSEEK_API_KEY` に変更（`.env`要更新）
+
+### ✨ 追加
+- `_call_deepseek_raw()` 新設（審査・執筆共通の基盤関数）
+- `call_deepseek()` 新設（執筆用・リトライ×3付き）
+
+### 🗑️ 削除
+- `from google import genai` 削除
+- モデルローテーション機構削除（`PRO_MODELS` / `CHECK_MODELS`）
+- スヌーズ機構削除（`snoozed_models`）
+- `call_gemini()` 削除
+- `thought_signature` 対策コード削除
+
+### ⚡ 改善
+- 審査sleep: 30秒 → 3秒
+- 執筆リトライ間隔: 都度30秒待機 → 5秒
+- レート制限時のみ30秒待機に最適化
 ## [v7.3.7.5] - 2026-03-08
 - 改善：DMMブックス（book.dmm.co.jp）の新デザインに対応したあらすじ取得ロジックを導入
 - 調整：`__NEXT_DATA__` からの取得判定を 10文字 -> 50文字に強化
