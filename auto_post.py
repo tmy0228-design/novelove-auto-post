@@ -38,6 +38,8 @@ import re
 from bs4 import BeautifulSoup
 from datetime import datetime
 from dotenv import load_dotenv
+import sys
+import argparse
 
 # --- 環境変数の読み込み ---
 env_path = "/home/kusanagi/scripts/.env"
@@ -562,7 +564,7 @@ def _call_deepseek_raw(messages, max_tokens=200, temperature=0.3):
         "stream": False,
     }
     try:
-        r = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=60)
+        r = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=180)
         if r.status_code == 429:
             logger.warning(f"DeepSeek レート制限 (429)")
             return "", "rate_limit"
@@ -961,6 +963,18 @@ def generate_article(target):
     return None, None, None, None, False, final_error, final_model, "None", final_proc_time, 0
 
 # === WordPress投稿 ===
+def get_or_create_term(name, taxonomy):
+    auth = (WP_USER, WP_APP_PASSWORD)
+    try:
+        r = requests.get(f"{WP_SITE_URL}/wp-json/wp/v2/{taxonomy}", auth=auth, params={"search": name}, timeout=15)
+        hits = r.json()
+        if hits:
+            return hits[0]["id"]
+        r2 = requests.post(f"{WP_SITE_URL}/wp-json/wp/v2/{taxonomy}", auth=auth, json={"name": name}, timeout=15)
+        return r2.json().get("id")
+    except Exception:
+        return None
+
 def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False):
     auth = (WP_USER, WP_APP_PASSWORD)
     media_id = 0
@@ -982,17 +996,6 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
             media_id = r.json().get("id", 0)
         except Exception as e:
             logger.warning(f"画像アップロード失敗: {e}")
-
-    def get_or_create_term(name, taxonomy):
-        try:
-            r = requests.get(f"{WP_SITE_URL}/wp-json/wp/v2/{taxonomy}", auth=auth, params={"search": name}, timeout=15)
-            hits = r.json()
-            if hits:
-                return hits[0]["id"]
-            r2 = requests.post(f"{WP_SITE_URL}/wp-json/wp/v2/{taxonomy}", auth=auth, json={"name": name}, timeout=15)
-            return r2.json().get("id")
-        except Exception:
-            return None
 
     # カテゴリ決定 (v7.4.2.0 シンプル構成)
     cat_id = GENRE_CATEGORIES.get(genre, 25)
@@ -1150,17 +1153,312 @@ def main():
                 logger.error("WP投稿失敗")
                 conn.close()
                 break
-        else:
-            new_retry = retry_count + 1
-            if error_type == "rate_limit":
-                c.execute("UPDATE novelove_posts SET retry_count=? WHERE product_id=?", (new_retry, target["product_id"]))
-            else:
-                c.execute("UPDATE novelove_posts SET status='failed_ai' WHERE product_id=?", (target["product_id"],))
-            conn.commit()
-
         conn.close()
 
     logger.info("=" * 60)
 
+# ======================================================================
+# ランキング記事自動生成機能
+# ======================================================================
+
+def fetch_ranking_dmm_fanza(site, genre):
+    """
+    FANZA / DMM.com のランキング (sort=rank) から上位5件を取得。
+    genre: "BL" または "TL"
+    site: "FANZA" または "DMM"
+    """
+    params = {
+        "api_id": DMM_API_ID,
+        "affiliate_id": DMM_AFFILIATE_API_ID,
+        "hits": 5,
+        "sort": "rank",
+        "output": "json",
+    }
+    
+    # ジャンル・サイトに応じたパラメータ設定
+    if site == "FANZA":
+        params["site"] = "FANZA"
+        if genre == "BL":
+            params["service"] = "ebook"
+            params["floor"] = "bl"
+        else: # TL
+            params["service"] = "ebook"
+            params["floor"] = "tl"
+    else: # DMM.com
+        params["site"] = "DMM.com"
+        if genre == "BL":
+            params["service"] = "ebook"
+            params["floor"] = "comic"
+            params["keyword"] = "ボーイズラブ"
+        else:
+            params["service"] = "ebook"
+            params["floor"] = "comic"
+            params["keyword"] = "ティーンズラブ"
+            
+    items = []
+    try:
+        r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
+        if r.status_code == 200:
+            data = r.json()
+            raw_items = data.get("result", {}).get("items", [])
+            for item in raw_items:
+                image_url = item.get("imageURL", {}).get("large", "")
+                aff_url = (item.get("affiliateURL") or "").replace(DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID)
+                items.append({
+                    "title": item.get("title", ""),
+                    "url": aff_url,
+                    "image_url": image_url,
+                    "description": scrape_description(item.get("URL", ""), site=site)
+                })
+        else:
+            logger.error(f"DMM API Error ({site}/{genre}): {r.status_code}")
+    except Exception as e:
+        logger.error(f"DMM API Fetch Error ({site}/{genre}): {e}")
+    return items
+
+def fetch_ranking_dlsite(genre):
+    """
+    DLsiteのランキング（スクレイピング）から上位5件を取得。
+    genre: "BL" または "TL" (DLsiteは girls or bl)
+    """
+    items = []
+    path = "bl/ranking/day" if genre == "BL" else "girls/ranking/day"
+    url = f"https://www.dlsite.com/{path}"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, 'html.parser')
+            anchor_items = soup.select('table#ranking_table .work_name a')
+            for anchor in anchor_items[:5]:
+                title = anchor.text.strip()
+                link = anchor.get('href')
+                
+                # 詳細ページから画像とあらすじを取得
+                img_src = ""
+                desc = ""
+                try:
+                    dr = requests.get(link, headers=headers, timeout=10)
+                    if dr.status_code == 200:
+                        dsoup = BeautifulSoup(dr.text, 'html.parser')
+                        og_img = dsoup.select_one('meta[property="og:image"]')
+                        if og_img:
+                            img_src = og_img.get('content', '')
+                        
+                        # あらすじ
+                        desc_tag = dsoup.select_one('meta[property="og:description"]')
+                        if desc_tag:
+                            desc = desc_tag.get('content', '')
+                except:
+                    pass
+                
+                aff_id = os.environ.get('DLSITE_AFFILIATE_ID', 'novelove')
+                aff_url = f"{link}?affiliate_id={aff_id}" if "affiliate_id=" not in link else link
+                
+                items.append({
+                    "title": title,
+                    "url": aff_url,
+                    "image_url": img_src,
+                    "description": desc
+                })
+        else:
+            logger.error(f"DLsite Scraping Error ({genre}): {r.status_code}")
+    except Exception as e:
+        logger.error(f"DLsite Scraping Exception ({genre}): {e}")
+    return items
+
+def format_ranking_prompt(site_name, genre, items, reviewer):
+    """
+    ランキング記事生成用のDeepSeekプロンプトを作成する。
+    """
+    items_xml = ""
+    for idx, item in enumerate(items):
+        desc = mask_input(item.get("description", ""), level=1)[:300]
+        items_xml += f'''
+<item rank="{idx+1}">
+  <title>{item["title"]}</title>
+  <description>{desc}...</description>
+</item>
+'''
+
+    prompt = f'''あなたは「{reviewer["name"]}」として、今週の{site_name}における{genre}の人気ランキングTOP5を紹介するアフィリエイト記事を執筆してください。
+
+【キャラクター設定: {reviewer["name"]}】
+・性格: {reviewer["personality"]}
+・文体: {reviewer["tone"]}
+・挨拶: {reviewer["greeting"]}
+
+【執筆ルール（完全順守！）】
+HTML形式で出力してください。<article>タグで全体を囲む必要はありません。出力はそのままWordPressの記事本文になります。
+
+構成は以下の通りにしてください：
+
+1. 冒頭キャラコメント
+{reviewer["name"]}らしい挨拶と、今週のランキングに対する期待感や煽り（60〜80字以内）をHTMLパラグラフ（<p>）で記述。
+
+2. ランキングTOP5（1位〜5位を順番に出力）
+各順位について、以下のHTML構造を必ず使用してください。画像のURLやリンクなどはプレースホルダーのままにせず、対象のタグに直接埋め込む指示ですが、今回は画像とリンクの挿入はこちらのスクリプト側で行うため、特定のプレースホルダータグを使用してください。
+
+HTML構造テンプレート:
+<div class="ranking-item" style="margin-bottom: 40px;">
+  <div class="ranking-badge" style="font-size: 1.5em; font-weight: bold; margin-bottom: 10px;">
+    [RANK_BADGE_{{rank}}]
+  </div>
+  [IMAGE_{{rank}}]
+  <h3 style="margin-top: 15px;">[TITLE_{{rank}}]</h3>
+  <p class="ranking-desc">
+    （ここに紹介文をあらすじベースで1〜2行で記述）
+  </p>
+  <div class="reviewer-comment" style="background: #fdf5f5; padding: 15px; border-radius: 8px; margin: 15px 0;">
+    <strong>{reviewer["name"]}の推しポイント：</strong><br>
+    （ここにキャラの一言コメントを30〜50字で記述）
+  </div>
+  [BUTTON_{{rank}}]
+</div>
+
+※注意点：
+・{{rank}} は 1〜5 の数字になります。（例: [RANK_BADGE_1], [IMAGE_1]）
+・[RANK_BADGE_1] の部分は出力に含めてください。（スクリプトで🥇 1位 などに置換します）
+
+3. 締めキャラコメント
+記事の最後に、今週のランキングを振り返っての感想や、読者への呼びかけ（布教）を100〜120字以内で記述してください。
+
+【対象ランキングデータ】
+{items_xml}
+
+それでは、指示に従ってHTMLを出力してください。
+'''
+    return prompt
+
+def _post_ranking_article_to_wordpress(title, content, genre, site_name):
+    """
+    生成されたランキング記事をWordPressに投稿する
+    """
+    category_ids = [GENRE_CATEGORIES["ranking"]]
+    if genre == "BL":
+        category_ids.append(GENRE_CATEGORIES["BL"])
+    elif genre == "TL":
+        category_ids.append(GENRE_CATEGORIES["TL"])
+        
+    tags = [genre, "ランキング", site_name]
+
+    tag_ids = [t for t in [get_or_create_term(name, "tags") for name in tags] if t]
+    
+    post_data = {
+        "title": title,
+        "content": content,
+        "status": "publish",
+        "categories": category_ids,
+        "tags": tag_ids
+    }
+
+    try:
+        url = f"{WP_SITE_URL}/wp-json/wp/v2/posts"
+        r = requests.post(
+            url,
+            auth=(WP_USER, WP_APP_PASSWORD),
+            json=post_data,
+            timeout=30
+        )
+        if r.status_code in (200, 201):
+            logger.info(f"✅ ランキング投稿成功: {title}")
+            return True
+        else:
+            logger.error(f"WP投稿失敗 ({r.status_code}): {r.text}")
+    except Exception as e:
+        logger.error(f"WP投稿中の例外: {e}")
+    return False
+
+def process_ranking_articles():
+    """
+    ランキング記事を一括で生成・投稿する処理メイン
+    FANZA(BL, TL), DMM(BL, TL), DLsite(BL, TL) の計6記事
+    """
+    logger.info("=" * 60)
+    logger.info("ランキング記事自動生成モードを開始します")
+    
+    targets = [
+        ("FANZA", "BL"), ("FANZA", "TL"),
+        ("DMM", "BL"),   ("DMM", "TL"),
+        ("DLsite", "BL"),("DLsite", "TL")
+    ]
+    
+    for site, genre in targets:
+        logger.info(f"--- ランキング処理: {site} / {genre} ---")
+        
+        # 1. 取得
+        items = []
+        if site in ("FANZA", "DMM"):
+            items = fetch_ranking_dmm_fanza(site, genre)
+        else:
+            items = fetch_ranking_dlsite(genre)
+            
+        if len(items) < 5:
+            logger.warning(f"  -> ランキングデータが5件未満のためスキップ (取得数: {len(items)})")
+            continue
+            
+        # 2. キャラアサイン
+        reviewer = _get_reviewer_for_genre(genre)
+        
+        # 3. AIにプロンプト送信
+        prompt = format_ranking_prompt(site, genre, items, reviewer)
+        messages = [
+            {"role": "system", "content": "あなたは優秀なアフィリエイトブロガーです。"},
+            {"role": "user", "content": prompt}
+        ]
+        
+        logger.info(f"  -> DeepSeekに記事生成を依頼中...")
+        generated_html, err = _call_deepseek_raw(messages, max_tokens=2500, temperature=0.7)
+        if err != "ok":
+            logger.error(f"  -> AI生成失敗: {err}")
+            continue
+            
+        # 4. 置換 (プレースホルダーを実際のHTMLタグへ)
+        content = generated_html
+        medals = {1: "🥇 1位", 2: "🥈 2位", 3: "🥉 3位", 4: "4位", 5: "5位"}
+        
+        for idx, item in enumerate(items):
+            rank = idx + 1
+            badge = medals.get(rank, f"{rank}位")
+            content = content.replace(f"[RANK_BADGE_{rank}]", badge)
+            content = content.replace(f"[TITLE_{rank}]", item["title"])
+            
+            img_html = f'<div style="text-align: center;"><a href="{item["url"]}" target="_blank" rel="noopener"><img src="{item["image_url"]}" alt="{item["title"]}" style="max-height: 400px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" /></a></div>'
+            content = content.replace(f"[IMAGE_{rank}]", img_html)
+            
+            btn_html = f'''
+<div class="custom-button-container" style="text-align: center; margin: 20px 0;">
+  <a href="{item["url"]}" class="custom-buy-button" target="_blank" rel="noopener" style="display: inline-block; padding: 12px 24px; background: #ff4785; color: #fff; text-decoration: none; font-weight: bold; border-radius: 5px; box-shadow: 0 4px 6px rgba(255,105,180,0.3);">
+    作品ページで詳細を見る
+  </a>
+</div>
+            '''
+            content = content.replace(f"[BUTTON_{rank}]", btn_html)
+            
+        # マークダウンのコードブロック除去
+        content = re.sub(r"^```html\n?", "", content, flags=re.MULTILINE)
+        content = re.sub(r"^```\n?", "", content, flags=re.MULTILINE)
+        
+        # 5. WP投稿
+        title_date = datetime.now().strftime("%Y年%m月第%W週")
+        site_labels = {"FANZA": "FANZA", "DMM": "DMM.com", "DLsite": "DLsite"}
+        post_title = f"【{site_labels[site]}】今週の人気{genre}ランキング TOP5！（{title_date}）"
+        
+        _post_ranking_article_to_wordpress(post_title, content, genre, site)
+        
+        logger.info(f"  -> 処理完了: {site} / {genre}")
+        time.sleep(5)  # レート制限対策
+
+    logger.info("ランキング記事自動生成モードを終了しました")
+    logger.info("=" * 60)
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Novelove Auto Posting Tool")
+    parser.add_argument("--ranking", action="store_true", help="Run the ranking generation workflow instead of normal posting")
+    args = parser.parse_args()
+
+    if args.ranking:
+        process_ranking_articles()
+    else:
+        main()
