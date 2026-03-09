@@ -2,10 +2,13 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v7.4.0.0
-【DeepSeek完全移行版】
+Novelove 自動投稿エンジン v7.4.1.0
+【DeepSeek完全移行版・4カテゴリ構成】
 ==========================================================
-【変更点 v7.3.7.5 → v7.4.0.0】
+【変更点 v7.4.0.0 → v7.4.1.0】
+ - 変更：カテゴリ構成を 4カテゴリ（BL, BL R-18, TL, TL R-18）に細分化
+ - 削除：ボイス・PCゲームを取得対象 (FETCH_TARGETS) から除外
+ - 修正：投稿時に is_r18 判定に基づいてカテゴリを自動的に R-18 か全年齢に振り分けるロジックを導入
  - 移行：Gemini API → DeepSeek API（審査・執筆ともに完全移行）
  - 追加：call_deepseek()関数（OpenAI互換API使用）
  - 変更：_check_desc_ok() をDeepSeek対応に書き換え
@@ -79,8 +82,6 @@ FETCH_TARGETS = [
     {"site": "FANZA",   "service": "ebook",  "floor": "tl",             "genre": "TL",           "label": "TL小説",         "keyword": None},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_bl",    "label": "BL同人",         "keyword": "ボーイズラブ"},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_tl",    "label": "乙女同人",       "keyword": "乙女向け"},
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_voice", "label": "ボイス",         "keyword": "ボイス 女性向け"},
-    {"site": "FANZA",   "service": "mono",   "floor": "pcgame",         "genre": "pcgame",       "label": "PCゲーム",       "keyword": None},
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_bl",     "label": "一般BL",         "keyword": "ボーイズラブ"},
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_tl",     "label": "一般TL",         "keyword": "ティーンズラブ"},
     {"site": "DLsite",  "service": None,     "floor": "girls",          "genre": "doujin_tl",    "label": "DLsite乙女",     "keyword": None},
@@ -92,17 +93,18 @@ GENRE_TAGS = {
     "TL":           ["TL", "TL小説", "FANZA"],
     "doujin_bl":    ["BL", "BL同人", "同人", "FANZA"],
     "doujin_tl":    ["乙女向け", "同人", "FANZA"],
-    "doujin_voice": ["同人", "FANZA"],
     "comic_bl":     ["BL", "BLコミック", "一般"],
     "comic_tl":     ["TL", "TLコミック", "一般"],
-    "pcgame":       ["ゲーム", "女性向け", "FANZA"],
 }
 
 GENRE_CATEGORIES = {
-    "BL": 23, "doujin_bl": 23, "comic_bl": 23,
-    "TL": 24, "doujin_tl": 24, "comic_tl": 24,
-    "doujin_voice": 25,
-    "pcgame": 25
+    # 4カテゴリ構成 (Key: genre, Value: {0: non-r18, 1: r18})
+    "BL":           {0: 23, 1: 28},
+    "doujin_bl":    {0: 23, 1: 28},
+    "comic_bl":     {0: 23, 1: 28},
+    "TL":           {0: 24, 1: 29},
+    "doujin_tl":    {0: 24, 1: 29},
+    "comic_tl":     {0: 24, 1: 29},
 }
 
 # === 入力フィルター（3段階） ===
@@ -989,7 +991,9 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         except Exception:
             return None
 
-    cat_id = GENRE_CATEGORIES.get(genre, 25)
+    # カテゴリ決定 (v7.4.x 4カテゴリ構成対応)
+    cat_info = GENRE_CATEGORIES.get(genre, {0: 25, 1: 25})
+    cat_id = cat_info.get(1 if is_r18 else 0, 25)
     tag_names = list(GENRE_TAGS.get(genre, ["その他"]))
 
     tl_kws = {"TL", "ティーンズラブ", "乙女", "花嫁", "娘", "お嬢", "令嬢", "女性向け"}
