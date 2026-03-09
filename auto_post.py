@@ -93,10 +93,10 @@ FETCH_TARGETS = [
 ]
 
 GENRE_TAGS = {
-    "BL":           ["BL", "BL小説", "FANZA"],
-    "TL":           ["TL", "TL小説", "FANZA"],
-    "doujin_bl":    ["BL", "BL同人", "同人", "FANZA"],
-    "doujin_tl":    ["乙女向け", "同人", "FANZA"],
+    "BL":           ["BL", "BL小説"],
+    "TL":           ["TL", "TL小説"],
+    "doujin_bl":    ["BL", "BL同人", "同人"],
+    "doujin_tl":    ["乙女向け", "同人"],
     "comic_bl":     ["BL", "BLコミック", "一般"],
     "comic_tl":     ["TL", "TLコミック", "一般"],
 }
@@ -975,7 +975,7 @@ def get_or_create_term(name, taxonomy):
     except Exception:
         return None
 
-def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False):
+def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None):
     auth = (WP_USER, WP_APP_PASSWORD)
     media_id = 0
     if image_url:
@@ -1000,6 +1000,8 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     # カテゴリ決定 (v7.4.2.0 シンプル構成)
     cat_id = GENRE_CATEGORIES.get(genre, 25)
     tag_names = list(GENRE_TAGS.get(genre, ["その他"]))
+    if site_label:
+        tag_names.append(site_label)
 
     tl_kws = {"TL", "ティーンズラブ", "乙女", "花嫁", "娘", "お嬢", "令嬢", "女性向け"}
     bl_kws = {"BL", "ボーイズラブ"}
@@ -1128,7 +1130,7 @@ def main():
         if content:
             url = post_to_wordpress(
                 wp_title, content, target["genre"], target["image_url"],
-                excerpt, seo_title, slug=target["product_id"], is_r18=is_r18_val
+                excerpt, seo_title, slug=target["product_id"], is_r18=is_r18_val, site_label=site_name
             )
             if url:
                 c.execute(
@@ -1289,16 +1291,20 @@ def format_ranking_prompt(site_name, genre, items, reviewer):
 ・文体: {reviewer["tone"]}
 ・挨拶: {reviewer["greeting"]}
 
+【執筆の最重要ルール】
+・冒頭のコメントおよび各作品の「推しポイント」は、必ず上記「{reviewer["name"]}」の性格や口調になりきった「セリフ口調（喋り言葉）」で執筆してください。
+・独り言のようなつぶやきや、読者へ語りかける口調を織り交ぜて、AIっぽさを排除してください。
+
 【執筆ルール（完全順守！）】
 HTML形式で出力してください。<article>タグで全体を囲む必要はありません。出力はそのままWordPressの記事本文になります。
 
 構成は以下の通りにしてください：
 
 1. 冒頭キャラコメント
-{reviewer["name"]}らしい挨拶と、今週のランキングに対する期待感や煽り（60〜80字以内）をHTMLパラグラフ（<p>）で記述。
+{reviewer["name"]}の口調による挨拶と、今週のランキングに対する期待感や煽り（60〜80字以内）をHTMLパラグラフ（<p>）で記述。
 
 2. ランキングTOP5（1位〜5位を順番に出力）
-各順位について、以下のHTML構造を必ず使用してください。画像のURLやリンクなどはプレースホルダーのままにせず、対象のタグに直接埋め込む指示ですが、今回は画像とリンクの挿入はこちらのスクリプト側で行うため、特定のプレースホルダータグを使用してください。
+各順位について、以下のHTML構造を必ず使用してください。
 
 HTML構造テンプレート:
 <div class="ranking-item" style="margin-bottom: 40px;">
@@ -1310,9 +1316,9 @@ HTML構造テンプレート:
   <p class="ranking-desc">
     （ここに紹介文をあらすじベースで1〜2行で記述）
   </p>
-  <div class="reviewer-comment" style="background: #fdf5f5; padding: 15px; border-radius: 8px; margin: 15px 0;">
+  <div class="reviewer-comment" style="background: #fdf5f5; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 5px solid #ff4785;">
     <strong>{reviewer["name"]}の推しポイント：</strong><br>
-    （ここにキャラの一言コメントを30〜50字で記述）
+    （ここを{reviewer["name"]}のセリフ口調で30〜50字で記述）
   </div>
   [BUTTON_{{rank}}]
 </div>
@@ -1322,7 +1328,7 @@ HTML構造テンプレート:
 ・[RANK_BADGE_1] の部分は出力に含めてください。（スクリプトで🥇 1位 などに置換します）
 
 3. 締めキャラコメント
-記事の最後に、今週のランキングを振り返っての感想や、読者への呼びかけ（布教）を100〜120字以内で記述してください。
+記事の最後に、{reviewer["name"]}の口調で今週のランキングを振り返っての感想や、読者への呼びかけ（布教）を100〜120字以内で記述してください。
 
 【対象ランキングデータ】
 {items_xml}
@@ -1331,43 +1337,34 @@ HTML構造テンプレート:
 '''
     return prompt
 
-def _post_ranking_article_to_wordpress(title, content, genre, site_name):
+def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_image_url=""):
     """
     生成されたランキング記事をWordPressに投稿する
+    top_image_url: 1位作品の画像URL（アイキャッチに設定）
     """
-    category_ids = [GENRE_CATEGORIES["ranking"]]
-    if genre == "BL":
-        category_ids.append(GENRE_CATEGORIES["BL"])
-    elif genre == "TL":
-        category_ids.append(GENRE_CATEGORIES["TL"])
-        
-    tags = [genre, "ランキング", site_name]
+    # スラッグ生成: {site}-{genre}-ranking-{year}-{month}-w{week}
+    now = datetime.now()
+    year = now.strftime("%Y")
+    month = now.strftime("%m")
+    week = now.strftime("%W")
+    slug = f"{site_name.lower()}-{genre.lower()}-ranking-{year}-{month}-w{week}"
 
-    tag_ids = [t for t in [get_or_create_term(name, "tags") for name in tags] if t]
+    # post_to_wordpress を流用してアイキャッチ設定を行う
+    wp_url = post_to_wordpress(
+        title=title,
+        content=content,
+        genre=genre,
+        image_url=top_image_url, # アイキャッチ
+        excerpt="",
+        seo_title=f"{title} | Novelove",
+        slug=slug,
+        is_r18=False,
+        site_label=site_name
+    )
     
-    post_data = {
-        "title": title,
-        "content": content,
-        "status": "publish",
-        "categories": category_ids,
-        "tags": tag_ids
-    }
-
-    try:
-        url = f"{WP_SITE_URL}/wp-json/wp/v2/posts"
-        r = requests.post(
-            url,
-            auth=(WP_USER, WP_APP_PASSWORD),
-            json=post_data,
-            timeout=30
-        )
-        if r.status_code in (200, 201):
-            logger.info(f"✅ ランキング投稿成功: {title}")
-            return True
-        else:
-            logger.error(f"WP投稿失敗 ({r.status_code}): {r.text}")
-    except Exception as e:
-        logger.error(f"WP投稿中の例外: {e}")
+    if wp_url:
+        logger.info(f"✅ ランキング投稿成功: {wp_url}")
+        return True
     return False
 
 def process_ranking_articles():
@@ -1398,6 +1395,9 @@ def process_ranking_articles():
             logger.warning(f"  -> ランキングデータが5件未満のためスキップ (取得数: {len(items)})")
             continue
             
+        # アイキャッチ用に1位の画像URLを保存
+        top_image_url = items[0].get("image_url", "")
+            
         # 2. キャラアサイン
         reviewer = _get_reviewer_for_genre(genre)
         
@@ -1418,6 +1418,11 @@ def process_ranking_articles():
         content = generated_html
         medals = {1: "🥇 1位", 2: "🥈 2位", 3: "🥉 3位", 4: "4位", 5: "5位"}
         
+        # 内部リンク用のDB接続
+        db_path = get_db_path(site)
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        
         for idx, item in enumerate(items):
             rank = idx + 1
             badge = medals.get(rank, f"{rank}位")
@@ -1427,15 +1432,34 @@ def process_ranking_articles():
             img_html = f'<div style="text-align: center;"><a href="{item["url"]}" target="_blank" rel="noopener"><img src="{item["image_url"]}" alt="{item["title"]}" style="max-height: 400px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" /></a></div>'
             content = content.replace(f"[IMAGE_{rank}]", img_html)
             
+            # アイテム詳細URLやタイトルから、既存の記事IDを探す（内部リンク）
+            # 商品IDを取得して検索
+            pid = ""
+            if "content_id" in item:
+                pid = item["content_id"]
+            else:
+                # URLから抽出
+                m = re.search(r"product_id/([^/?]+)", item["url"])
+                if m: pid = m.group(1)
+            
+            internal_link_html = ""
+            if pid:
+                row = c.execute("SELECT wp_post_url FROM novelove_posts WHERE product_id=? AND status='published'", (pid,)).fetchone()
+                if row and row[0]:
+                    internal_link_html = f'<p style="text-align:center; font-size:0.9em; margin-top:-10px; margin-bottom:20px;"><a href="{row[0]}" style="color:#d81b60; text-decoration:none;">📝 詳しいレビューはこちら</a></p>'
+
             btn_html = f'''
-<div class="custom-button-container" style="text-align: center; margin: 20px 0;">
-  <a href="{item["url"]}" class="custom-buy-button" target="_blank" rel="noopener" style="display: inline-block; padding: 12px 24px; background: #ff4785; color: #fff; text-decoration: none; font-weight: bold; border-radius: 5px; box-shadow: 0 4px 6px rgba(255,105,180,0.3);">
+<div class="custom-button-container" style="text-align: center; margin: 25px 0;">
+  <a href="{item["url"]}" target="_blank" rel="noopener" style="display: inline-block; padding: 15px 35px; background: linear-gradient(135deg, #ff4785 0%, #ff5f9e 100%); color: #fff; text-decoration: none; font-weight: bold; font-size: 1.1em; border-radius: 50px; box-shadow: 0 4px 15px rgba(255, 71, 133, 0.4); text-shadow: 0 1px 2px rgba(0,0,0,0.2);">
     作品ページで詳細を見る
   </a>
 </div>
+{internal_link_html}
             '''
             content = content.replace(f"[BUTTON_{rank}]", btn_html)
             
+        conn.close()
+        
         # マークダウンのコードブロック除去
         content = re.sub(r"^```html\n?", "", content, flags=re.MULTILINE)
         content = re.sub(r"^```\n?", "", content, flags=re.MULTILINE)
@@ -1445,7 +1469,7 @@ def process_ranking_articles():
         site_labels = {"FANZA": "FANZA", "DMM": "DMM.com", "DLsite": "DLsite"}
         post_title = f"【{site_labels[site]}】今週の人気{genre}ランキング TOP5！（{title_date}）"
         
-        _post_ranking_article_to_wordpress(post_title, content, genre, site)
+        _post_ranking_article_to_wordpress(post_title, content, genre, site, top_image_url)
         
         logger.info(f"  -> 処理完了: {site} / {genre}")
         time.sleep(5)  # レート制限対策
