@@ -1454,8 +1454,8 @@ def process_ranking_articles():
                     internal_link_html = f'<p style="text-align:center; font-size:0.9em; margin-top:-10px; margin-bottom:20px;"><a href="{row[0]}" style="color:#d81b60; text-decoration:none;">📝 詳しいレビューはこちら</a></p>'
 
             btn_html = f'''
-<div class="custom-button-container" style="text-align: center; margin: 30px 0;">
-  <a href="{item["url"]}" target="_blank" rel="noopener" style="display: inline-block; width: 300px; height: 64px; line-height: 64px; background: linear-gradient(135deg, #ff4785 0%, #ff5f9e 100%); color: #fff !important; text-decoration: none !important; font-weight: bold; font-size: 1.2em; border-radius: 50px; box-shadow: 0 4px 15px rgba(255, 71, 133, 0.4); text-shadow: 0 1px 2px rgba(0,0,0,0.2); text-align: center; vertical-align: middle;">
+<div class="custom-button-container" style="margin: 35px 0; text-align: center;">
+  <a href="{item["url"]}" target="_blank" rel="noopener" style="display: block; width: 300px; margin: 0 auto; padding: 20px 0; background: linear-gradient(135deg, #ff4785 0%, #ff5f9e 100%); color: #fff !important; text-decoration: none !important; font-weight: bold; font-size: 1.25em; border-radius: 50px; box-shadow: 0 4px 15px rgba(255, 71, 133, 0.4); text-shadow: 0 1px 2px rgba(0,0,0,0.2); text-align: center; line-height: 1.2;">
     作品の詳細を見る
   </a>
 </div>
