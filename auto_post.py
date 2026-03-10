@@ -885,9 +885,9 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None):
 
 {chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
 
-{internal_link_html}
-
 <p style="text-align:center;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow">▶ 気になった人はまずここから覗いてみて…！</a></p>
+
+{internal_link_html}
 """
 
 # === AI執筆（DeepSeek版） ===
