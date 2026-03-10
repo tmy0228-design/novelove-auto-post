@@ -1364,7 +1364,7 @@ def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_ima
     now = datetime.now()
     year = now.strftime("%Y")
     month = now.strftime("%m")
-    week = now.strftime("%W")
+    week = str((now.day - 1) // 7 + 1)  # 月内第何週（%Wは年の通算週番号なので誤り）
     slug = f"{site_name.lower()}-{genre.lower()}-ranking-{year}-{month}-w{week}"
 
     # post_to_wordpress を流用してアイキャッチ設定を行う
@@ -1477,7 +1477,9 @@ def process_ranking_articles():
         content = re.sub(r"^```\n?", "", content, flags=re.MULTILINE)
         
         # 5. WP投稿
-        title_date = datetime.now().strftime("%Y年%m月第%W週")
+        _now = datetime.now()
+        _week_of_month = (_now.day - 1) // 7 + 1
+        title_date = f"{_now.year}年{_now.month}月第{_week_of_month}週"
         site_labels = {"FANZA": "FANZA", "DMM": "DMM.com", "DLsite": "DLsite"}
         post_title = f"【{site_labels[site]}】今週の人気{genre}ランキング TOP5！（{title_date}）"
         
