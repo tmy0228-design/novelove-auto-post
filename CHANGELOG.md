@@ -3,6 +3,11 @@
 
 Novelove 自動投稿エンジンの主要な修正履歴です。
 
+## [v7.5.5.2] - 2026-03-10
+- 修正：`_fetch_dlsite_items()`のwork_typeを`TOW`単独から`TOW,MNG`に変更（マンガも取得対象に追加）
+- 追加：DLsiteボイス系作品除外フィルター（タイトル・カテゴリバッジで「ボイス」「音声」「ASMR」「CV.」等を検知してスキップ）
+
+
 ## [v7.5.5.1] - 2026-03-10
 - 修正：`main()`内で`site_name`を`post_to_wordpress()`呼び出しより前に定義するよう修正（`UnboundLocalError`解消）
 

@@ -324,8 +324,11 @@ def scrape_dlsite_description(url):
 
 def _fetch_dlsite_items(target):
     floor = target.get("floor", "girls")
-    url = f"https://www.dlsite.com/{floor}/new/=/work_type/TOW"
+    # TOW(テキスト・ノベル)とMNG(マンガ)を同時に取得
+    url = f"https://www.dlsite.com/{floor}/new/=/work_type/TOW,MNG"
     items = []
+    # ボイス系作品を除外するキーワードリスト
+    VOICE_KEYWORDS = ["ボイス", "音声", "ASMR", "CV.", "CV:", "cv.", "cv:", "シチュエーションCD", "バイノーラル"]
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         r = requests.get(url, headers=headers, timeout=20)
@@ -334,6 +337,17 @@ def _fetch_dlsite_items(target):
         for work in works[:10]:
             title_tag = work.select_one(".work_name a")
             if not title_tag: continue
+
+            # --- ボイス系作品フィルター ---
+            title_text = title_tag.text.strip()
+            # 作品カテゴリバッジのテキストを取得
+            category_tag = work.select_one(".work_category")
+            category_text = category_tag.text.strip() if category_tag else ""
+            if any(kw in title_text for kw in VOICE_KEYWORDS) or "ボイス" in category_text or "音声" in category_text:
+                print(f"[DLsite] ボイス作品をスキップ: {title_text[:40]}")
+                continue
+            # --- フィルターここまで ---
+
             detail_url = title_tag.get("href")
             pid = detail_url.rstrip("/").split("/")[-1].replace(".html", "")
             if not pid: continue
