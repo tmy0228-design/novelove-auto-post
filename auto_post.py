@@ -943,7 +943,7 @@ def generate_article(target):
                 logger.warning(f"  [画像NG] 投稿直前チェックで無効: {target['image_url']}")
                 return None, None, None, None, False, "image_missing", model_name, level_name, proc_time, 0
 
-            img_html = f'<p style="text-align:center;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow"><img src="{target["image_url"]}" alt="{target["title"]}" style="max-width:300px;border-radius:8px;box-shadow:0 4px 15px rgba(0,0,0,0.15);" /></a></p>\n'
+            img_html = f'<p style="text-align:center;margin:20px 0;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow"><img src="{target["image_url"]}" alt="{target["title"]}" style="max-width:500px;width:100%;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.18);" /></a></p>\n'
             site_raw = target.get("site", "FANZA")
             site_display = site_raw.split(":")[0] if isinstance(site_raw, str) and ":" in site_raw else str(site_raw)
             format_name = _genre_label(target["genre"])
