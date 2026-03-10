@@ -99,8 +99,8 @@ FETCH_TARGETS = [
 ]
 
 GENRE_TAGS = {
-    "BL":           ["BL", "BL小説"],
-    "TL":           ["TL", "TL小説"],
+    "BL":           ["BL", "BLコミック"],
+    "TL":           ["TL", "TLコミック"],
     "doujin_bl":    ["BL", "BL同人", "同人"],
     "doujin_tl":    ["乙女向け", "同人"],
     "comic_bl":     ["BL", "BLコミック", "一般"],
