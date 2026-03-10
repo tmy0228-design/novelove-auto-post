@@ -1136,6 +1136,7 @@ def main():
         wp_title, content, excerpt, seo_title, is_r18_val, error_type, model_name, filter_level, proc_time, word_count = res_data
 
         if content:
+            site_name = str(target.get('site') or 'Unknown').split(':')[0]
             url = post_to_wordpress(
                 wp_title, content, target["genre"], target["image_url"],
                 excerpt, seo_title, slug=target["product_id"], is_r18=is_r18_val, site_label=site_name
@@ -1148,7 +1149,6 @@ def main():
                 conn.commit()
                 daily_count   = c.execute("SELECT COUNT(*) FROM novelove_posts WHERE status='published' AND published_at >= date('now', 'localtime')").fetchone()[0]
                 pending_count = c.execute("SELECT COUNT(*) FROM novelove_posts WHERE status='pending'").fetchone()[0]
-                site_name = str(target.get('site') or 'Unknown').split(':')[0]
                 logger.info(f"✅ 投稿成功！ URL: {url} (Site: {site_name})")
                 notify_discord(
                     f"✅ **投稿成功！** ({site_name})\n"
