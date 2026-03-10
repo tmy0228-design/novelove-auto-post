@@ -304,7 +304,14 @@ def scrape_dlsite_description(url):
     try:
         r = requests.get(url, headers=HEADERS, timeout=15)
         if r.status_code != 200: return ""
-        soup = BeautifulSoup(r.text, 'html.parser')
+        text = r.text
+        # --- 作品形式メタデータチェック ---
+        # NRE:ノベル, SOU:ボイス, GME:ゲーム, ANI:アニメ, MOV:動画, OTH:その他 を弾く
+        if any(f'work_type/{t}' in text for t in ['NRE', 'SOU', 'GME', 'ANI', 'MOV', 'OTH']):
+            logger.warning(f"[DLsite] 禁止形式を検知（除外対象）: {url}")
+            return "__EXCLUDED_TYPE__"
+        
+        soup = BeautifulSoup(text, 'html.parser')
         for trash in soup.select('.work_outline, .work_parts_area.outline, .work_parts_area.chobit, .work_edition'):
             trash.decompose()
         image_url = ""
@@ -339,11 +346,11 @@ def scrape_dlsite_description(url):
 
 def _fetch_dlsite_items(target):
     floor = target.get("floor", "girls")
-    # TOW(テキスト・ノベル)とMNG(マンガ)を同時に取得
-    url = f"https://www.dlsite.com/{floor}/new/=/work_type/TOW,MNG"
+    # MNG(マンガ)のみを取得対象に限定（TOW:ノベル, SOU:ボイス は最初から除外）
+    url = f"https://www.dlsite.com/{floor}/new/=/work_type/MNG"
     items = []
-    # ボイス系作品を除外するキーワードリスト
-    VOICE_KEYWORDS = ["ボイス", "音声", "ASMR", "CV.", "CV:", "cv.", "cv:", "シチュエーションCD", "バイノーラル"]
+    # ボイス・ノイズ系作品を除外するキーワードリスト（再強化）
+    VOICE_KEYWORDS = ["ボイス", "音声", "ASMR", "CV.", "CV:", "cv.", "cv:", "シチュエーションCD", "バイノーラル", "ドラマCD"]
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         r = requests.get(url, headers=headers, timeout=20)
@@ -353,13 +360,14 @@ def _fetch_dlsite_items(target):
             title_tag = work.select_one(".work_name a")
             if not title_tag: continue
 
-            # --- ボイス系作品フィルター ---
+            # --- ボイス・ノイズ系作品フィルター ---
             title_text = title_tag.text.strip()
-            # 作品カテゴリバッジのテキストを取得
             category_tag = work.select_one(".work_category")
             category_text = category_tag.text.strip() if category_tag else ""
-            if any(kw in title_text for kw in VOICE_KEYWORDS) or "ボイス" in category_text or "音声" in category_text:
-                print(f"[DLsite] ボイス作品をスキップ: {title_text[:40]}")
+            
+            # カテゴリバッジやタイトルからボイス・ノベルを排除
+            if any(kw in (title_text + category_text) for kw in VOICE_KEYWORDS + ["ノベル", "小説", "実用"]):
+                print(f"[DLsite] 作品種別フィルターによりスキップ: {title_text[:40]}")
                 continue
             # --- フィルターここまで ---
 
@@ -408,7 +416,14 @@ def scrape_description(product_url, site="FANZA"):
             timeout=20
         )
         r.encoding = r.apparent_encoding
-        soup = BeautifulSoup(r.text, "html.parser")
+        text = r.text
+        # --- FANZA カテゴリーチェック ---
+        # 写真集, グラビア, 文芸・小説, ライトノベル 等を弾く
+        if any(kw in text for kw in ["カテゴリー</th><td>写真集", "カテゴリー</th><td>グラビア", "カテゴリー</th><td>文芸・小説", "カテゴリー</th><td>ライトノベル"]):
+            logger.warning(f"[FANZA] 禁止カテゴリーを検知（除外対象）: {product_url}")
+            return "__EXCLUDED_TYPE__"
+
+        soup = BeautifulSoup(text, "html.parser")
         next_tag = soup.find("script", id="__NEXT_DATA__")
         if next_tag:
             try:
@@ -489,9 +504,9 @@ def _is_noise_content(title, desc=""):
     ※ PDF版等はコミックでも含まれるため除外しない。
     """
     ng_words = [
-        "CG集", "イラスト集", "画像集", "差分", "壁紙", 
-        "小説", "ノベル", "テキスト", "SS", "ノベルズ",
-        "ゲーム", "RPG", "ツール", "素材", "音声", "ASMR"
+        "CG集", "イラスト集", "画像集", "差分", "壁紙", "作品集", "写真集", "グラビア",
+        "小説", "ノベル", "テキスト", "SS", "ノベルズ", "文芸",
+        "ゲーム", "RPG", "ツール", "素材", "音声", "ASMR", "ボイス"
     ]
     target_text = f"{title}_{desc}".lower()
     for word in ng_words:
@@ -534,6 +549,13 @@ def fetch_and_stock_all():
             if c.execute("SELECT 1 FROM novelove_posts WHERE product_id=?", (pid,)).fetchone():
                 continue
             desc = scrape_description(item.get("URL", ""), site=site)
+            # --- 作品形式による強制除外 ---
+            if desc == "__EXCLUDED_TYPE__":
+                desc = "" # 保存時は空にするか、適宜
+                status = 'excluded'
+            else:
+                status = 'excluded' if _is_noise_content(item.get("title", ""), desc) else 'watching'
+
             time.sleep(1.0)
             image_url = item.get("imageURL", {}).get("large", "")
             if site == "DLsite":
@@ -542,9 +564,6 @@ def fetch_and_stock_all():
                 aff_url = (item.get("affiliateURL") or "").replace(DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID)
             is_r18 = 1 if _is_r18_item(item, site=site) else 0
             author = _extract_author(item)
-            
-            # --- ノイズ判定（漫画以外を excluded とする） ---
-            status = 'excluded' if _is_noise_content(item.get("title", ""), desc) else 'watching'
 
             c.execute(
                 """INSERT INTO novelove_posts
