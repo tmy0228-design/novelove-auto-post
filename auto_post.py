@@ -1173,6 +1173,10 @@ def main():
     logger.info(f"審査候補: {len(candidates)}件")
 
     posted = False
+    for row in candidates:
+        pid   = row["product_id"]
+        title = row["title"]
+        desc  = row["description"] or ""
         rdate = row["release_date"] or ""
 
         # --- [再発防止フィルタ] 過去にDBへ混入したノイズ作品(ボイス等)を最終排除 ---
