@@ -1308,6 +1308,11 @@ def main():
             rdate = row["release_date"] or ""
             c_site = row["site"]
             
+            # ★★★ フォールバック候補にもNGフィルターを適用 ★★★
+            # タイトル・あらすじでボイス・外国語・ノイズを除外
+            if _is_noise_content(title, desc):
+                logger.info(f"  [フォールバック除外] ノイズ検知: {title[:40]}")
+                continue
             # 該当レコードの更新のため、都度正しいDBに繋ぎ直す
             c_db_path = get_db_path(c_site)
             with sqlite3.connect(c_db_path) as tmp_c_conn:
@@ -1385,14 +1390,15 @@ def main():
 
 def fetch_ranking_dmm_fanza(site, genre):
     """
-    FANZA / DMM.com のランキング (sort=rank) から上位5件を取得。
+    FANZA / DMM.com のランキング (sort=rank) から上位を取得し、
+    漫画以外のノイズ（小説・ボイス等）を排除した上で5件を返す。
     genre: "BL" または "TL"
     site: "FANZA" または "DMM"
     """
     params = {
         "api_id": DMM_API_ID,
         "affiliate_id": DMM_AFFILIATE_API_ID,
-        "hits": 5,
+        "hits": 10, # ランキングAPIはあまり大きいhitsを指定するとエラーになる場合があるため10件
         "sort": "rank",
         "output": "json",
     }
@@ -1424,14 +1430,29 @@ def fetch_ranking_dmm_fanza(site, genre):
             data = r.json()
             raw_items = data.get("result", {}).get("items", [])
             for item in raw_items:
+                title = item.get("title", "")
+                
+                # 取得する前に簡易チェック（タイトルで弾けるなら通信を節約）
+                if _is_noise_content(title, ""):
+                    continue
+                    
                 image_url = item.get("imageURL", {}).get("large", "")
                 aff_url = (item.get("affiliateURL") or "").replace(DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID)
+                desc = scrape_description(item.get("URL", ""), site=site)
+                
+                # あらすじ取得後に再度厳密チェック
+                if _is_noise_content(title, desc):
+                    continue
+                    
                 items.append({
-                    "title": item.get("title", ""),
+                    "title": title,
                     "url": aff_url,
                     "image_url": image_url,
-                    "description": scrape_description(item.get("URL", ""), site=site)
+                    "description": desc
                 })
+                
+                if len(items) >= 5:
+                    break # 5件揃ったら終了
         else:
             logger.error(f"DMM API Error ({site}/{genre}): {r.status_code}")
     except Exception as e:
@@ -1440,7 +1461,8 @@ def fetch_ranking_dmm_fanza(site, genre):
 
 def fetch_ranking_dlsite(genre):
     """
-    DLsiteのランキング（スクレイピング）から上位5件を取得。
+    DLsiteのランキング（スクレイピング）を取得し、
+    MNG（マンガ）タグを持つ作品のみを上位からピックアップして5件を返す。
     genre: "BL" または "TL" (DLsiteは girls or bl)
     """
     items = []
@@ -1453,17 +1475,35 @@ def fetch_ranking_dlsite(genre):
         if r.status_code == 200:
             soup = BeautifulSoup(r.text, 'html.parser')
             anchor_items = soup.select('table#ranking_table .work_name a')
-            for anchor in anchor_items[:5]:
+            # フィルタリングで弾かれるのを想定して多めに上位20件までチェック
+            for anchor in anchor_items[:20]:
                 title = anchor.text.strip()
                 link = anchor.get('href')
+                
+                # 事前タイトルチェック
+                if _is_noise_content(title, ""):
+                    continue
                 
                 # 詳細ページから画像とあらすじを取得
                 img_src = ""
                 desc = ""
+                is_manga = False
                 try:
                     dr = requests.get(link, headers=headers, timeout=10)
                     if dr.status_code == 200:
                         dsoup = BeautifulSoup(dr.text, 'html.parser')
+                        
+                        # MNGホワイトリストチェック
+                        work_genres = dsoup.select('.work_genre a')
+                        for wg in work_genres:
+                            href = wg.get('href', '')
+                            if '/work_type/MNG' in href:
+                                is_manga = True
+                                break
+                        
+                        if not is_manga:
+                            continue # マンガでなければスキップ
+                            
                         og_img = dsoup.select_one('meta[property="og:image"]')
                         if og_img:
                             img_src = og_img.get('content', '')
@@ -1472,9 +1512,14 @@ def fetch_ranking_dlsite(genre):
                         desc_tag = dsoup.select_one('meta[property="og:description"]')
                         if desc_tag:
                             desc = desc_tag.get('content', '')
+                            
+                        # 内容チェック
+                        if _is_noise_content(title, desc):
+                            continue
+                            
                 except:
-                    pass
-                
+                    continue # 取得失敗したらスキップ
+                    
                 aff_id = os.environ.get('DLSITE_AFFILIATE_ID', 'novelove')
                 aff_url = f"{link}?affiliate_id={aff_id}" if "affiliate_id=" not in link else link
                 
@@ -1484,6 +1529,9 @@ def fetch_ranking_dlsite(genre):
                     "image_url": img_src,
                     "description": desc
                 })
+                
+                if len(items) >= 5:
+                    break # 5件揃ったら終了
         else:
             logger.error(f"DLsite Scraping Error ({genre}): {r.status_code}")
     except Exception as e:
