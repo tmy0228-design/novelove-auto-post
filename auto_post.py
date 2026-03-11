@@ -302,11 +302,15 @@ def scrape_dlsite_description(url):
             detected_str = ", ".join(detected) if detected else "不明"
             logger.warning(f"[DLsite] マンガ以外の形式（{detected_str}）のため除外: {url}")
             return "__EXCLUDED_TYPE__"
-        # バックアップ: タグベースのボイス判定（MNGでも特典ボイスが含まれるケースへの追加ガード）
-        genre_tags_text = " ".join([a.text for a in soup_pre.select(".main_genre a")])
-        if any(kw in genre_tags_text for kw in ["ASMR", "バイノーラル", "ダミヘ"]):
-            logger.warning(f"[DLsite] 音声系タグ（{genre_tags_text[:60]}）を検知したため除外: {url}")
-            return "__EXCLUDED_TYPE__"
+        # --- DLsite 外国語版公式ラベルチェック ---
+        # 「マンガ」形式でも「韓国語」「中国語(繁体字)」等の公式ラベルが付いていれば翻訳版なので除外する。
+        # テキスト検索ではなく、.work_genre エリアの公式ラベルのみ対象にするため誤爆しない。
+        lang_labels = [a.text.strip() for a in soup_pre.select(".work_genre a")]
+        FOREIGN_LABELS = ["韓国語", "中国語", "繁體中文", "繁体中文", "简体中文", "English", "英語"]
+        for lbl in lang_labels:
+            if any(flabel in lbl for flabel in FOREIGN_LABELS):
+                logger.warning(f"[DLsite] 外国語版ラベル（{lbl}）のため除外: {url}")
+                return "__EXCLUDED_TYPE__"
         
         soup = BeautifulSoup(text, 'html.parser')
         for trash in soup.select('.work_outline, .work_parts_area.outline, .work_parts_area.chobit, .work_edition'):
@@ -421,13 +425,48 @@ def scrape_description(product_url, site="FANZA"):
         )
         r.encoding = r.apparent_encoding
         text = r.text
-        # --- FANZA カテゴリーチェック ---
-        # 写真集, グラビア, 文芸・小説, ライトノベル 等を弾く
+        # --- FANZA 作品形式ホワイトリスト・カテゴリーチェック ---
+        soup = BeautifulSoup(text, "html.parser")
+        
+        # 1. 確実なホワイトリスト（作品形式が「コミック」または「劇画」かどうか）
+        is_comic = False
+        has_format_tag = False
+        for dt in soup.find_all("dt"):
+            if "作品形式" in dt.text or "形式" in dt.text or "ジャンル" in dt.text:
+                dd = dt.find_next_sibling("dd")
+                if dd:
+                    has_format_tag = True
+                    fmt_text = dd.text.strip()
+                    if "コミック" in fmt_text or "劇画" in fmt_text or "マンガ" in fmt_text:
+                        is_comic = True
+                    break
+                    
+        # 作品形式タグが見つかったのにコミックじゃない場合（CG、動画、音声、ゲームなど）は即弾く
+        if has_format_tag and not is_comic:
+            logger.warning(f"[FANZA] マンガ以外の形式のため除外: {product_url}")
+            return "__EXCLUDED_TYPE__"
+        # --- FANZA 外国語版タイトルパターンチェック ---
+        # FANZAには公式言語タグがないため、タイトルの「【】」「［］」内の表記のみを厳格に判定する。
+        # あらすじや作品説明文は一切見ないため、「英語教師」等の一般単語で誤爆しない。
+        title_str = str(product_url)  # URLにcidが含まれる場合の補助。実際はsoup.titleで取得する。
+        page_title_tag = soup.find("title")
+        page_title_str = page_title_tag.text if page_title_tag else ""
+        FOREIGN_TITLE_PATTERNS = [
+            "韓国語版", "한국어", "繁体中文", "繁體中文", "简体中文", "簡体中文",
+            "中国語版", "English version", "English ver"
+        ]
+        import re as _re
+        bracket_contents = _re.findall(r'[【\[\（\(]([^】\]\）\)]+)[】\]\）\)]', page_title_str)
+        for bc in bracket_contents:
+            if any(fp in bc for fp in FOREIGN_TITLE_PATTERNS):
+                logger.warning(f"[FANZA] 外国語版タイトルパターン（{bc}）のため除外: {product_url}")
+                return "__EXCLUDED_TYPE__"
+
+        # 2. 禁止カテゴリーの保険的チェック (写真集, グラビア, 文芸・小説, ライトノベル 等)
         if any(kw in text for kw in ["カテゴリー</th><td>写真集", "カテゴリー</th><td>グラビア", "カテゴリー</th><td>文芸・小説", "カテゴリー</th><td>ライトノベル"]):
             logger.warning(f"[FANZA] 禁止カテゴリーを検知（除外対象）: {product_url}")
             return "__EXCLUDED_TYPE__"
-
-        soup = BeautifulSoup(text, "html.parser")
+            
         next_tag = soup.find("script", id="__NEXT_DATA__")
         if next_tag:
             try:
@@ -504,14 +543,13 @@ def _extract_author(item):
 
 def _is_noise_content(title, desc=""):
     """
-    タイトルやあらすじにNGワードが含まれているか判定する（漫画特化フィルタ）
-    ※ PDF版等はコミックでも含まれるため除外しない。
+    タイトルやあらすじにNGワードが含まれているか判定する（外国語版特化フィルタ）
+    ※ MANGAホワイトリストと併用し、マンガ形式の翻訳版のみを弾くためのリスト。
+    ※ 特典ボイス等は許容するため音声関連ワードは含めない。
     """
     ng_words = [
-        "CG集", "イラスト集", "画像集", "差分", "壁紙", "作品集", "写真集", "グラビア",
-        "小説", "ノベル", "テキスト", "SS", "ノベルズ", "文芸",
-        "ゲーム", "RPG", "ツール", "素材", "音声", "ASMR", "ボイス",
-        "簡体中文版", "繁体中文版", "繁體中文版", "English", "韓国語版", "中国語"
+        "簡体中文", "繁体中文", "繁體中文", "English", "韓国語版", "中国語",
+        "简体中文", "翻訳台詞", "中文字幕", "korean", "한국어"
     ]
     target_text = f"{title}_{desc}".lower()
     for word in ng_words:
@@ -842,6 +880,17 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None):
 
     return f"""あなたは人気ファンブログ「Novelove」のライター「{reviewer["name"]}」です。
 
+【事前審査（最初に必ず実行すること）】
+以下の基準で対象作品を0〜5点でスコアリングしてください。
+- 5点：日本語作品で、コミック・マンガが主体であり、ブログの趣旨（BL/TL）に完全に合致する。
+- 4〜3点：日本語作品でマンガが主体。特典ボイスや音声付きは加点要素。
+- 2〜1点：マンガ要素があるが内容が薄い、または趣旨から少しズレている。
+- 0点：外国語版（韓国語・中国語・英語等）、ボイスのみ、動画のみ、マンガではない作品。
+
+スコアが0点の場合は、**数字「0」とだけ回答してください**（記事は一切書かないこと）。
+スコアが1〜2点の場合は、**スコアの数字のみ**回答してください。
+スコアが3〜5点の場合のみ、以下の形式で記事を執筆してください。
+
 【キャラクター設定】
 名前: {reviewer["name"]}
 性格: {reviewer["personality"]}
@@ -927,11 +976,18 @@ def call_deepseek(prompt):
             time.sleep(5)
             continue
 
-        if len(text.strip()) > 50:
-            logger.info(f"  [DeepSeek] 執筆完了（{len(text)}文字 / {proc_time}秒）")
-            return text.strip(), "ok", DEEPSEEK_MODEL, proc_time
+        stripped = text.strip()
+        # --- AI審査スコアチェック（0〜2点なら不採用）---
+        if stripped in ("0", "1", "2"):
+            score = int(stripped)
+            score_reason = {0: "審査対象外（外国語/非マンガ）", 1: "適合度低（スコア1）", 2: "適合度低（スコア2）"}[score]
+            logger.warning(f"  [DeepSeek] AIスコア{score}点 → {score_reason}。投稿スキップ。")
+            return "", f"ai_score_{score}", DEEPSEEK_MODEL, proc_time
+        if len(stripped) > 50:
+            logger.info(f"  [DeepSeek] 執筆完了（{len(stripped)}文字 / {proc_time}秒）")
+            return stripped, "ok", DEEPSEEK_MODEL, proc_time
 
-        logger.warning(f"  [DeepSeek] 試行{attempt+1}: 応答が短すぎる（{len(text)}文字）")
+        logger.warning(f"  [DeepSeek] 試行{attempt+1}: 応答が短すぎる（{len(stripped)}文字）")
         time.sleep(5)
 
     return "", "content_block", DEEPSEEK_MODEL, 0.0
