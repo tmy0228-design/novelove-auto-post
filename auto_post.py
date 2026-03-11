@@ -2,9 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v8.3.0
-【UI統一 & 実行スケジュール最適化完了版】
+Novelove 自動投稿エンジン v8.3.1
+【公式クレジット導入 & UI完成版】
 ==========================================================
+【変更点 v8.3.1】
+ - UI：DMMアフィリエイト公式クレジット（iframe）を導入。記事末尾の表示を正規化
+ - 運用：既存の全記事（29件）のクレジット表示を公式 iframe 形式へ一括置換
 【変更点 v8.3.0】
  - UI：アフィリエイトボタンのデザインをランキングと通常投稿で統一。中央寄せを確実化
  - 運用：実行頻度（cron）を10分おきから1時間おきに最適化。クールダウンと同期
@@ -1085,7 +1088,21 @@ def generate_article(target):
             # AIが生成した [AFFILIATE_BUTTON] を置換
             button_html = get_affiliate_button_html(target["affiliate_url"], "作品の詳細はこちら")
             content = content.replace("[AFFILIATE_BUTTON]", button_html)
-            credit_html = f'<p style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee; font-size:0.8em; color:#bbb;">\nPRESENTED BY {site_display} / Novelove Affiliate Program\n</p>\n'
+            # クレジット表示（DMM系は公式画像リンク、他はテキスト）
+            if "FANZA" in site_display:
+                credit_html = (
+                    f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'
+                    f'<a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/r18_135_17.gif" width="135" height="17" alt="WEB SERVICE BY FANZA" style="border:none;"></a>\n'
+                    f'</div>\n'
+                )
+            elif "DMM" in site_display:
+                credit_html = (
+                    f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'
+                    f'<a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/com_135_17.gif" width="135" height="17" alt="WEB SERVICE BY DMM.com" style="border:none;"></a>\n'
+                    f'</div>\n'
+                )
+            else:
+                credit_html = f'<p style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee; font-size:0.8em; color:#bbb;">\nPRESENTED BY {site_display} / Novelove Affiliate Program\n</p>\n'
 
             release_display = ""
             if target.get("release_date"):
@@ -1821,6 +1838,26 @@ def process_ranking_articles():
             btn_html = get_affiliate_button_html(item["url"], "作品の詳細を見る")
             content = content.replace(f"[BUTTON_{rank}]", f"{btn_html}{internal_link_html}")
             
+        # ランキング記事の最後にもクレジットを追加
+        site_labels_inv = {"FANZA": "FANZA", "DMM": "DMM.com", "DLsite": "DLsite"}
+        disp_site = site_labels_inv.get(site, site)
+        if "FANZA" in disp_site:
+            ranking_credit = (
+                f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'
+                f'<a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/r18_135_17.gif" width="135" height="17" alt="WEB SERVICE BY FANZA" style="border:none;"></a>\n'
+                f'</div>\n'
+            )
+        elif "DMM" in disp_site:
+            ranking_credit = (
+                f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'
+                f'<a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/com_135_17.gif" width="135" height="17" alt="WEB SERVICE BY DMM.com" style="border:none;"></a>\n'
+                f'</div>\n'
+            )
+        else:
+            ranking_credit = f'<p style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee; font-size:0.8em; color:#bbb;">\nPRESENTED BY {disp_site} / Novelove Affiliate Program\n</p>\n'
+        
+        content += ranking_credit
+        
         conn.close()
         
         # マークダウンのコードブロック除去
