@@ -2,12 +2,16 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v8.2.3
-【二重ノイズフィルター & 誤投稿クリーンアップ完了版】
+Novelove 自動投稿エンジン v8.3.0
+【UI統一 & 実行スケジュール最適化完了版】
 ==========================================================
+【変更点 v8.3.0】
+ - UI：アフィリエイトボタンのデザインをランキングと通常投稿で統一。中央寄せを確実化
+ - 運用：実行頻度（cron）を10分おきから1時間おきに最適化。クールダウンと同期
+ - 改善：ランキング取得ロジックに「漫画限定」フィルターを完全適用
+ - 保守：既存記事（29件）のボタンデザインの一括修正およびDB/WPのノイズ一掃
 【変更点 v8.2.3】
- - 改善：AI審査の合格ラインを「3点」から「4点以上」へ厳格化。より高品質な記事のみを投稿
- - 運用：誤爆防止のため、WordPressの削除処理を `force=true`（抹消）からごみ箱（Trash）へ変更
+ - 改善：AI審査の合格ラインを「4点以上」へ厳格化。高品質記事のみを投稿
 【変更点 v8.2.2】
  - 新機能：ハイブリッドフィルター方式（DLsite公式ラベル除外、FANZA厳格タイトルパターンの導入、AI 0-5採点）
 【変更点 v8.2.1-hotfix】
@@ -151,6 +155,26 @@ if not logger.handlers:
     _sh.setFormatter(_fmt)
     logger.addHandler(_fh)
     logger.addHandler(_sh)
+
+# ----------------------------------------------------------------------
+# 共通デザイン定数
+# ----------------------------------------------------------------------
+AFFILIATE_BUTTON_STYLE = (
+    "display:block;width:300px;margin:0 auto;padding:22px 0;"
+    "background:linear-gradient(135deg,#ff4785 0%,#ff5f9e 100%);"
+    "color:#fff !important;text-decoration:none !important;"
+    "font-weight:bold;font-size:1.25em;border-radius:50px;"
+    "box-shadow:0 4px 15px rgba(255,71,133,0.4);text-shadow:0 1px 2px rgba(0,0,0,0.2);"
+    "text-align:center;line-height:1;border:none !important;outline:none !important;"
+)
+
+def get_affiliate_button_html(url, label="作品の詳細を見る"):
+    """共通のアフィリエイトボタンHTMLを生成する"""
+    return (
+        f'<div class="novelove-button-container" style="margin:35px 0;text-align:center;">'
+        f'<a href="{url}" target="_blank" rel="noopener" style="{AFFILIATE_BUTTON_STYLE}">'
+        f'{label}</a></div>'
+    )
 
 # === キャラクター設定 ===
 REVIEWERS = [
@@ -942,7 +966,7 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None):
 
 {chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
 
-<p style="text-align:center;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow">▶ 気になった人はまずここから覗いてみて…！</a></p>
+[AFFILIATE_BUTTON]
 
 {internal_link_html}
 """
@@ -1055,7 +1079,12 @@ def generate_article(target):
 <p style="text-align:center; margin-bottom:20px;">
 <span style="background:#fefefe; border:1px solid #ddd; padding:6px 16px; border-radius:25px; font-weight:bold; color:#444; box-shadow:0 2px 4px rgba(0,0,0,0.05); display:inline-block;">{icon} {site_display} {format_name}</span>
 </p>'''
+            # 上部のリンクはテキストのまま（中央寄せ）
             text_link = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:5px; margin-bottom:15px;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{target["title"]}』の詳細をチェック！</a></p>\n'
+            
+            # AIが生成した [AFFILIATE_BUTTON] を置換
+            button_html = get_affiliate_button_html(target["affiliate_url"], "作品の詳細はこちら")
+            content = content.replace("[AFFILIATE_BUTTON]", button_html)
             credit_html = f'<p style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee; font-size:0.8em; color:#bbb;">\nPRESENTED BY {site_display} / Novelove Affiliate Program\n</p>\n'
 
             release_display = ""
@@ -1789,9 +1818,8 @@ def process_ranking_articles():
                 if row and row[0]:
                     internal_link_html = f'<p style="text-align:center; font-size:0.9em; margin-top:-10px; margin-bottom:20px;"><a href="{row[0]}" style="color:#d81b60; text-decoration:none;">📝 詳しいレビューはこちら</a></p>'
 
-            btn_style = "display:block;width:300px;margin:0 auto;padding:22px 0;background:linear-gradient(135deg,#ff4785 0%,#ff5f9e 100%);color:#fff !important;text-decoration:none !important;font-weight:bold;font-size:1.25em;border-radius:50px;box-shadow:0 4px 15px rgba(255,71,133,0.4);text-shadow:0 1px 2px rgba(0,0,0,0.2);text-align:center;line-height:1;border:none !important;outline:none !important;"
-            btn_html = f'<div class="custom-button-container" style="margin:35px 0;text-align:center;"><a href="{item["url"]}" target="_blank" rel="noopener" style="{btn_style}">作品の詳細を見る</a></div>{internal_link_html}'
-            content = content.replace(f"[BUTTON_{rank}]", btn_html)
+            btn_html = get_affiliate_button_html(item["url"], "作品の詳細を見る")
+            content = content.replace(f"[BUTTON_{rank}]", f"{btn_html}{internal_link_html}")
             
         conn.close()
         
