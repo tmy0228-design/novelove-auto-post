@@ -309,10 +309,25 @@ def scrape_dlsite_description(url):
         r = requests.get(url, headers=HEADERS, timeout=15)
         if r.status_code != 200: return ""
         text = r.text
-        # --- 作品形式メタデータチェック ---
-        # NRE:ノベル, SOU:ボイス, GME:ゲーム, ANI:アニメ, MOV:動画, OTH:その他 を弾く
-        if any(f'work_type/{t}' in text for t in ['NRE', 'SOU', 'GME', 'ANI', 'MOV', 'OTH']):
-            logger.warning(f"[DLsite] 禁止形式を検知（除外対象）: {url}")
+        # --- 作品形式メタデータチェック（MNGホワイトリスト方式）---
+        # .work_genre 内のリンクから作品タイプを正確に判定する。
+        # RelatedアイテムのURLに /work_type/SOU が含まれることがあるため、
+        # 全文字列検索ではなく HTMLパース後の公式バッジリンクのみを判定対象にする。
+        soup_pre = BeautifulSoup(text, 'html.parser')
+        wg_links = [a.get("href", "") for a in soup_pre.select(".work_genre a")]
+        has_mng = any("/work_type/MNG" in link for link in wg_links)
+        if not has_mng:
+            type_map = {"SOU": "ボイス", "NRE": "ノベル", "MNG": "マンガ",
+                        "GME": "ゲーム", "MOV": "動画", "ANI": "アニメ", "ICG": "CG集"}
+            detected = [name for code, name in type_map.items()
+                        if any(f"/work_type/{code}" in link for link in wg_links)]
+            detected_str = ", ".join(detected) if detected else "不明"
+            logger.warning(f"[DLsite] マンガ以外の形式（{detected_str}）のため除外: {url}")
+            return "__EXCLUDED_TYPE__"
+        # バックアップ: タグベースのボイス判定（MNGでも特典ボイスが含まれるケースへの追加ガード）
+        genre_tags_text = " ".join([a.text for a in soup_pre.select(".main_genre a")])
+        if any(kw in genre_tags_text for kw in ["ASMR", "バイノーラル", "ダミヘ"]):
+            logger.warning(f"[DLsite] 音声系タグ（{genre_tags_text[:60]}）を検知したため除外: {url}")
             return "__EXCLUDED_TYPE__"
         
         soup = BeautifulSoup(text, 'html.parser')
@@ -382,6 +397,12 @@ def _fetch_dlsite_items(target):
             try:
                 dr = requests.get(detail_url, headers=headers, timeout=10)
                 dsoup = BeautifulSoup(dr.text, "html.parser")
+                # --- [MNGホワイトリスト] 詳細ページで作品タイプを再確認 ---
+                dr_wg_links = [a.get("href", "") for a in dsoup.select(".work_genre a")]
+                if not any("/work_type/MNG" in link for link in dr_wg_links):
+                    logger.info(f"  [DLsite取得] マンガ以外の形式のため取得スキップ: {title_text[:30]}")
+                    continue
+                # --------------------------------------------------------
                 og_img = dsoup.select_one('meta[property="og:image"]')
                 if og_img:
                     image_url = og_img.get("content", "")
