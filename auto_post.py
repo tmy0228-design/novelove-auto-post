@@ -1111,7 +1111,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v8.0.0 【リアルタイム厳選版】 起動")
+    logger.info("Novelove エンジン v8.2.1 【ランキング漫画限定化 & フォールバック修正版】 起動")
     init_db()
     fetch_and_stock_all()
     # ※ promote_watching() は廃止。投稿時にリアルタイムで審査する。
@@ -1173,11 +1173,14 @@ def main():
     logger.info(f"審査候補: {len(candidates)}件")
 
     posted = False
-    for row in candidates:
-        pid   = row["product_id"]
-        title = row["title"]
-        desc  = row["description"] or ""
         rdate = row["release_date"] or ""
+
+        # --- [再発防止フィルタ] 過去にDBへ混入したノイズ作品(ボイス等)を最終排除 ---
+        if _is_noise_content(title, desc):
+            logger.info(f"  [ノイズ検出] 審査候補から除外: {title[:40]}")
+            c.execute("UPDATE novelove_posts SET status='excluded' WHERE product_id=?", (pid,))
+            conn.commit()
+            continue
 
         # DeepSeekで審査（1件ずつ）
         review_status, score = _check_desc_ok(title, desc, release_date_str=rdate)
