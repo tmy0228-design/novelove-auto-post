@@ -1,48 +1,85 @@
-# Novelove 自動投稿システム (v8.2.3)
+# Novelove Auto Post Engine (v8.3.1)
 
-Novelove（ノベラブ）のコンテンツ生成および自動投稿を行うエンジン一式です。
-高品質な**日本語マンガ**に特化したレビュー記事を全自動で生成・投稿します。
+BL・TL・女性向けコンテンツ特化型 自動投稿・レビュー生成システム
 
-## 🚀 システム概要
-- **目的**: FANZA, DLsite, DMMブックスの新着情報を取得し、DeepSeek AIでレビュー記事を生成して WordPress に自動投稿する。
-- **主要言語**: Python 3.x
-- **データベース**: SQLite (`novelove.db`, `novelove_dlsite.db`)
+---
 
-## 🛠 主要機能・ガード (v8.2.3)
-高品質なサイト運営のため、多層的なフィルターとガードを実装しています。
+## 🚀 Project Snapshot (for AI & Agents)
 
-### 1. ハイブリッド・ノイズフィルター
-ボイス作品、ノベル、ゲーム、外国語版などの混入を徹底的に排除します。
-- **DLsite**: 商品詳細ページの `.work_genre` から公式の `MNG`（マンガ）バッジを直接チェック。また「韓国語」「中国語」等の言語ラベルも検知。
-- **FANZA**: 作品形式（コミック・劇画）に加え、タイトルの特定の括弧パターン（【韓国語版】等）で精密照合。
+| Item | Value |
+| :--- | :--- |
+| **Primary AI** | **DeepSeek-V3 / R1** (Writing & Scoring) |
+| **Target Sites** | FANZA, DMM.com (ebook), DLsite (Girls/BL) |
+| **Platform** | WordPress (Cocoon Theme / Kusanagi VPS) |
+| **Logic Core** | 0-5 Scoring, 3-Masking Levels, 5 Character Personas |
+| **Truth Source** | **VPS Server Environment** (NOT GitHub Raw cache) |
 
-### 2. AI審査・スコアリング (DeepSeek)
-執筆の直前に、AIが作品内容を 0〜5点 でスコアリングします。
-- **合格基準: 4点以上のみ**
-- 作品の内容が薄いもの、紹介価値が低いもの（3点以下）は執筆を中断し、投稿されません。
-- スコア 0点：非マンガ、外国語作品を判定（最終防衛ライン）。
+---
 
-### 3. 投稿・削除ポリシー
-- **フォールバック（敗者復活）機能**: 指定ジャンルで合格作品がない場合、全ジャンルの中から最も有望な候補を自動選出して投稿。
-- **ごみ箱 (Trash) 運用**: 誤投稿やノイズが発見された際の削除処理は、抹消ではなく復元可能な「ごみ箱」へ移動。
+## ⚠️ 運用上の鉄則 (Critical Rules)
 
-## 🤖 AI モデル構成
-| 役割 | 使用モデル | 特徴 |
-| :--- | :--- | :--- |
-| **メイン (Scoring/Writing)** | `DeepSeek-V3 / R1` | 高い文脈理解による高品質なレビュー生成。 |
-| **フォールバック (Backup)** | `Gemini 1.5 Pro` / `GPT-4o mini` | DeepSeek制限時やエラー回避用のバックアップ。 |
+### 1. 「真実は VPS にある」原則
+GitHub の `raw` ファイル（CDN経由）は強烈なキャッシュにより、push直後でも**数分〜数十分古いコード**を返すことがあります。エージェントがGitHubのコードを直接Fetchして読み取ると、破壊的なデグレードを引き起こすリスクがあります。
 
-## 📜 変更履歴
-詳細は [CHANGELOG.md](./CHANGELOG.md) を参照してください。
-
-## 🔄 作業フロー
-1. ローカルで修正・検証を行う。
-2. `git push origin main` で GitHub へ反映。
-3. サーバー（Kusanagi）側で毎時0分に `git pull` が走り、自動的に最新版へ更新される。
-
-## ⏰ 定期実行設定 (cron)
-サーバー上で以下のcronを設定することで、定期的に自動投稿が実行されます。
+**最新状態の確認は必ず以下のコマンドで行うこと：**
 ```bash
-# 例: 3時間おきに実行
-0 */3 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py >> /home/kusanagi/scripts/novelove.log 2>&1
+cd /home/kusanagi/scripts
+git log --oneline -5
 ```
+GitHub 上の表示ではなく、VPS 側で `git log` を叩いて得られる内容のみを「正信」とします。
+
+### 2. 認証情報の管理
+APIキーやWPパスワードはすべて `/home/kusanagi/scripts/.env` に秘匿されています。コード内に直接記述しないでください。
+
+---
+
+## 🧠 AI Intelligence Logic
+
+### 1. 0-5点プレスコアリング (Pre-Scoring)
+記事執筆前に、AIが作品情報を以下の基準で判定します。
+- **4〜5点**: 合格。記事執筆へ移行。
+- **0〜3点**: 不採用。特に「AIスコア4点」が現在の足切りラインです。
+- **0点定義**: 非マンガ（ボイス単体、動画）、外国語作品、ジャンル違い。
+
+### 2. 3段階マスキングシステム (Masking)
+性的表現をWordPressのポリシー（およびSEO）に適合させるため、以下の処理を行います。
+- `level=0`: 無加工。
+- `level=1`: 軽度（直接的な単語を「●●●」やマイルドな表現に置換）。
+- `level=2`: 強力（官能的な描写を「愛の雫」「秘めた部分」等へ文学的に置換）。
+
+### 3. キャラクター・ペルソナ (Reviewers)
+記事は以下の5人からランダムに選ばれたライターの視点で執筆されます。
+- **紫苑 (Shion)**: クール毒舌腐女子OL。BL同人誌担当。
+- **茉莉花 (Marika)**: 陽キャカフェ店員。TL・ボイス担当。
+- **葵 (Aoi)**: オタク早口大学生。属性萌え重視。
+- **桃香 (Momoka)**: 深夜にボイスを聴く主婦。大人目線。
+- **蓮 (Ren)**: 眼鏡インテリ院生。学術的（建前）に分析。
+
+---
+
+## 🛠 Directory Structure
+
+```text
+/home/kusanagi/scripts/
+├── auto_post.py             # メインエンジン (v8.3.1)
+├── CHANGELOG.md             # 開発・修正の全履歴
+├── README.md                # 本文書 (プロジェクトの聖典)
+├── .env                     # 認証情報 (Git管理不可)
+├── novelove.db              # FANZA/DMM用 投稿追跡DB
+├── novelove_dlsite.db       # DLsite用 投稿追跡DB
+└── tools/                   # メンテナンス用ツールキット
+    ├── clean_db_noise.py    # DBのゴミ掃除
+    ├── list_tags.py         # 現行タグ一覧
+    └── migrate_posts.py     # 記事移行ユーティリティ等
+```
+
+---
+
+## 🔄 開発の歴史と背景 (Context)
+
+- **v8.3.1**: クレジットの iframe 化を試みるも、WordPress の表示制限により断念。**公式画像（img）リンクへ回帰**。
+- **v8.3.0**: 10分おきの更新を「1時間おき」に最適化し、サーバー負荷とクールダウン速度を調整。
+- **v8.2.0**: 複雑な24枠ローテーションを「重複なしの6枠」へ単純化し、運用の透明性を向上。
+
+---
+*Last Updated: 2026-03-13 / NoveLove Project*
