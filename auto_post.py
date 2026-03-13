@@ -2,9 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v8.3.1
-【公式クレジット導入 & UI完成版】
+Novelove 自動投稿エンジン v8.3.2
+【公式クレジット導入 & 吹き出し表示復旧版】
 ==========================================================
+【変更点 v8.3.2】
+ - UI：吹き出し（speech-bubble）表示を復旧。WordPressの自動整形（wpautop）による構造破壊を防止
+ - 改善：AIへのプロンプト指示を強化し、意図しないスコア出力やタグ改変を厳格に制御
 【変更点 v8.3.1】
  - UI：DMMアフィリエイト公式画像リンク（imgタグ）を導入。記事末尾の表示を正規化
  - 運用：既存の全記事（29件）のクレジット表示を公式画像リンク形式へ一括置換
@@ -892,8 +895,8 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None):
     safe_desc  = mask_input(target["description"], mask_level)
     label      = _genre_label(target["genre"])
 
-    chat_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" />\n<div class="speech-text">'
-    chat_close = '</div>\n</div>'
+    chat_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
+    chat_close = '</div></div>'
 
     voice_hint = ""
     if target["genre"] == "doujin_voice":
@@ -932,7 +935,8 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None):
 3. 直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
 4. キャラクターコメント（吹き出し）の中身のみ、{reviewer["name"]}の個性を全開にした口調で執筆すること。
 5. 紹介対象は「{label}」です。オタク的な表現は吹き出しコメントの中でのみ使用すること。
-6. コメントのボリューム:
+6. **【重要】スコアが4〜5点の場合、スコアの数字は出力せず、記事本文（HTML）のみを出力してください。**
+7. コメントのボリューム:
    - 冒頭：60〜80字程度。期待値をキャラらしく語る。
    - 中間：50〜70字程度。紹介への短いリアクション。
    - 総評：100〜120字程度。熱い布教とまとめ。{voice_hint}
@@ -1666,8 +1670,8 @@ def format_ranking_prompt(site_name, genre, items, reviewer):
 </item>
 '''
 
-    chat_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" />\n<div class="speech-text">'
-    chat_close = '</div>\n</div>'
+    chat_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
+    chat_close = '</div></div>'
 
     prompt = f'''あなたは「{reviewer["name"]}」として、今週の{site_name}における{genre}の人気ランキングTOP5を紹介するアフィリエイト記事を執筆してください。
 
@@ -1702,10 +1706,7 @@ HTML構造テンプレート:
     （ここに紹介文をあらすじベースで1〜2行で記述）
   </p>
   
-  {chat_open}
-  <strong>{reviewer["name"]}の推しポイント：</strong><br>
-  （ここを{reviewer["name"]}のセリフ口調で30〜50字で記述）
-  {chat_close}
+  {chat_open}<strong>{reviewer["name"]}の推しポイント：</strong><br>（ここを{reviewer["name"]}のセリフ口調で30〜50字で記述）{chat_close}
   
   [BUTTON_{{rank}}]
 </div>
