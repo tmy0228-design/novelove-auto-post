@@ -981,6 +981,12 @@ def call_deepseek(prompt):
             score_reason = {0: "審査対象外（外国語/非マンガ）", 1: "適合度低（スコア1）", 2: "適合度低（スコア2）", 3: "熱量不足（スコア3）"}[score]
             logger.warning(f"  [DeepSeek] AIスコア{score}点 → {score_reason}。投稿スキップ。")
             return "", f"ai_score_{score}", DEEPSEEK_MODEL, proc_time
+        # --- 先頭スコア数字の除去（4〜5点合格でも数字が残る場合がある）---
+        # AIが「5\n\n<div...」のように数字を先頭に出力してしまう場合の対策
+        cleaned = re.sub(r'^[4-5]\s*\n+', '', stripped)
+        if cleaned != stripped:
+            logger.info(f"  [クリーニング] 先頭のスコア数字を除去しました。")
+            stripped = cleaned.strip()
         if len(stripped) > 50:
             logger.info(f"  [DeepSeek] 執筆完了（{len(stripped)}文字 / {proc_time}秒）")
             return stripped, "ok", DEEPSEEK_MODEL, proc_time
