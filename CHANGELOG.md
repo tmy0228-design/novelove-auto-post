@@ -1,3 +1,10 @@
+
+## [v8.4.1] - 2026-03-13
+- [FIX] AIが本文冒頭に作品スコア（5, 4など）を出力してしまい、HTML構造が崩れるバグを修正（クリーニング処理の追加）
+- [FIX] 吹き出し（speech-bubble）用のCSSをWordPressに適用し、キャラクターアイコンの巨大化問題を解消
+- [ENHANCE] novelove_posts テーブルに post_type カラムを追加し、今後の拡張性（ランキング等）に向けたDBスキーマの強化
+- [DOC] README.md および SPECIFICATIONS.md をAIが状況を即座に把握できるように刷新
+
 ```
 # CHANGELOG (変更履歴)
 
