@@ -151,12 +151,12 @@ if not logger.handlers:
 # 共通デザイン定数
 # ----------------------------------------------------------------------
 AFFILIATE_BUTTON_STYLE = (
-    "display:block;width:300px;margin:0 auto;padding:22px 0;"
-    "background:linear-gradient(135deg,#ff4785 0%,#ff5f9e 100%);"
-    "color:#fff !important;text-decoration:none !important;"
-    "font-weight:bold;font-size:1.25em;border-radius:50px;"
-    "box-shadow:0 4px 15px rgba(255,71,133,0.4);text-shadow:0 1px 2px rgba(0,0,0,0.2);"
-    "text-align:center;line-height:1;border:none !important;outline:none !important;"
+    "display:block;width:300px;margin:0 auto;padding:18px 0;"
+    "background:#ffebf2;"
+    "color:#d81b60 !important;text-decoration:none !important;"
+    "font-weight:bold;font-size:1.1em;border-radius:50px;"
+    "box-shadow:0 4px 10px rgba(216,27,96,0.15);border:2px solid #ffcfdf !important;"
+    "text-align:center;line-height:1;outline:none !important;"
 )
 
 def get_affiliate_button_html(url, label="作品の詳細を見る"):
@@ -937,8 +937,6 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None):
 
 {chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
 
-[AFFILIATE_BUTTON]
-
 {internal_link_html}
 """
 
@@ -1059,10 +1057,13 @@ def generate_article(target):
             # 上部のリンクはテキストのまま（中央寄せ）
             text_link = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:5px; margin-bottom:15px;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{target["title"]}』の詳細をチェック！</a></p>\n'
             
-            # AIが生成した [AFFILIATE_BUTTON] を置換
-            button_html = get_affiliate_button_html(target["affiliate_url"], "作品の詳細はこちら")
-            content = content.replace("[AFFILIATE_BUTTON]", button_html)
-            # クレジット表示（DMM系は公式画像リンク、他はテキスト）
+            # 画像下テキストリンク
+            text_link = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:5px; margin-bottom:15px;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{target["title"]}』の詳細をチェック！</a></p>\n'
+            
+            # 末尾ボタンHTML生成
+            button_html = get_affiliate_button_html(target["affiliate_url"], "作品の詳細を見る")
+            
+            # クレジット表示
             if "FANZA" in site_display:
                 credit_html = (
                     f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'
@@ -1092,7 +1093,8 @@ def generate_article(target):
                 seo_title = f"{target['title'][:30]}…を{reviewer['name']}が紹介 | Novelove"
             wp_title  = target["title"]
 
-            full_content = badge_html + img_html + release_display + text_link + content + credit_html
+            # 【重要】画像下はテキリン、末尾はボタンで固定
+            full_content = badge_html + img_html + release_display + text_link + content + button_html + credit_html
             word_count = len(content)
             is_r18_val = ":r18=1" in str(target.get("site", ""))
             return wp_title, full_content, excerpt, seo_title, is_r18_val, "ok", model_name, level_name, proc_time, word_count
@@ -1531,7 +1533,7 @@ HTML構造テンプレート:
   
   {chat_open}<strong>{reviewer["name"]}の推しポイント：</strong><br>（ここを{reviewer["name"]}のセリフ口調で30〜50字で記述）{chat_close}
   
-  [BUTTON_{{rank}}]
+  [REVIEW_LINK_{{rank}}]
 </div>
 
 ※注意点：
@@ -1654,7 +1656,9 @@ def process_ranking_articles():
             content = content.replace(f"[TITLE_{rank}]", item["title"])
             
             img_html = f'<div style="text-align: center;"><a href="{item["url"]}" target="_blank" rel="noopener"><img src="{item["image_url"]}" alt="{item["title"]}" style="max-height: 400px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" /></a></div>'
-            content = content.replace(f"[IMAGE_{rank}]", img_html)
+            # ランキングも画像の下は作品名テキストリンクにする
+            text_link_html = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:10px; margin-bottom:15px;"><a href="{item["url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{item["title"]}』の詳細をチェック！</a></p>'
+            content = content.replace(f"[IMAGE_{rank}]", f"{img_html}{text_link_html}")
             
             # アイテム詳細URLやタイトルから、既存の記事IDを探す（内部リンク）
             # 商品IDを取得して検索
@@ -1672,8 +1676,8 @@ def process_ranking_articles():
                 if row and row[0]:
                     internal_link_html = f'<p style="text-align:center; font-size:0.9em; margin-top:-10px; margin-bottom:20px;"><a href="{row[0]}" style="color:#d81b60; text-decoration:none;">📝 詳しいレビューはこちら</a></p>'
 
-            btn_html = get_affiliate_button_html(item["url"], "作品の詳細を見る")
-            content = content.replace(f"[BUTTON_{rank}]", f"{btn_html}{internal_link_html}")
+            # ランキングではボタンを廃止し、レビューへの内部リンクのみを表示
+            content = content.replace(f"[REVIEW_LINK_{rank}]", internal_link_html)
             
         # ランキング記事の最後にもクレジットを追加
         site_labels_inv = {"FANZA": "FANZA", "DMM": "DMM.com", "DLsite": "DLsite"}
