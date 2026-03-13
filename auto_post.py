@@ -2,30 +2,15 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v8.3.2
-【公式クレジット導入 & 吹き出し表示復旧版】
+Novelove 自動投稿エンジン v8.4.0
+【コスト最適化 & 行列消化型・保険枠投稿システム導入版】
 ==========================================================
-【変更点 v8.3.2】
- - UI：吹き出し（speech-bubble）表示を復旧。WordPressの自動整形（wpautop）による構造破壊を防止
- - 改善：AIへのプロンプト指示を強化し、意図しないスコア出力やタグ改変を厳格に制御
-【変更点 v8.3.1】
- - UI：DMMアフィリエイト公式画像リンク（imgタグ）を導入。記事末尾の表示を正規化
- - 運用：既存の全記事（29件）のクレジット表示を公式画像リンク形式へ一括置換
-【変更点 v8.3.0】
- - UI：アフィリエイトボタンのデザインをランキングと通常投稿で統一。中央寄せを確実化
- - 運用：実行頻度（cron）を10分おきから1時間おきに最適化。クールダウンと同期
- - 改善：ランキング取得ロジックに「漫画限定」フィルターを完全適用
- - 保守：既存記事（29件）のボタンデザインの一括修正およびDB/WPのノイズ一掃
-【変更点 v8.2.3】
- - 改善：AI審査の合格ラインを「4点以上」へ厳格化。高品質記事のみを投稿
-【変更点 v8.2.2】
- - 新機能：ハイブリッドフィルター方式（DLsite公式ラベル除外、FANZA厳格タイトルパターンの導入、AI 0-5採点）
-【変更点 v8.2.1-hotfix】
- - 修正：フォールバック（敗者復活）候補にもノイズフィルターを適用（ボイス等の混入を防止）
- - 更新：DLsite/FANZAランキング取得時に、ボイス・ノベルを除外し「漫画のみ」を抽出するよう強化
-【変更点 v8.2.0】
- - 刷新：24枠ローテーションを「重複なしの6枠」へシンプル化
- - 強化：指定ジャンル空振り時に「全ジャンル最短候補」を投稿するフォールバック機能（敗者復活）を実装
+【変更点 v8.4.0】
+ - 運用：新着優先 ＋ 待機分（最古順）からの「保険枠」バックアップ投稿を導入
+ - 改善：APIコスト徹底削減。「画像なし」や「発売7日より前」はAI審査を完全にスキップ
+ - 改善：合格ライン（4点以上）で即投稿。3点以下は即除外（excluded）へ移行
+ - 通知：Discord通知に「投稿ルート（新着/保険）」と「AIスコア」を表示
+ - 保守：古い再審査ロジック（promote_watching等）を完全に除去しコードをスリム化
 ==========================================================
 """
 
@@ -147,8 +132,8 @@ DB_FILE_FANZA  = os.path.join(SCRIPT_DIR, "novelove.db")
 DB_FILE_DLSITE = os.path.join(SCRIPT_DIR, "novelove_dlsite.db")
 LOG_FILE       = os.path.join(SCRIPT_DIR, "novelove.log")
 
-DESC_SCORE_PENDING  = 5
-DESC_SCORE_WATCHING = 4
+DESC_SCORE_PENDING  = 4
+DESC_SCORE_WATCHING = 0
 
 logger = logging.getLogger("novelove")
 logger.setLevel(logging.INFO)
@@ -273,14 +258,17 @@ def init_db():
             last_error TEXT DEFAULT '',
             inserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_checked_at TEXT DEFAULT '',
-            published_at TIMESTAMP
+            published_at TIMESTAMP,
+            post_type TEXT DEFAULT 'regular'
         )''')
         for col, definition in [
             ("retry_count", "INTEGER DEFAULT 0"),
             ("last_error",  "TEXT DEFAULT ''"),
+            ("desc_score",  "INTEGER DEFAULT 0"),
+            ("rewrite_status", "TEXT DEFAULT NULL"),
+            ("post_type", "TEXT DEFAULT 'regular'"),
             ("last_checked_at", "TEXT DEFAULT ''"),
-            ("site", "TEXT DEFAULT ''"),
-            ("desc_score", "INTEGER DEFAULT 0"),
+            ("site", "TEXT DEFAULT ''")
         ]:
             try:
                 c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
@@ -637,19 +625,50 @@ def fetch_and_stock_all():
                 aff_url = f"{item.get('URL')}?affiliate_id={os.environ.get('DLSITE_AFFILIATE_ID', 'novelove')}"
             else:
                 aff_url = (item.get("affiliateURL") or "").replace(DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID)
+            
             is_r18 = 1 if _is_r18_item(item, site=site) else 0
             author = _extract_author(item)
+            rdate = item.get("date", "")
+
+            # --- APIコスト最適化判定 ---
+            final_status = status
+            final_score = 0
+            if status == 'watching' and desc and len(desc) > 50:
+                # 1. 画像があるか？
+                # 2. 発売日が近い（7日以内）か？
+                is_img_ready = _check_image_ok(image_url)
+                is_date_ready = False
+                try:
+                    rd_dt = datetime.strptime(rdate[:10], "%Y-%m-%d")
+                    if rd_dt <= datetime.now() + timedelta(days=7):
+                        is_date_ready = True
+                except: is_date_ready = True # 日付不明なら進める
+
+                if is_img_ready and is_date_ready:
+                    # 本格審査へ
+                    review_status, score = _check_desc_ok(item.get("title", ""), desc, rdate)
+                    final_score = score
+                    if review_status == "pending":
+                        final_status = "pending"
+                    elif score >= 1 and score <= 3:
+                        final_status = "excluded"
+                    elif review_status == "limit_skip" or review_status == "api_error":
+                        final_status = "watching"
+                else:
+                    # 条件不十分（画像なし or 発売日が遠い）
+                    # AIを呼ばずに watching でキープ（費用の節約）
+                    final_status = "watching"
 
             c.execute(
                 """INSERT INTO novelove_posts
                     (product_id, title, author, genre, site, status, description,
-                    affiliate_url, image_url, product_url, release_date)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    affiliate_url, image_url, product_url, release_date, post_type, desc_score)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (pid, item.get("title"), author, target["genre"],
-                    f"{site}:r18={is_r18}", status, desc, aff_url,
-                    image_url, item.get("URL", ""), item.get("date", ""))
+                    f"{site}:r18={is_r18}", final_status, desc, aff_url,
+                    image_url, item.get("URL", ""), rdate, "regular", final_score)
             )
-            logger.info(f"[{site}] [確保({status})] {item.get('title','')[:40]} ({target['label']})")
+            logger.info(f"[{site}] [確保({final_status}/{final_score}点)] {item.get('title','')[:40]} ({target['label']})")
             added += 1
         conn.commit()
         conn.close()
@@ -795,63 +814,8 @@ def _check_desc_ok(title, desc, release_date_str=None):
     else:
         return "watching", score
 
-def _check_stock_status(image_url, desc, title, release_date=""):
-    if not _check_image_ok(image_url):
-        return "watching", 0
-    status, score = _check_desc_ok(title, desc, release_date)
-    return status, score
 
-def promote_watching():
-    """watching作品の昇格処理"""
-    now = datetime.now()
-    now_date = now.date()
-    dbs_to_post = [DB_FILE_FANZA, DB_FILE_DLSITE]
-
-    for db_path in dbs_to_post:
-        site_tag = "FANZA/DMM" if db_path == DB_FILE_FANZA else "DLsite"
-        try:
-            conn = sqlite3.connect(db_path, timeout=30)
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            rows_to_process = c.execute(
-                """SELECT product_id, title, image_url, description, release_date, status, retry_count
-                   FROM novelove_posts
-                   WHERE (status='watching' OR (status='failed_stock' AND retry_count < 3))
-                   AND (last_checked_at IS NULL OR last_checked_at < datetime('now', '-10 minutes'))
-                   ORDER BY release_date ASC LIMIT 3"""
-            ).fetchall()
-
-            promoted_count = 0
-            for r_item in rows_to_process:
-                p_id   = r_item["product_id"]
-                title  = r_item["title"]
-                img    = r_item["image_url"]
-                desc   = r_item["description"]
-                r_date = r_item["release_date"]
-
-                c.execute("UPDATE novelove_posts SET last_checked_at=datetime('now') WHERE product_id=?", (p_id,))
-
-                status, score = _check_stock_status(img, desc, title, r_date)
-                if status == "pending":
-                    c.execute("UPDATE novelove_posts SET status='pending', desc_score=? WHERE product_id=?", (score, p_id))
-                    logger.info(f"[{site_tag}] [昇格] {title[:40]} (Score: {score})")
-                    promoted_count += 1
-                else:
-                    c.execute("UPDATE novelove_posts SET desc_score=? WHERE product_id=?", (score, p_id))
-                    try:
-                        r_date_dt = datetime.strptime(r_date[:10], "%Y-%m-%d").date()
-                        if r_date_dt <= now_date:
-                            c.execute("UPDATE novelove_posts SET status='failed_stock', last_error='発売日経過かつ情報不足のため除外' WHERE product_id=?", (p_id,))
-                            logger.info(f"[{site_tag}] [除外] 発売日経過につきお蔵入り: {title[:40]}")
-                    except:
-                        pass
-
-            conn.commit()
-            conn.close()
-            if promoted_count > 0:
-                logger.info(f"[{site_tag}] 昇格完了: {promoted_count}件")
-        except Exception as e:
-            logger.error(f"[{site_tag}] 昇格処理エラー: {e}")
+# _check_stock_status() および promote_watching() は v8.4.0 で廃止され、main() に統合されました。
 
 def get_internal_link(product_id, author, genre, db_path=DB_FILE_FANZA):
     conn = sqlite3.connect(db_path)
@@ -1223,288 +1187,141 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v8.2.1 【ランキング漫画限定化 & フォールバック修正版】 起動")
+    logger.info("Novelove エンジン v8.4.0 【行列消化・コスト最適化ロジック】 起動")
     init_db()
     fetch_and_stock_all()
-    # ※ promote_watching() は廃止。投稿時にリアルタイムで審査する。
 
-    # クールダウンチェック
+    # クールダウンチェック（1時間1件ペース）
     is_cool_down = False
     for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE]:
         if not os.path.exists(db_path): continue
         tmp_conn = sqlite3.connect(db_path)
-        last_pub = tmp_conn.execute(
-            "SELECT published_at FROM novelove_posts WHERE status='published' ORDER BY published_at DESC LIMIT 1"
-        ).fetchone()
+        last_pub = tmp_conn.execute("SELECT published_at FROM novelove_posts WHERE status='published' ORDER BY published_at DESC LIMIT 1").fetchone()
         tmp_conn.close()
         if last_pub and last_pub[0]:
-            from datetime import timezone
             try:
-                lp_dt = datetime.strptime(last_pub[0], "%Y-%m-%d %H:%M:%S")
-                lp_dt_utc = lp_dt.replace(tzinfo=timezone.utc)
-                now_utc = datetime.now(timezone.utc)
-                diff = (now_utc - lp_dt_utc).total_seconds() / 60
-                if diff < 55:
-                    is_cool_down = True
-                    break
+                from datetime import timezone
+                lp_dt = datetime.strptime(last_pub[0], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                diff = (datetime.now(timezone.utc) - lp_dt).total_seconds() / 60
+                if diff < 55: is_cool_down = True
             except: pass
-
     if is_cool_down:
-        logger.info("🕒 クールダウン中（前回の投稿から1時間未経過）。終了します。")
+        logger.info("🕒 クールダウン中（1時間未経過）。終了します。")
         return
 
-    # ジャンルをローテーションで決定
-    genre_index        = get_genre_index()
-    current_genre_info = FETCH_TARGETS[genre_index % len(FETCH_TARGETS)]
-    save_genre_index(genre_index + 1)
-
-    site_for_db = current_genre_info.get("site", "FANZA")
-    db_path     = get_db_path(site_for_db)
-    genre       = current_genre_info["genre"]
-    today_str   = datetime.now().strftime("%Y-%m-%d")
-
-    logger.info(f"【ジャンル決定】 {current_genre_info['label']} (DB: {os.path.basename(db_path)})")
-
+    # ジャンル決定
+    g_idx = get_genre_index()
+    target_info = FETCH_TARGETS[g_idx % len(FETCH_TARGETS)]
+    save_genre_index(g_idx + 1)
+    db_path = get_db_path(target_info.get("site", "FANZA"))
+    genre = target_info["genre"]
+    
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
-
-    # 候補プール: 発売日が直近（今日+3日以内）の未審査作品を
-    # あらすじ文字数が多い順 × 発売日新しい順 で最大30件取得
-    candidates = c.execute(
-        """SELECT * FROM novelove_posts
-           WHERE genre=?
-             AND status='watching'
-             AND desc_score=0
-             AND release_date <= date(?, '+3 days')
-           ORDER BY LENGTH(description) DESC, release_date DESC
-           LIMIT 30""",
-        (genre, today_str)
-    ).fetchall()
-
-    logger.info(f"審査候補: {len(candidates)}件")
-
     posted = False
-    for row in candidates:
-        pid   = row["product_id"]
-        title = row["title"]
-        desc  = row["description"] or ""
-        rdate = row["release_date"] or ""
 
-        # --- [再発防止フィルタ] 過去にDBへ混入したノイズ作品(ボイス等)を最終排除 ---
-        if _is_noise_content(title, desc):
-            logger.info(f"  [ノイズ検出] 審査候補から除外: {title[:40]}")
-            c.execute("UPDATE novelove_posts SET status='excluded' WHERE product_id=?", (pid,))
-            conn.commit()
-            continue
+    # --- ステップ1: 即投稿枠 (pending) の検索 ---
+    pending_row = c.execute(
+        "SELECT * FROM novelove_posts WHERE status='pending' AND genre=? ORDER BY inserted_at DESC LIMIT 1",
+        (genre,)
+    ).fetchone()
 
-        # DeepSeekで審査（1件ずつ）
-        review_status, score = _check_desc_ok(title, desc, release_date_str=rdate)
-
-        # スコアをDBに記録（再審査防止）
-        c.execute(
-            "UPDATE novelove_posts SET desc_score=?, last_checked_at=datetime('now') WHERE product_id=?",
-            (score, pid)
-        )
-        conn.commit()
-
-        # API制限やダウン時は、これ以上の候補審查も全滅するのでループを強制脱出
-        if review_status in ("limit_skip", "api_error"):
-            logger.warning("⚠️ DeepSeek API制限/エラーのため、今回の審査ターンを中断します。")
-            break
-
-        if review_status != "pending":  # "pending"が5点の場合のみ即執筆
-            logger.info(f"  [審査落ち {score}点] {title[:40]}")
-            continue
-
-        # ====== 5点！→ 即執筆・投稿 ======
-        logger.info(f"  [5点！] {title[:40]} → 執筆開始")
-        target = {
-            "product_id":    pid,
-            "title":         title,
-            "author":        row["author"] or "",
-            "genre":         row["genre"],
-            "site":          row["site"],
-            "description":   desc,
-            "affiliate_url": row["affiliate_url"],
-            "image_url":     row["image_url"],
-            "release_date":  rdate,
-            "is_r18":        ":r18=1" in str(row["site"])
-        }
-        retry_count = int(row["retry_count"] or 0)
-
-        res_data = generate_article(target)
-        if not res_data:
-            logger.warning("執筆失敗。次の候補へ。")
-            continue
-
-        wp_title, content, excerpt, seo_title, is_r18_val, error_type, model_name, filter_level, proc_time, word_count = res_data
-
-        if not content:
-            logger.warning("記事本文が空。次の候補へ。")
-            continue
-
-        site_name = str(target.get('site') or 'Unknown').split(':')[0]
-        url = post_to_wordpress(
-            wp_title, content, target["genre"], target["image_url"],
-            excerpt, seo_title, slug=target["product_id"],
-            is_r18=is_r18_val, site_label=site_name
-        )
-
-        if url:
-            c.execute(
-                "UPDATE novelove_posts SET status='published', wp_post_url=?, published_at=datetime('now') WHERE product_id=?",
-                (url, pid)
-            )
-            conn.commit()
-            daily_count = c.execute(
-                "SELECT COUNT(*) FROM novelove_posts WHERE status='published' AND published_at >= date('now', 'localtime')"
-            ).fetchone()[0]
-            logger.info(f"✅ 投稿成功！ URL: {url} (Site: {site_name})")
-            notify_discord(
-                f"✅ **投稿成功！** ({current_genre_info['label']})\n"
-                f"**タイトル**: {wp_title}\n"
-                f"**モデル**: `{model_name}` ({proc_time}秒)\n"
-                f"**記事**: `{word_count}文字` / フィルター: `{filter_level}`\n"
-                f"**統計**: 今日 {daily_count}件目\n"
-                f"**URL**: {url}"
-            )
+    if pending_row:
+        logger.info(f"✨ [新着即投稿] {pending_row['title'][:40]} (Score: {pending_row['desc_score']}点)")
+        if _execute_posting_flow(pending_row, c, conn, post_label="新着投稿"):
             posted = True
-            break
-        else:
-            # WP投稿失敗 → retry_count を増やし、3回失敗したら隔離
-            new_retry = retry_count + 1
-            if new_retry >= 3:
-                c.execute(
-                    "UPDATE novelove_posts SET retry_count=?, status='failed_wp', last_error='WP投稿3回失敗' WHERE product_id=?",
-                    (new_retry, pid)
-                )
-                logger.error(f"WP投稿3回失敗のため隔離: {title[:40]}")
-            else:
-                c.execute(
-                    "UPDATE novelove_posts SET retry_count=?, last_error='WP投稿失敗' WHERE product_id=?",
-                    (new_retry, pid)
-                )
-                logger.error(f"WP投稿失敗 ({new_retry}回目): {title[:40]}")
-            conn.commit()
-            break  # このターンは諦める
 
+    # --- ステップ2: 保険枠 (行列消化) ---
     if not posted:
-        logger.info(f"⚠️ 今回のターン（{current_genre_info['label']}）で5点作品が見つかりませんでした。")
-        logger.info("  -> 【敗者復活（フォールバック）発動】全ジャンルの未審査・高評価候補から代替作品を探します。")
+        queue_row = c.execute(
+            """SELECT * FROM novelove_posts 
+               WHERE status='watching' 
+                 AND genre=? 
+                 AND release_date <= date('now')
+               ORDER BY release_date ASC, inserted_at ASC LIMIT 1""",
+            (genre,)
+        ).fetchone()
         
-        # 全DB（FANZA・DMM・DLsiteすべて）から一番有望な候補を抽出する
-        fallback_candidates = []
-        for f_db in [DB_FILE_FANZA, DB_FILE_DLSITE]:
-            if not os.path.exists(f_db): continue
-            f_conn = sqlite3.connect(f_db)
-            f_conn.row_factory = sqlite3.Row
-            rows = f_conn.execute(
-                """SELECT * FROM novelove_posts
-                   WHERE status='watching'
-                     AND desc_score=0
-                     AND release_date <= date(?, '+3 days')
-                   ORDER BY LENGTH(description) DESC, release_date DESC
-                   LIMIT 10""",
-                (today_str,)
-            ).fetchall()
-            fallback_candidates.extend([dict(r) for r in rows])
-            f_conn.close()
+        if queue_row:
+            pid = queue_row["product_id"]
+            title = queue_row["title"]
+            logger.info(f"🔄 [保険枠・行列消化] {title[:40]} を再審査...")
             
-        # あらすじが長くて新しい順に全要素をソート
-        fallback_candidates.sort(key=lambda x: (len(x["description"] or ""), x["release_date"] or ""), reverse=True)
-        
-        logger.info(f"フォールバック候補: {len(fallback_candidates)}件（全サイト対象）")
-        
-        conn = sqlite3.connect(get_db_path(fallback_candidates[0]["site"] if fallback_candidates else "FANZA"))
-        c = conn.cursor()
-        
-        for row in fallback_candidates[:15]: # 上位15件だけ審査
-            pid   = row["product_id"]
-            title = row["title"]
-            desc  = row["description"] or ""
-            rdate = row["release_date"] or ""
-            c_site = row["site"]
-            
-            # ★★★ フォールバック候補にもNGフィルターを適用 ★★★
-            # タイトル・あらすじでボイス・外国語・ノイズを除外
-            if _is_noise_content(title, desc):
-                logger.info(f"  [フォールバック除外] ノイズ検知: {title[:40]}")
-                continue
-            # 該当レコードの更新のため、都度正しいDBに繋ぎ直す
-            c_db_path = get_db_path(c_site)
-            with sqlite3.connect(c_db_path) as tmp_c_conn:
-                tmp_c = tmp_c_conn.cursor()
-                review_status, score = _check_desc_ok(title, desc, release_date_str=rdate)
-                
-                tmp_c.execute(
-                    "UPDATE novelove_posts SET desc_score=?, last_checked_at=datetime('now') WHERE product_id=?",
-                    (score, pid)
-                )
-                tmp_c_conn.commit()
-                
-                if review_status in ("limit_skip", "api_error"):
-                    break
-                    
-                if review_status != "pending":
-                    continue
-                    
-                logger.info(f"  [フォールバック 5点！] {title[:40]} → 執筆開始")
-                target = {
-                    "product_id":    pid,
-                    "title":         title,
-                    "author":        row["author"] or "",
-                    "genre":         row["genre"],
-                    "site":          row["site"],
-                    "description":   desc,
-                    "affiliate_url": row["affiliate_url"],
-                    "image_url":     row["image_url"],
-                    "release_date":  rdate,
-                    "is_r18":        ":r18=1" in str(row["site"])
-                }
-                
-                res_data = generate_article(target)
-                if not res_data or not res_data[1]:
-                    continue
-                    
-                wp_title, content, excerpt, seo_title, is_r18_val, error_type, model_name, filter_level, proc_time, word_count = res_data
-                site_name = str(target.get('site') or 'Unknown').split(':')[0]
-                
-                url = post_to_wordpress(
-                    wp_title, content, target["genre"], target["image_url"],
-                    excerpt, seo_title, slug=target["product_id"],
-                    is_r18=is_r18_val, site_label=site_name
-                )
-                
-                if url:
-                    tmp_c.execute(
-                        "UPDATE novelove_posts SET status='published', wp_post_url=?, published_at=datetime('now') WHERE product_id=?",
-                        (url, pid)
-                    )
-                    tmp_c_conn.commit()
-                    daily_count = tmp_c.execute("SELECT COUNT(*) FROM novelove_posts WHERE status='published' AND published_at >= date('now', 'localtime')").fetchone()[0]
-                    logger.info(f"✅ フォールバック投稿成功！ URL: {url} (Site: {site_name})")
-                    notify_discord(
-                        f"✅ **フォールバック投稿成功！** (本来は {current_genre_info['label']} 枠)\n"
-                        f"**タイトル**: {wp_title}\n"
-                        f"**モデル**: `{model_name}` ({proc_time}秒)\n"
-                        f"**記事**: `{word_count}文字` / フィルター: `{filter_level}`\n"
-                        f"**統計**: 今日 {daily_count}件目\n"
-                        f"**URL**: {url}"
-                    )
-                    posted = True
-                    break
-
-        if not posted:
-            logger.info(f"⚠️ フォールバックも含め全滅（API制限・高評価なし）。次回まで待機。")
-            notify_discord(f"⚠️ 【全滅警報】 {current_genre_info['label']}枠およびフォールバック候補でも投稿可能な作品がありませんでした。")
+            new_desc = scrape_description(queue_row["product_url"], site=queue_row["site"].split(":")[0])
+            if new_desc == "__EXCLUDED_TYPE__":
+                logger.info(f"  -> 再スキャンで除外対象のため除外: {title[:30]}")
+                c.execute("UPDATE novelove_posts SET status='excluded' WHERE product_id=?", (pid,))
+                conn.commit()
+            else:
+                if not _check_image_ok(queue_row["image_url"]):
+                    logger.info(f"  -> 画像が依然として無いため、本採用を見送り除外: {title[:30]}")
+                    c.execute("UPDATE novelove_posts SET status='excluded' WHERE product_id=?", (pid,))
+                    conn.commit()
+                else:
+                    status, score = _check_desc_ok(title, new_desc or queue_row["description"], queue_row["release_date"])
+                    if status == "pending":
+                        logger.info(f"  -> 審査合格（{score}点）！保険枠から昇格投稿します。")
+                        if _execute_posting_flow(queue_row, c, conn, post_label="保険枠・再審査投稿", override_score=score):
+                            posted = True
+                    else:
+                        logger.info(f"  -> 審査落選（{score}点）。行列から除外します。")
+                        c.execute("UPDATE novelove_posts SET status='excluded', desc_score=? WHERE product_id=?", (score, pid))
+                        conn.commit()
+        else:
+            logger.info("  -> 再審査（保険枠）の対象もありません。")
 
     conn.close()
     logger.info("=" * 60)
 
-# ======================================================================
-# ランキング記事自動生成機能
-# ======================================================================
+def _execute_posting_flow(row, cursor, conn, post_label="新着投稿", override_score=None):
+    """共通の執筆・投稿・通知フロー。成功すればTrueを返す。"""
+    pid = row["product_id"]
+    score = override_score if override_score is not None else row["desc_score"]
+    
+    target = {
+        "product_id":    pid,
+        "title":         row["title"],
+        "author":        row["author"] or "",
+        "genre":         row["genre"],
+        "site":          row["site"],
+        "description":   row["description"],
+        "affiliate_url": row["affiliate_url"],
+        "image_url":     row["image_url"],
+        "release_date":  row["release_date"],
+        "is_r18":        ":r18=1" in str(row["site"])
+    }
+    
+    res_data = generate_article(target)
+    if not res_data: return False
+    
+    wp_title, content, excerpt, seo_title, is_r18_val, error_type, model_name, filter_level, proc_time, word_count = res_data
+    site_name = str(target.get('site') or 'Unknown').split(':')[0]
+    
+    url = post_to_wordpress(
+        wp_title, content, target["genre"], target["image_url"],
+        excerpt, seo_title, slug=pid, is_r18=is_r18_val, site_label=site_name
+    )
+    
+    if url:
+        cursor.execute(
+            "UPDATE novelove_posts SET status='published', wp_post_url=?, published_at=datetime('now'), desc_score=? WHERE product_id=?",
+            (url, score, pid)
+        )
+        conn.commit()
+        daily_count = cursor.execute("SELECT COUNT(*) FROM novelove_posts WHERE status='published' AND published_at >= date('now', 'localtime')").fetchone()[0]
+        
+        emoji = "✅" if "新着" in post_label else "🔄"
+        notify_discord(
+            f"{emoji} **{post_label}成功！** (本来は {row['genre']} 枠)\n"
+            f"**タイトル**: {wp_title}\n"
+            f"**AIスコア**: `{score}点` / モデル: `{model_name}`\n"
+            f"**統計**: 今日 {daily_count}件目 / {word_count}文字\n"
+            f"**URL**: {url}"
+        )
+        logger.info(f"✅ {post_label}成功！ Score: {score}, URL: {url}")
+        return True
+    return False
 
 def fetch_ranking_dmm_fanza(site, genre):
     """
@@ -1752,6 +1569,19 @@ def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_ima
     
     if wp_url:
         logger.info(f"✅ ランキング投稿成功: {wp_url}")
+        # DBに記録を残す (将来の一括修正等のため)
+        try:
+            db_path = get_db_path(site_name)
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            c.execute("""
+                INSERT OR REPLACE INTO novelove_posts (product_id, title, genre, site, status, post_type, wp_post_url, published_at)
+                VALUES (?, ?, ?, ?, 'published', 'ranking', ?, datetime('now'))
+            """, (slug, title, genre, site_name, wp_url))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"  ランキングDB記録エラー: {e}")
         return True
     return False
 
