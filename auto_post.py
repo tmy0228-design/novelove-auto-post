@@ -1202,8 +1202,15 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v8.4.0 【行列消化・コスト最適化ロジック】 起動")
+    logger.info("Novelove エンジン v8.5.2 【ランキング同期・相互リンク実装版】 起動")
     init_db()
+    
+    # ロックファイルチェック (排他制御)
+    lock_file = os.path.join(SCRIPT_DIR, "ranking.lock")
+    if os.path.exists(lock_file):
+        logger.info("🚫 ランキング記事生成中のため、通常投稿を一時停止します。")
+        return
+
     fetch_and_stock_all()
 
     # クールダウンチェック（1時間1件ペース）
@@ -1600,11 +1607,176 @@ def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_ima
         return True
     return False
 
+def get_ranking_slug(site, genre):
+    from datetime import datetime
+    now = datetime.now()
+    year = now.strftime("%Y")
+    month = now.strftime("%m")
+    week = str((now.day - 1) // 7 + 1)
+    return f"{site.lower()}-{genre.lower()}-ranking-{year}-{month}-w{week}"
+
 def process_ranking_articles():
     """
     ランキング記事を一括で生成・投稿する処理メイン
     FANZA(BL, TL), DMM(BL, TL), DLsite(BL, TL) の計6記事
+    サイト間15分ずらし ＋ サイト内BL/TL同時投稿版
     """
+    logger.info("=" * 60)
+    logger.info("ランキング記事自動生成モードを開始します")
+    
+    lock_file = os.path.join(SCRIPT_DIR, "ranking.lock")
+    try:
+        with open(lock_file, "w") as f:
+            f.write(datetime.now().isoformat())
+    except Exception as e:
+        logger.error(f"ロックファイルの作成に失敗しました: {e}")
+
+    try:
+        sites = ["FANZA", "DLsite", "DMM"]
+        medals = {1: "🥇 1位", 2: "🥈 2位", 3: "🥉 3位", 4: "4位", 5: "5位"}
+        site_labels = {"FANZA": "FANZA", "DMM": "DMM.com", "DLsite": "DLsite"}
+        
+        for i, site in enumerate(sites):
+            logger.info(f"--- ランキング処理: {site} (BL/TL 同期生成) ---")
+            
+            gen_data = {} # genre -> data
+            
+            for genre in ["BL", "TL"]:
+                logger.info(f"  [{genre}] データの取得とAI生成...")
+                items = []
+                if site in ("FANZA", "DMM"):
+                    items = fetch_ranking_dmm_fanza(site, genre)
+                else:
+                    items = fetch_ranking_dlsite(genre)
+                    
+                if len(items) < 5:
+                    logger.warning(f"  -> ランキングデータが5件未満のためスキップ (取得数: {len(items)})")
+                    continue
+                    
+                top_image_url = items[0].get("image_url", "")
+                reviewer = _get_reviewer_for_genre(genre)
+                
+                prompt = format_ranking_prompt(site, genre, items, reviewer)
+                messages = [
+                    {"role": "system", "content": "あなたは優秀なアフィリエイトブロガーです。"},
+                    {"role": "user", "content": prompt}
+                ]
+                
+                generated_html, err = _call_deepseek_raw(messages, max_tokens=2500, temperature=0.7)
+                if err != "ok":
+                    logger.error(f"  -> AI生成失敗: {err}")
+                    continue
+                    
+                content_html = generated_html
+                
+                # 内部リンク用のDB接続 (対象商品が既存レビューにあるか)
+                db_path = get_db_path(site)
+                conn = sqlite3.connect(db_path)
+                c = conn.cursor()
+                
+                for idx, item in enumerate(items):
+                    rank = idx + 1
+                    badge = medals.get(rank, f"{rank}位")
+                    content_html = content_html.replace(f"[RANK_BADGE_{rank}]", badge)
+                    content_html = content_html.replace(f"[TITLE_{rank}]", item["title"])
+                    
+                    img_elem = f'<div style="text-align: center;"><a href="{item["url"]}" target="_blank" rel="noopener"><img src="{item["image_url"]}" alt="{item["title"]}" style="max-height: 400px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" /></a></div>'
+                    text_link_elem = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:10px; margin-bottom:15px;"><a href="{item["url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{item["title"]}』の詳細をチェック！</a></p>'
+                    content_html = content_html.replace(f"[IMAGE_{rank}]", f"{img_elem}{text_link_elem}")
+                    
+                    pid = ""
+                    if "content_id" in item:
+                        pid = item["content_id"]
+                    else:
+                        m = re.search(r"product_id/([^/?]+)", item["url"])
+                        if m: pid = m.group(1)
+                    
+                    internal_link_html = ""
+                    if pid:
+                        row = c.execute("SELECT wp_post_url FROM novelove_posts WHERE product_id=? AND status='published'", (pid,)).fetchone()
+                        if row and row[0]:
+                            internal_link_html = f'<p style="text-align:center; font-size:0.9em; margin-top:-10px; margin-bottom:20px;"><a href="{row[0]}" style="color:#d81b60; text-decoration:none;">📝 詳しいレビューはこちら</a></p>'
+
+                    content_html = content_html.replace(f"[REVIEW_LINK_{rank}]", internal_link_html)
+                    
+                conn.close()
+                content_html = re.sub(r"^```html\n?", "", content_html, flags=re.MULTILINE)
+                content_html = re.sub(r"^```\n?", "", content_html, flags=re.MULTILINE)
+                
+                _now = datetime.now()
+                _week_of_month = (_now.day - 1) // 7 + 1
+                title_date = f"{_now.year}年{_now.month}月第{_week_of_month}週"
+                post_title = f"【{site_labels[site]}】今週の人気{genre}ランキング TOP5！（{title_date}）"
+                meta_desc = f"【{site_labels[site]}】今週の人気{genre}ランキング TOP5を{reviewer['name']}が熱く紹介！最新のトレンドをチェックして、あなたの「沼」になる一冊を見つけてね。"
+                
+                gen_data[genre] = {
+                    "content": content_html,
+                    "top_image_url": top_image_url,
+                    "title": post_title,
+                    "excerpt": meta_desc
+                }
+                import time
+                time.sleep(5) # APIレート制限対策
+
+            # === 同期投稿 ===
+            for genre, data in gen_data.items():
+                final_content = data["content"]
+                disp_site = site_labels.get(site, site)
+                
+                # 他ジャンルへの相互リンク挿入
+                other_genre = "TL" if genre == "BL" else "BL"
+                if other_genre in gen_data:
+                    other_slug = get_ranking_slug(site, other_genre)
+                    other_url = f"{WP_SITE_URL}/{other_slug}/"
+                    _now2 = datetime.now()
+                    _wk2 = (_now2.day - 1) // 7 + 1
+                    other_title_date = f"{_now2.year}年{_now2.month}月第{_wk2}週"
+                    cross_link = (
+                        f'<div style="border:1px solid #f0c0c0; border-radius:8px; padding:15px; margin:20px 0; background:#fff8f8;">\n'
+                        f'<p style="margin:0 0 8px; font-weight:bold; color:#c0607f;">📚 あわせて読みたい</p>\n'
+                        f'<p><a href="{other_url}">📚 【{disp_site}】{other_genre}ランキング（{other_title_date}）はこちら</a></p>\n'
+                        f'</div>\n'
+                    )
+                    final_content += cross_link
+                
+                # クレジット
+                if "FANZA" in disp_site:
+                    ranking_credit = (
+                        f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'
+                        f'<a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/r18_135_17.gif" width="135" height="17" alt="WEB SERVICE BY FANZA" style="border:none;"></a>\n'
+                        f'</div>\n'
+                    )
+                elif "DMM" in disp_site:
+                    ranking_credit = (
+                        f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'
+                        f'<a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/com_135_17.gif" width="135" height="17" alt="WEB SERVICE BY DMM.com" style="border:none;"></a>\n'
+                        f'</div>\n'
+                    )
+                else:
+                    ranking_credit = f'<p style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee; font-size:0.8em; color:#bbb;">\nPRESENTED BY {disp_site} / Novelove Affiliate Program\n</p>\n'
+                
+                final_content += ranking_credit
+                
+                logger.info(f"  -> {genre} の同期投稿を実行中...")
+                _post_ranking_article_to_wordpress(data["title"], final_content, genre, site, data["top_image_url"], excerpt=data["excerpt"])
+                import time
+                time.sleep(2)
+            
+            # 次のサイト処理まで15分待機 (最後のサイト以外)
+            if i < len(sites) - 1:
+                logger.info("通知負荷を軽減するため、次のサイト処理まで15分間（900秒）待機します...")
+                import time
+                time.sleep(900)
+
+    finally:
+        # ロック解除
+        if os.path.exists(lock_file):
+            try:
+                os.remove(lock_file)
+            except Exception as e:
+                logger.error(f"ロックファイルの削除に失敗しました: {e}")
+                
+    logger.info("ランキング記事自動生成モードを終了しました")
     logger.info("=" * 60)
     logger.info("ランキング記事自動生成モードを開始します")
     
