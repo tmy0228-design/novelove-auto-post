@@ -22,7 +22,7 @@ if os.path.exists(env_path):
 else:
     load_dotenv()
 
-DIGIKET_AFFILIATE_ID = os.environ.get("DIGIKET_AFFILIATE_ID", "")
+DIGIKET_AFFILIATE_ID = os.environ.get("DIGIKET_AFFILIATE_ID", "novelove")
 DB_FILE_DIGIKET = os.path.join(SCRIPT_DIR, "novelove_digiket.db")
 LOG_FILE = os.path.join(SCRIPT_DIR, "novelove.log")
 
@@ -184,9 +184,11 @@ def fetch_digiket_items():
                 
                 # アフィリエイトURL (APIから返ってくるlinkにIDが含まれているはずだが、念のため再構築)
                 affiliate_url = product_url
-                if DIGIKET_AFFILIATE_ID and "affiliate_id=" not in affiliate_url:
-                    sep = "&" if "?" in affiliate_url else "?"
-                    affiliate_url += f"{sep}affiliate_id={DIGIKET_AFFILIATE_ID}"
+                if DIGIKET_AFFILIATE_ID:
+                    # DigiKetのアフィリエイトURL形式: /AFID=xxxxx/
+                    if not affiliate_url.endswith("/"):
+                        affiliate_url += "/"
+                    affiliate_url += f"AFID={DIGIKET_AFFILIATE_ID}/"
                 
                 c.execute("""INSERT INTO novelove_posts 
                     (product_id, title, author, genre, site, status, release_date, description, affiliate_url, image_url, product_url)
