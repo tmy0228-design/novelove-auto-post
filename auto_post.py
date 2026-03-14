@@ -78,7 +78,11 @@ FETCH_TARGETS = [
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_bl",  "label": "DMM_BL",     "keyword": "ボーイズラブ"},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_tl", "label": "FANZA_TL",   "keyword": "乙女向け"},
     {"site": "DLsite",  "service": None,     "floor": "bl",             "genre": "doujin_bl", "label": "DLsite_BL",  "keyword": None},
-    {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_tl",  "label": "DMM_TL",     "keyword": "ティーンズラブ"}
+    {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_tl",  "label": "DMM_TL",     "keyword": "ティーンズラブ"},
+    {"site": "DigiKet", "service": None,     "floor": None,             "genre": "comic_bl",  "label": "DigiKet_BL", "keyword": None},
+    {"site": "DigiKet", "service": None,     "floor": None,             "genre": "comic_tl",  "label": "DigiKet_TL", "keyword": None},
+    {"site": "DigiKet", "service": None,     "floor": None,             "genre": "doujin_bl", "label": "DigiKet同人_BL", "keyword": None},
+    {"site": "DigiKet", "service": None,     "floor": None,             "genre": "doujin_tl", "label": "DigiKet同人_TL", "keyword": None},
 ]
 
 GENRE_TAGS = {
@@ -134,6 +138,7 @@ def mask_input(text, level=0):
 SCRIPT_DIR     = os.path.dirname(os.path.abspath(__file__))
 DB_FILE_FANZA  = os.path.join(SCRIPT_DIR, "novelove.db")
 DB_FILE_DLSITE = os.path.join(SCRIPT_DIR, "novelove_dlsite.db")
+DB_FILE_DIGIKET = os.path.join(SCRIPT_DIR, "novelove_digiket.db")
 LOG_FILE       = os.path.join(SCRIPT_DIR, "novelove.log")
 
 DESC_SCORE_PENDING  = 4
@@ -237,12 +242,15 @@ def _genre_label(genre):
 
 # === データベース管理 ===
 def get_db_path(site_raw):
-    if site_raw and "DLsite" in str(site_raw):
+    site_str = str(site_raw)
+    if "DLsite" in site_str:
         return DB_FILE_DLSITE
+    if "DigiKet" in site_str:
+        return DB_FILE_DIGIKET
     return DB_FILE_FANZA
 
 def init_db():
-    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE]:
+    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS novelove_posts (
@@ -440,6 +448,13 @@ def scrape_description(product_url, site="FANZA"):
         return ""
     if "dlsite" in str(product_url).lower():
         return scrape_dlsite_description(product_url)
+    if "digiket" in str(product_url).lower():
+        try:
+            import digiket_fetcher
+            return digiket_fetcher.scrape_digiket_description(product_url)
+        except Exception as e:
+            logger.warning(f"DigiKetスクレイピング失敗 ({product_url}): {e}")
+            return ""
     session = _make_fanza_session()
     try:
         r = session.get(
@@ -821,7 +836,7 @@ def _check_desc_ok(title, desc, release_date_str=None):
 
 # _check_stock_status() および promote_watching() は v8.4.0 で廃止され、main() に統合されました。
 
-def get_internal_link(product_id, author, genre, db_path=DB_FILE_FANZA):
+def get_internal_link(product_id, author, genre, db_path):
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     candidates = []
@@ -1005,12 +1020,11 @@ def generate_article(target):
     1回目: マスクなし → 2回目: 軽めマスク → 3回目: ガチガチマスク
     """
     reviewer = _get_reviewer_for_genre(target["genre"])
-    db_path = get_db_path(target.get("site", "FANZA"))
     internal_link = get_internal_link(
         target["product_id"],
         target.get("author", ""),
         target["genre"],
-        db_path=db_path
+        db_path=get_db_path(target.get("site"))
     )
     if internal_link:
         logger.info(f"  [内部リンク] 取得成功: {internal_link['title'][:30]}")
@@ -1212,10 +1226,16 @@ def main():
         return
 
     fetch_and_stock_all()
+    # DigiKet 新着取得
+    try:
+        import digiket_fetcher
+        digiket_fetcher.fetch_digiket_items()
+    except Exception as e:
+        logger.error(f"DigiKet取得エラー: {e}")
 
     # クールダウンチェック（サイト全体で1時間1件ペース）
     is_cool_down = False
-    for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE]:
+    for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
         if not os.path.exists(db_p): continue
         tmp_conn = sqlite3.connect(db_p)
         last_pub = tmp_conn.execute("SELECT published_at FROM novelove_posts WHERE status='published' ORDER BY published_at DESC LIMIT 1").fetchone()
@@ -1345,9 +1365,9 @@ def _execute_posting_flow(row, cursor, conn, post_label="新着投稿", override
         )
         conn.commit()
         
-        # 本日の投稿数集計 (FANZA + DLsite の合計)
+        # 本日の投稿数集計 (FANZA + DLsite + DigiKet の合計)
         total_daily = 0
-        for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE]:
+        for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
             if not os.path.exists(db_p): continue
             _conn = sqlite3.connect(db_p)
             # 日本時間 (JST) で今日の日付の投稿をカウント
