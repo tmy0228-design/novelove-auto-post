@@ -870,14 +870,6 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None):
     if target["genre"] == "doujin_voice":
         voice_hint = "\n【ボイス作品紹介のコツ】声優の演技・音質・耳への心地よさに言及すること。「耳が溶ける」「ヘッドホン必須」「通勤中に聴けない」などのリアクションを使ってもOK。"
 
-    if internal_link:
-        internal_link_html = f'''<div style="border:1px solid #f0c0c0; border-radius:8px; padding:15px; margin:20px 0; background:#fff8f8;">
-<p style="margin:0 0 8px; font-weight:bold; color:#c0607f;">📚 あわせて読みたい</p>
-<a href="{internal_link["url"]}">{internal_link["title"]}</a>
-</div>'''
-    else:
-        internal_link_html = ""
-
     return f"""あなたは人気ファンブログ「Novelove」のライター「{reviewer["name"]}」です。
 
 【事前審査（最初に必ず実行すること）】
@@ -940,8 +932,6 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None):
 </ul>
 
 {chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
-
-{internal_link_html}
 """
 
 # === AI執筆（DeepSeek版） ===
@@ -1097,8 +1087,21 @@ def generate_article(target):
                 seo_title = f"{target['title'][:30]}…を{reviewer['name']}が紹介 | Novelove"
             wp_title  = target["title"]
 
-            # 【重要】画像下はテキリン、末尾はボタンで固定
-            full_content = badge_html + img_html + release_display + text_link + content + button_html + credit_html
+            # 関連記事HTML
+            internal_link_html = ""
+            if internal_link:
+                internal_link_html = (
+                    f'<div style="border:1px solid #f0c0c0; border-radius:8px; padding:15px; margin:20px 0; background:#fff8f8;">\n'
+                    f'<p style="margin:0 0 8px; font-weight:bold; color:#c0607f;">📚 あわせて読みたい</p>\n'
+                    f'<p><a href="{internal_link["url"]}">{internal_link["title"]}</a></p>\n'
+                    f'</div>\n'
+                )
+
+            # 【重要】画像下はテキリン、末尾はボタン→関連記事の順で固定 (v8.5.0以降)
+            full_content = (
+                badge_html + img_html + release_display + text_link + 
+                content + button_html + internal_link_html + credit_html
+            )
             word_count = len(content)
             is_r18_val = ":r18=1" in str(target.get("site", ""))
             return wp_title, full_content, excerpt, seo_title, is_r18_val, "ok", model_name, level_name, proc_time, word_count
