@@ -638,6 +638,18 @@ def fetch_and_stock_all():
             if desc == "__EXCLUDED_TYPE__":
                 desc = "" # 保存時は空にするか、適宜
                 status = 'excluded'
+            elif not desc:
+                # あらすじが取得できなかった場合（かつ除外対象でない場合）は警告通知
+                status = 'watching'
+                title = item.get("title", "不明なタイトル")
+                product_url = item.get("URL", "")
+                notify_discord(
+                    f"⚠️ **あらすじ取得失敗（サイト構造変化の可能性あり）**\n"
+                    f"**サイト**: {site}\n"
+                    f"**作品**: {title}\n"
+                    f"**URL**: {product_url}",
+                    username="ノベラブ異常検知"
+                )
             else:
                 status = 'excluded' if _is_noise_content(item.get("title", ""), desc) else 'watching'
 
@@ -1313,6 +1325,15 @@ def main():
                     logger.info(f"  -> 再スキャンで除外対象のため除外: {title[:30]}")
                     c.execute("UPDATE novelove_posts SET status='excluded' WHERE product_id=?", (pid,))
                     conn.commit()
+                elif not new_desc:
+                    logger.warning(f"  -> あらすじの再取得に失敗しました: {title[:30]}")
+                    # 個別記事フェッチ中ならここで警告
+                    notify_discord(
+                        f"⚠️ **【再審査】あらすじ取得失敗（サイト構造変化の可能性あり）**\n"
+                        f"**作品**: {title}\n"
+                        f"**URL**: {queue_row['product_url']}",
+                        username="ノベラブ異常検知"
+                    )
                 else:
                     if not _check_image_ok(queue_row["image_url"]):
                         logger.info(f"  -> 画像が依然として無いため、本採用を見送り除外: {title[:30]}")
@@ -1393,8 +1414,10 @@ def _execute_posting_flow(row, cursor, conn, post_label="新着投稿", override
             _conn.close()
         
         emoji = "✅" if "新着" in post_label else "🔄"
+        site_disp = str(row.get('site', 'Unknown')).split(':')[0]
+        genre_disp = _genre_label(row['genre'])
         notify_discord(
-            f"{emoji} **{post_label}成功！** (本来は {row['genre']} 枠)\n"
+            f"{emoji} **[{site_disp}] [{genre_disp}] {post_label}成功！**\n"
             f"**タイトル**: {wp_title}\n"
             f"**AIスコア**: `{score}点` / モデル: `{model_name}`\n"
             f"**統計**: 今日 {total_daily}件目 / {word_count}文字\n"
