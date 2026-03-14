@@ -595,7 +595,7 @@ def fetch_and_stock_all():
                 "site": site,
                 "service": target["service"],
                 "floor": target["floor"],
-                "hits": 20,
+                "hits": 50,
                 "sort": "date",
                 "output": "json",
             }
@@ -1202,7 +1202,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v8.5.2 【ランキング同期・相互リンク実装版】 起動")
+    logger.info("Novelove エンジン v8.8.0 【統合改善版】 起動")
     init_db()
     
     # ロックファイルチェック (排他制御)
@@ -1213,11 +1213,11 @@ def main():
 
     fetch_and_stock_all()
 
-    # クールダウンチェック（1時間1件ペース）
+    # クールダウンチェック（サイト全体で1時間1件ペース）
     is_cool_down = False
-    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE]:
-        if not os.path.exists(db_path): continue
-        tmp_conn = sqlite3.connect(db_path)
+    for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE]:
+        if not os.path.exists(db_p): continue
+        tmp_conn = sqlite3.connect(db_p)
         last_pub = tmp_conn.execute("SELECT published_at FROM novelove_posts WHERE status='published' ORDER BY published_at DESC LIMIT 1").fetchone()
         tmp_conn.close()
         if last_pub and last_pub[0]:
@@ -1231,69 +1231,82 @@ def main():
         logger.info("🕒 クールダウン中（1時間未経過）。終了します。")
         return
 
-    # ジャンル決定
-    g_idx = get_genre_index()
-    target_info = FETCH_TARGETS[g_idx % len(FETCH_TARGETS)]
-    save_genre_index(g_idx + 1)
-    db_path = get_db_path(target_info.get("site", "FANZA"))
-    genre = target_info["genre"]
-    
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
+    # 全ジャンルを順番にチェックし、1件投稿できたら終了するロジック
+    g_idx_base = get_genre_index()
     posted = False
 
-    # --- ステップ1: 即投稿枠 (pending) の検索 ---
-    pending_row = c.execute(
-        "SELECT * FROM novelove_posts WHERE status='pending' AND genre=? ORDER BY inserted_at DESC LIMIT 1",
-        (genre,)
-    ).fetchone()
+    for i in range(len(FETCH_TARGETS)):
+        target_info = FETCH_TARGETS[(g_idx_base + i) % len(FETCH_TARGETS)]
+        db_path = get_db_path(target_info.get("site", "FANZA"))
+        genre = target_info["genre"]
+        
+        logger.info(f"--- 投稿チェック開始: {target_info['label']} ({genre}) ---")
+        
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
 
-    if pending_row:
-        logger.info(f"✨ [新着即投稿] {pending_row['title'][:40]} (Score: {pending_row['desc_score']}点)")
-        if _execute_posting_flow(pending_row, c, conn, post_label="新着投稿"):
-            posted = True
-
-    # --- ステップ2: 保険枠 (行列消化) ---
-    if not posted:
-        queue_row = c.execute(
-            """SELECT * FROM novelove_posts 
-               WHERE status='watching' 
-                 AND genre=? 
-                 AND release_date <= date('now')
-               ORDER BY release_date ASC, inserted_at ASC LIMIT 1""",
+        # --- ステップ1: 即投稿枠 (pending) ---
+        pending_row = c.execute(
+            "SELECT * FROM novelove_posts WHERE status='pending' AND genre=? ORDER BY inserted_at DESC LIMIT 1",
             (genre,)
         ).fetchone()
-        
-        if queue_row:
-            pid = queue_row["product_id"]
-            title = queue_row["title"]
-            logger.info(f"🔄 [保険枠・行列消化] {title[:40]} を再審査...")
+
+        if pending_row:
+            logger.info(f"✨ [新着即投稿] {pending_row['title'][:40]} (Score: {pending_row['desc_score']}点)")
+            if _execute_posting_flow(pending_row, c, conn, post_label="新着投稿"):
+                posted = True
+
+        # --- ステップ2: 保険枠 (行列消化) ---
+        if not posted:
+            queue_row = c.execute(
+                """SELECT * FROM novelove_posts 
+                   WHERE status='watching' 
+                     AND genre=? 
+                     AND release_date <= date('now', 'localtime')
+                   ORDER BY release_date ASC, inserted_at ASC LIMIT 1""",
+                (genre,)
+            ).fetchone()
             
-            new_desc = scrape_description(queue_row["product_url"], site=queue_row["site"].split(":")[0])
-            if new_desc == "__EXCLUDED_TYPE__":
-                logger.info(f"  -> 再スキャンで除外対象のため除外: {title[:30]}")
-                c.execute("UPDATE novelove_posts SET status='excluded' WHERE product_id=?", (pid,))
-                conn.commit()
-            else:
-                if not _check_image_ok(queue_row["image_url"]):
-                    logger.info(f"  -> 画像が依然として無いため、本採用を見送り除外: {title[:30]}")
+            if queue_row:
+                pid = queue_row["product_id"]
+                title = queue_row["title"]
+                logger.info(f"🔄 [保険枠・行列消化] {title[:40]} を再審査...")
+                
+                new_desc = scrape_description(queue_row["product_url"], site=queue_row["site"].split(":")[0])
+                if new_desc == "__EXCLUDED_TYPE__":
+                    logger.info(f"  -> 再スキャンで除外対象のため除外: {title[:30]}")
                     c.execute("UPDATE novelove_posts SET status='excluded' WHERE product_id=?", (pid,))
                     conn.commit()
                 else:
-                    status, score = _check_desc_ok(title, new_desc or queue_row["description"], queue_row["release_date"])
-                    if status == "pending":
-                        logger.info(f"  -> 審査合格（{score}点）！保険枠から昇格投稿します。")
-                        if _execute_posting_flow(queue_row, c, conn, post_label="保険枠・再審査投稿", override_score=score):
-                            posted = True
-                    else:
-                        logger.info(f"  -> 審査落選（{score}点）。行列から除外します。")
-                        c.execute("UPDATE novelove_posts SET status='excluded', desc_score=? WHERE product_id=?", (score, pid))
+                    if not _check_image_ok(queue_row["image_url"]):
+                        logger.info(f"  -> 画像が依然として無いため、本採用を見送り除外: {title[:30]}")
+                        c.execute("UPDATE novelove_posts SET status='excluded' WHERE product_id=?", (pid,))
                         conn.commit()
-        else:
-            logger.info("  -> 再審査（保険枠）の対象もありません。")
+                    else:
+                        status, score = _check_desc_ok(title, new_desc or queue_row["description"], queue_row["release_date"])
+                        if status == "pending":
+                            logger.info(f"  -> 審査合格（{score}点）！保険枠から昇格投稿します。")
+                            if _execute_posting_flow(queue_row, c, conn, post_label="保険枠・再審査投稿", override_score=score):
+                                posted = True
+                        else:
+                            logger.info(f"  -> 審査落選（{score}点）。行列から除外します。")
+                            c.execute("UPDATE novelove_posts SET status='excluded', desc_score=? WHERE product_id=?", (score, pid))
+                            conn.commit()
 
-    conn.close()
+        conn.close()
+        
+        if posted:
+            # 成功したら次のジャンルインデックスを保存して終了
+            save_genre_index(g_idx_base + i + 1)
+            logger.info(f"✅ {target_info['label']} にて投稿成功。本日の処理を終了します。")
+            break
+        else:
+            logger.info(f"  -> {target_info['label']} に投稿可能アイテムなし。次へ...")
+
+    if not posted:
+        logger.info("❌ 全ジャンル確認しましたが、本日投稿できる作品はありませんでした。")
+    
     logger.info("=" * 60)
 
 def _execute_posting_flow(row, cursor, conn, post_label="新着投稿", override_score=None):
@@ -1331,14 +1344,25 @@ def _execute_posting_flow(row, cursor, conn, post_label="新着投稿", override
             (url, score, pid)
         )
         conn.commit()
-        daily_count = cursor.execute("SELECT COUNT(*) FROM novelove_posts WHERE status='published' AND published_at >= date('now', 'localtime')").fetchone()[0]
+        
+        # 本日の投稿数集計 (FANZA + DLsite の合計)
+        total_daily = 0
+        for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE]:
+            if not os.path.exists(db_p): continue
+            _conn = sqlite3.connect(db_p)
+            # 日本時間 (JST) で今日の日付の投稿をカウント
+            count = _conn.execute(
+                "SELECT COUNT(*) FROM novelove_posts WHERE status='published' AND date(published_at, '+9 hours') = date('now', '+9 hours')"
+            ).fetchone()[0]
+            total_daily += count
+            _conn.close()
         
         emoji = "✅" if "新着" in post_label else "🔄"
         notify_discord(
             f"{emoji} **{post_label}成功！** (本来は {row['genre']} 枠)\n"
             f"**タイトル**: {wp_title}\n"
             f"**AIスコア**: `{score}点` / モデル: `{model_name}`\n"
-            f"**統計**: 今日 {daily_count}件目 / {word_count}文字\n"
+            f"**統計**: 今日 {total_daily}件目 / {word_count}文字\n"
             f"**URL**: {url}"
         )
         logger.info(f"✅ {post_label}成功！ Score: {score}, URL: {url}")
