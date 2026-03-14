@@ -1734,7 +1734,7 @@ def process_ranking_articles():
                     cross_link = (
                         f'<div style="border:1px solid #f0c0c0; border-radius:8px; padding:15px; margin:20px 0; background:#fff8f8;">\n'
                         f'<p style="margin:0 0 8px; font-weight:bold; color:#c0607f;">📚 あわせて読みたい</p>\n'
-                        f'<p><a href="{other_url}">📚 【{disp_site}】{other_genre}ランキング（{other_title_date}）はこちら</a></p>\n'
+                        f'<p><a href="{other_url}">【{disp_site}】{other_genre}ランキング（{other_title_date}）はこちら</a></p>\n'
                         f'</div>\n'
                     )
                     final_content += cross_link
