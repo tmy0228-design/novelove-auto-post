@@ -22,6 +22,7 @@ import random
 import requests
 import json
 import os
+import urllib.parse
 import sqlite3
 import time
 import logging
@@ -643,9 +644,21 @@ def fetch_and_stock_all():
             time.sleep(1.0)
             image_url = item.get("imageURL", {}).get("large", "")
             if site == "DLsite":
-                aff_url = f"{item.get('URL')}?affiliate_id={os.environ.get('DLSITE_AFFILIATE_ID', 'novelove')}"
+                # DLsite: dlaf.jp 形式
+                # 構造: https://dlaf.jp/{floor}/dlaf/=/t/n/link/work/aid/{aid}/id/{id}.html
+                floor = target.get("floor", "girls")
+                aid = os.environ.get('DLSITE_AFFILIATE_ID', 'novelove')
+                aff_url = f"https://dlaf.jp/{floor}/dlaf/=/t/n/link/work/aid/{aid}/id/{pid}.html"
             else:
-                aff_url = (item.get("affiliateURL") or "").replace(DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID)
+                # DMM/FANZA: al.dmm.com / al.fanza.co.jp 形式
+                base_url = item.get("URL", "")
+                encoded_url = urllib.parse.quote(base_url, safe="")
+                af_id = DMM_AFFILIATE_LINK_ID or "novelove-001"
+                ch_params = "&ch=toolbar&ch_id=text"
+                if site == "FANZA":
+                    aff_url = f"https://al.fanza.co.jp/?lurl={encoded_url}&af_id={af_id}{ch_params}"
+                else:
+                    aff_url = f"https://al.dmm.com/?lurl={encoded_url}&af_id={af_id}{ch_params}"
             
             is_r18 = 1 if _is_r18_item(item, site=site) else 0
             author = _extract_author(item)
@@ -1440,7 +1453,15 @@ def fetch_ranking_dmm_fanza(site, genre):
                     continue
                     
                 image_url = item.get("imageURL", {}).get("large", "")
-                aff_url = (item.get("affiliateURL") or "").replace(DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID)
+                # DMM/FANZAランキング用のURL生成
+                base_url = item.get("URL", "")
+                encoded_url = urllib.parse.quote(base_url, safe="")
+                af_id = DMM_AFFILIATE_LINK_ID or "novelove-001"
+                ch_params = "&ch=toolbar&ch_id=text"
+                if site == "FANZA":
+                    aff_url = f"https://al.fanza.co.jp/?lurl={encoded_url}&af_id={af_id}{ch_params}"
+                else:
+                    aff_url = f"https://al.dmm.com/?lurl={encoded_url}&af_id={af_id}{ch_params}"
                 desc = scrape_description(item.get("URL", ""), site=site)
                 
                 # あらすじ取得後に再度厳密チェック
