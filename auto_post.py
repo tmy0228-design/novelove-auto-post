@@ -67,6 +67,7 @@ WP_APP_PASSWORD       = os.environ.get("WP_APP_PASSWORD", "")
 DMM_API_ID            = os.environ.get("DMM_API_ID", "")
 DMM_AFFILIATE_API_ID  = os.environ.get("DMM_AFFILIATE_API_ID", "")
 DMM_AFFILIATE_LINK_ID = os.environ.get("DMM_AFFILIATE_LINK_ID", "")
+DIGIKET_AFFILIATE_ID  = os.environ.get("DIGIKET_AFFILIATE_ID", "novelove")
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL   = "deepseek-chat"  # V3.2 非思考モード（執筆・審査共通）
@@ -180,7 +181,7 @@ def get_affiliate_button_html(url, label="作品の詳細を見る"):
 REVIEWERS = [
     {
         "id": "shion", "name": "紫苑",
-        "genres": ["BL", "doujin_bl"],
+        "genres": ["BL", "doujin_bl", "comic_bl"],
         "face_image": "紫苑",
         "tag_name": "【紫苑の個人的な注目属性】",
         "personality": "クールで毒舌な腐女子OL。「解釈一致」「これは神」が口癖。BL同人誌の即売会にも足繁く通う。「同人誌は公式より解釈が深い」が持論。",
@@ -189,7 +190,7 @@ REVIEWERS = [
     },
     {
         "id": "marika", "name": "茉莉花",
-        "genres": ["TL", "doujin_tl", "doujin_voice"],
+        "genres": ["TL", "doujin_tl", "doujin_voice", "comic_tl"],
         "face_image": "茉莉花",
         "tag_name": "【茉莉花の今回のときめき成分】",
         "personality": "明るくポップなカフェ店員。「胸きゅんすぎる」が口癖。音声作品も大好きで、イヤホンしながら仕事中に感情爆発させるタイプ。",
@@ -198,7 +199,7 @@ REVIEWERS = [
     },
     {
         "id": "aoi", "name": "葵",
-        "genres": ["BL", "doujin_bl"],
+        "genres": ["BL", "doujin_bl", "comic_bl"],
         "face_image": "葵",
         "tag_name": "【葵の今回の沼ポイント】",
         "personality": "BL好きの大学生。コミケや同人即売会に毎回参戦し、配置とサークル情報を全部把握している猛者。推しの話になると早口モードになる。",
@@ -207,7 +208,7 @@ REVIEWERS = [
     },
     {
         "id": "momoka", "name": "桃香",
-        "genres": ["TL", "doujin_tl", "doujin_voice"],
+        "genres": ["TL", "doujin_tl", "doujin_voice", "comic_tl"],
         "face_image": "桃香",
         "tag_name": "【桃香の今回の刺さりポイント】",
         "personality": "2児の主婦。子供が寝た後の深夜にイヤホンでこっそり音声作品を聴くのが至福の時間。「わかりみが深い」が口癖。",
@@ -216,7 +217,7 @@ REVIEWERS = [
     },
     {
         "id": "ren", "name": "蓮",
-        "genres": ["BL", "doujin_bl"],
+        "genres": ["BL", "doujin_bl", "comic_bl"],
         "face_image": "蓮",
         "tag_name": "【蓮の今回の観測データ】",
         "personality": "眼鏡インテリ大学院生。沼った自覚ゼロの天然男子。同人誌も「学術資料」として収集している（本人談）。",
@@ -599,6 +600,7 @@ def _is_noise_content(title, desc=""):
 def fetch_and_stock_all():
     for target in FETCH_TARGETS:
         site = target.get("site", "FANZA")
+        if site == "DigiKet": continue
         db_path = get_db_path(site)
         api_items = []
         if site == "DLsite":
