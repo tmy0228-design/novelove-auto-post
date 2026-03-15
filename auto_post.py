@@ -1931,10 +1931,8 @@ def fetch_digiket_items():
         genre = target_cfg["genre"]
         label = target_cfg["label"]
 
+        # DigiKet の RSS API はシンプルなターゲット指定のみで取得
         api_url = f"https://api.digiket.com/xml/api/getxml.php?target={target_id}&sort=new"
-        if DIGIKET_AFFILIATE_ID:
-            # DigiKet API は AFID パラメータを使用する
-            api_url += f"&AFID={DIGIKET_AFFILIATE_ID}"
 
         try:
             logger.info(f"  - 取得先: {label} ({api_url})")
