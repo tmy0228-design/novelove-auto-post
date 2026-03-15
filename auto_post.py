@@ -1414,7 +1414,7 @@ def _execute_posting_flow(row, cursor, conn, post_label="新着投稿", override
             _conn.close()
         
         emoji = "✅" if "新着" in post_label else "🔄"
-        site_disp = str(row.get('site', 'Unknown')).split(':')[0]
+        site_disp = str(row['site'] or 'Unknown').split(':')[0]
         genre_disp = _genre_label(row['genre'])
         notify_discord(
             f"{emoji} **[{site_disp}] [{genre_disp}] {post_label}成功！**\n"
