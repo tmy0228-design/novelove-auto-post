@@ -621,10 +621,12 @@ def fetch_and_stock_all():
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
         added = 0
+        skip_count = 0 # Added for consistency with DigiKet
         for item in api_items:
             pid = item.get("content_id")
             if not pid: continue
             if c.execute("SELECT 1 FROM novelove_posts WHERE product_id=?", (pid,)).fetchone():
+                skip_count += 1
                 continue
             desc = scrape_description(item.get("URL", ""), site=site)
             # --- 作品形式による強制除外 ---
@@ -909,7 +911,7 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None):
 
 【事前審査（最初に必ず実行すること）】
 以下の基準で対象作品を0〜5点でスコアリングしてください。
-- 5点：超新着・最高品質。読者が確実に惹きつけられる独自性や魅力がある最高傑作。
+- 5点：超新着・最高品質。読者が確実に惹きつけられる独自性や魅力があり、文句なしの最高傑作。
 - 4点：良作・採用。ストーリーやキャラの魅力が具体的に書かれ、内容が明確にイメージできる。
 - 3点：標準的だが、独自性や熱量が不足している（不採用）。
 - 2〜1点：情報が少なすぎる、またはジャンルや内容がズレている。
@@ -1644,7 +1646,6 @@ HTML構造テンプレート:
 
 それでは、指示に従ってHTMLを出力してください。
 '''
-    return prompt
 
 def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_image_url="", excerpt=""):
     """
@@ -1932,10 +1933,11 @@ def fetch_digiket_items():
 
         api_url = f"https://api.digiket.com/xml/api/getxml.php?target={target_id}&sort=new"
         if DIGIKET_AFFILIATE_ID:
+            # DigiKet API は AFID パラメータを使用する
             api_url += f"&AFID={DIGIKET_AFFILIATE_ID}"
 
         try:
-            logger.info(f"Fetching DigiKet XML: {label} ({api_url})")
+            logger.info(f"  - 取得先: {label} ({api_url})")
             r = requests.get(api_url, timeout=20)
             # DigiKet API は EUC-JP なので明示的にデコード
             r.encoding = 'euc-jp'
@@ -1944,10 +1946,10 @@ def fetch_digiket_items():
             # 修正ポイント: XMLとしてパースし、名前空間付きタグを正規表現で探す
             soup = BeautifulSoup(xml_text, "html.parser")
             items = soup.find_all("item")
-            logger.info(f"  -> {label}: {len(items)} items found in XML")
+            logger.info(f"  - 取得数: {len(items)}件")
 
             new_count = 0
-            already_count = 0
+            skip_count = 0
             for item in items:
                 title = item.find("title").text if item.find("title") else ""
                 
@@ -1960,15 +1962,22 @@ def fetch_digiket_items():
                     # 属性から取得 (BeautifulSoupは名前空間付き属性をそのままか、接頭辞なしで保持することがある)
                     product_url = item.get("rdf:about") or item.get("about") or ""
 
-                if not product_url: continue
+                if not product_url:
+                    logger.debug(f"    - スキップ: {title[:30]} (URLなし)")
+                    skip_count += 1
+                    continue
 
                 # ID抽出 (ID=ITMXXXXXXX または ITMXXXXXXX 形式)
                 m = re.search(r"ID=(ITM\d+)", product_url) or re.search(r"ITM\d+", product_url)
-                if not m: continue
+                if not m:
+                    logger.debug(f"    - スキップ: {title[:30]} (ID抽出失敗)")
+                    skip_count += 1
+                    continue
                 pid = m.group(1) if m.groups() else m.group(0)
 
                 if c.execute("SELECT 1 FROM novelove_posts WHERE product_id=?", (pid,)).fetchone():
-                    already_count += 1
+                    logger.debug(f"    - スキップ: {title[:30]} (DBに存在済み)")
+                    skip_count += 1
                     continue
 
                 # 名前空間を含むタグの取得 (dc:creator, dc:date, content:encoded)
@@ -1998,9 +2007,10 @@ def fetch_digiket_items():
                     (pid, title, author, genre, "DigiKet", "watching", date_str, description, affiliate_url, image_url, product_url))
 
                 new_count += 1
+                logger.info(f"    - 新規追加: {title[:30]} (PID: {pid})")
 
             conn.commit()
-            logger.info(f"  -> {label}: Result: {new_count} new, {already_count} skipped (already in DB)")
+            logger.info(f"  - 完了: {label} (新規: {new_count}件, スキップ: {skip_count}件)")
 
         except Exception as e:
             logger.error(f"DigiKet取得エラー ({label}): {e}")
