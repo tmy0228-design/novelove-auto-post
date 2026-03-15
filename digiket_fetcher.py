@@ -143,7 +143,7 @@ def fetch_digiket_items():
             
         try:
             r = requests.get(api_url, timeout=20)
-            soup = BeautifulSoup(r.text, "xml") # XMLとしてパース
+            soup = BeautifulSoup(r.text, "html.parser") # html.parser で代替 (lxml/xml 不在対策)
             items = soup.find_all("item")
             
             new_count = 0
@@ -151,16 +151,11 @@ def fetch_digiket_items():
                 title = item.find("title").text if item.find("title") else ""
                 product_url = item.find("link").text if item.find("link") else ""
                 
-                # ジャンルフィルタ（キーワードによる簡易判定）
-                # DigiKetのtarget=8はBL/TL混合のため、タイトル等から振り分けが必要
-                title_lower = title.lower()
-                is_match = False
-                if "bl" in genre and ("bl" in title_lower or "ボーイズラブ" in title_lower or "腐" in title_lower):
-                    is_match = True
-                elif "tl" in genre and ("tl" in title_lower or "ティーンズラブ" in title_lower or "乙女" in title_lower):
-                    is_match = True
+                # ジャンルフィルタ (キーワード判定からカテゴリ信頼へ緩和)
+                # DigiKetのtarget=8, target=2 は既にカテゴリ分けされているため、原則全件取得
+                is_match = True
                 
-                if not is_match: continue
+                # if not is_match: continue
                 
                 # ID抽出 (ID=ITMXXXXXXX)
                 m = re.search(r"ID=(ITM\d+)", product_url)
