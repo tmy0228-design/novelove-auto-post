@@ -451,12 +451,8 @@ def scrape_description(product_url, site="FANZA"):
     if "dlsite" in str(product_url).lower():
         return scrape_dlsite_description(product_url)
     if "digiket" in str(product_url).lower():
-        try:
-            import digiket_fetcher
-            return digiket_fetcher.scrape_digiket_description(product_url)
-        except Exception as e:
-            logger.warning(f"DigiKetスクレイピング失敗 ({product_url}): {e}")
-            return ""
+        # 統合された内部関数を呼び出す
+        return scrape_digiket_description(product_url)
     session = _make_fanza_session()
     try:
         r = session.get(
@@ -1253,10 +1249,9 @@ def main():
         return
 
     fetch_and_stock_all()
-    # DigiKet 新着取得
+    # DigiKet 新着取得 (内部関数を呼び出す)
     try:
-        import digiket_fetcher
-        digiket_fetcher.fetch_digiket_items()
+        fetch_digiket_items()
     except Exception as e:
         logger.error(f"DigiKet取得エラー: {e}")
 
@@ -1868,6 +1863,133 @@ def process_ranking_articles():
                 
     logger.info("ランキング記事自動生成モードを終了しました")
     logger.info("=" * 60)
+
+# ----------------------------------------------------------------------
+# DigiKet 取得モジュール (統合版)
+# ----------------------------------------------------------------------
+
+def scrape_digiket_description(product_url):
+    """
+    DigiKet の商品詳細ページから「作品内容」の全文を抽出する
+    """
+    try:
+        r = requests.get(product_url, headers=HEADERS, timeout=20)
+        if r.status_code != 200: return ""
+
+        soup = BeautifulSoup(r.text, "html.parser")
+        desc_area = None
+
+        # '作品説明' または '作品内容' というテキストを直接含む要素を探す
+        for text_label in ["作品説明", "作品内容", "作品詳細"]:
+            label_tag = soup.find(["h4", "h3", "th", "div", "span"], string=re.compile(text_label))
+            if label_tag:
+                desc_area = label_tag.find_next_sibling(["div", "p", "td"])
+                if desc_area: break
+                parent = label_tag.parent
+                if parent:
+                    desc_area = parent.find_next(["div", "p", "td"], class_=re.compile(r"description|explanation|body"))
+                    if desc_area: break
+
+        if not desc_area:
+            selectors = [".work_explanation_body", ".works-description", "#work_explanation", ".main_explanation", ".description_area"]
+            for sel in selectors:
+                desc_area = soup.select_one(sel)
+                if desc_area: break
+
+        if desc_area:
+            for trash in desc_area.select('.readmore, script, style, .work_review_btn'):
+                trash.decompose()
+            text = desc_area.get_text(separator="\n", strip=True)
+            text = re.sub(r"^(作品説明|作品内容|作品詳細)\n?", "", text)
+            return text.strip()
+        return ""
+    except Exception as e:
+        logger.error(f"DigiKetスクレイピングエラー: {e}")
+        return ""
+
+def fetch_digiket_items():
+    """
+    DigiKet XML API から新着を取得し、DBにストックする
+    """
+    logger.info("DigiKet 新着取得開始")
+    
+    # 既存の DIGIKET_TARGETS 定義があれば使用、なければここで定義
+    # fetch_and_stock_all() のグローバル定数 FETCH_TARGETS に DigiKet が含まれているが
+    # 独自の RSS 取得が必要なため、個別にリストを定義する
+    targets = [
+        {"target": "8", "genre": "comic_bl",  "label": "DigiKet_商業BL"},
+        {"target": "8", "genre": "comic_tl",  "label": "DigiKet_商業TL"},
+        {"target": "2", "genre": "doujin_bl", "label": "DigiKet_同人BL"},
+        {"target": "2", "genre": "doujin_tl", "label": "DigiKet_同人TL"},
+    ]
+
+    conn = sqlite3.connect(DB_FILE_DIGIKET)
+    c = conn.cursor()
+
+    for target_cfg in targets:
+        target_id = target_cfg["target"]
+        genre = target_cfg["genre"]
+        label = target_cfg["label"]
+
+        api_url = f"https://api.digiket.com/xml/api/getxml.php?target={target_id}&sort=new"
+        if DIGIKET_AFFILIATE_ID:
+            api_url += f"&affiliate_id={DIGIKET_AFFILIATE_ID}"
+
+        try:
+            r = requests.get(api_url, timeout=20)
+            # 修正ポイント: XMLとしてパースし、名前空間付きタグを正規表現で探す
+            soup = BeautifulSoup(r.text, "html.parser")
+            items = soup.find_all("item")
+
+            new_count = 0
+            for item in items:
+                title = item.find("title").text if item.find("title") else ""
+                product_url = item.find("link").text if item.find("link") else ""
+
+                m = re.search(r"ID=(ITM\d+)", product_url)
+                if not m: continue
+                pid = m.group(1)
+
+                if c.execute("SELECT 1 FROM novelove_posts WHERE product_id=?", (pid,)).fetchone():
+                    continue
+
+                # 名前空間を含むタグの取得 (dc:creator, dc:date, content:encoded)
+                # re.I (ignore case) を指定して確実にヒットさせる
+                creator_tag = item.find(re.compile(r"creator", re.I))
+                author = creator_tag.text if creator_tag else ""
+                
+                date_tag = item.find(re.compile(r"date", re.I))
+                date_str = date_tag.text if date_tag else datetime.now().strftime("%Y-%m-%d")
+
+                content_tag = item.find(re.compile(r"encoded", re.I))
+                content_encoded = content_tag.text if content_tag else ""
+                img_match = re.search(r'src="(https://.*?\.jpg)"', content_encoded)
+                image_url = img_match.group(1) if img_match else ""
+
+                description_tag = item.find("description")
+                description = description_tag.text if description_tag else ""
+
+                affiliate_url = product_url
+                if DIGIKET_AFFILIATE_ID:
+                    if not affiliate_url.endswith("/"): affiliate_url += "/"
+                    affiliate_url += f"AFID={DIGIKET_AFFILIATE_ID}/"
+
+                c.execute("""INSERT INTO novelove_posts
+                    (product_id, title, author, genre, site, status, release_date, description, affiliate_url, image_url, product_url)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (pid, title, author, genre, "DigiKet", "watching", date_str, description, affiliate_url, image_url, product_url))
+
+                new_count += 1
+
+            conn.commit()
+            if new_count > 0:
+                logger.info(f"  -> {label}: {new_count}件 の新規作品をストックしました")
+
+        except Exception as e:
+            logger.error(f"DigiKet取得エラー ({label}): {e}")
+
+    conn.close()
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Novelove Auto Posting Tool")
     parser.add_argument("--ranking", action="store_true", help="Run the ranking generation workflow instead of normal posting")
