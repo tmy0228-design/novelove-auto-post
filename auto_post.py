@@ -2,19 +2,16 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v8.9.2
-【Discord通知強化 ＆ 異常検知アラート実装版】
+Novelove 自動投稿エンジン v9.0.0
+【DigiKet 統合・安定運用版】
 ==========================================================
-【変更点 v8.9.2】
- - 通知：Discord成功通知に「サイト名」と「ジャンル名」を追加
- - 通知：あらすじ取得失敗（サイト構造変化の兆候）時の即時アラートを実装
-【変更点 v8.9.1】
- - 改善：アフィリエイトリンク形式を最新の推奨形式（al.dmm.com等）に統一
-==========================================================
- - 改善：APIコスト徹底削減。「画像なし」や「発売7日より前」はAI審査を完全にスキップ
- - 改善：合格ライン（4点以上）で即投稿。3点以下は即除外（excluded）へ移行
- - 通知：Discord通知に「投稿ルート（新着/保険）」と「AIスコア」を表示
- - 保守：古い再審査ロジック（promote_watching等）を完全に除去しコードをスリム化
+【変更点 v9.0.0】
+ - 統合：DigiKet 取得ロジックを完全統合。外部ファイルの依存を排除
+ - 修正：DigiKet RSS (RDF) の URL 抽出および名前空間パースバグを修正
+ - 機能：詳細記事からのあらすじ全文取得・補完機能を実装
+【変更点 v8.9.5】
+ - 改善：AI審査基準を厳格化（4点以上のみ採用）
+ - 改善：あらすじ文字数順（LENGTH DESC）の優先審査ロジックを導入
 ==========================================================
 """
 
@@ -1876,6 +1873,8 @@ def scrape_digiket_description(product_url):
         r = requests.get(product_url, headers=HEADERS, timeout=20)
         if r.status_code != 200: return ""
 
+        # DigiKet サイトは基本 EUC-JP
+        r.encoding = "euc-jp"
         soup = BeautifulSoup(r.text, "html.parser")
         desc_area = None
 
@@ -1933,24 +1932,43 @@ def fetch_digiket_items():
 
         api_url = f"https://api.digiket.com/xml/api/getxml.php?target={target_id}&sort=new"
         if DIGIKET_AFFILIATE_ID:
-            api_url += f"&affiliate_id={DIGIKET_AFFILIATE_ID}"
+            api_url += f"&AFID={DIGIKET_AFFILIATE_ID}"
 
         try:
+            logger.info(f"Fetching DigiKet XML: {label} ({api_url})")
             r = requests.get(api_url, timeout=20)
+            # DigiKet API は EUC-JP なので明示的にデコード
+            r.encoding = 'euc-jp'
+            xml_text = r.text
+            
             # 修正ポイント: XMLとしてパースし、名前空間付きタグを正規表現で探す
-            soup = BeautifulSoup(r.text, "html.parser")
+            soup = BeautifulSoup(xml_text, "html.parser")
             items = soup.find_all("item")
+            logger.info(f"  -> {label}: {len(items)} items found in XML")
 
             new_count = 0
+            already_count = 0
             for item in items:
                 title = item.find("title").text if item.find("title") else ""
-                product_url = item.find("link").text if item.find("link") else ""
+                
+                # 修正ポイント: RSS 1.0 (RDF) では link タグが空で rdf:about に URL がある場合がある
+                product_url = ""
+                link_tag = item.find("link")
+                if link_tag and link_tag.text.strip():
+                    product_url = link_tag.text.strip()
+                else:
+                    # 属性から取得 (BeautifulSoupは名前空間付き属性をそのままか、接頭辞なしで保持することがある)
+                    product_url = item.get("rdf:about") or item.get("about") or ""
 
-                m = re.search(r"ID=(ITM\d+)", product_url)
+                if not product_url: continue
+
+                # ID抽出 (ID=ITMXXXXXXX または ITMXXXXXXX 形式)
+                m = re.search(r"ID=(ITM\d+)", product_url) or re.search(r"ITM\d+", product_url)
                 if not m: continue
-                pid = m.group(1)
+                pid = m.group(1) if m.groups() else m.group(0)
 
                 if c.execute("SELECT 1 FROM novelove_posts WHERE product_id=?", (pid,)).fetchone():
+                    already_count += 1
                     continue
 
                 # 名前空間を含むタグの取得 (dc:creator, dc:date, content:encoded)
@@ -1982,8 +2000,7 @@ def fetch_digiket_items():
                 new_count += 1
 
             conn.commit()
-            if new_count > 0:
-                logger.info(f"  -> {label}: {new_count}件 の新規作品をストックしました")
+            logger.info(f"  -> {label}: Result: {new_count} new, {already_count} skipped (already in DB)")
 
         except Exception as e:
             logger.error(f"DigiKet取得エラー ({label}): {e}")
