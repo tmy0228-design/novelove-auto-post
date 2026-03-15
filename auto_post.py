@@ -1238,7 +1238,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 def main():
-    logger.info("Novelove エンジン v8.9.2 【通知強化版】 起動")
+    logger.info("Novelove エンジン v9.0.0 【DigiKet 統合・安定運用版】 起動")
     init_db()
     
     # ロックファイルチェック (排他制御)
