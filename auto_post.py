@@ -472,7 +472,7 @@ def generate_article(target):
             if ai_seo_title:
                 # 32文字超過サニタイズ
                 seo_title_body = ai_seo_title[:32]
-                seo_title = f"{seo_title_body}｜Novelove"
+                seo_title = f"『{target['title']}』{seo_title_body}"
             elif tag_str:
                 seo_title = f"『{target['title']}』あらすじ紹介！{tag_str}の{format_name}を紹介 | Novelove"
             else:
