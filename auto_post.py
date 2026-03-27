@@ -2,9 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v11.4.7
+Novelove 自動投稿エンジン v11.4.8
 【多重投稿ループ停止・データフロー修復・堅牢性強化】
 ==========================================================
+【変更点 v11.4.8】
+ - 修正: `get_internal_link` の動的SQL構築時、SQLite特有の ORDER BY 0 インデックスエラーを修正
 【変更点 v11.4.7】
  - 修正: 投稿失敗時（画像設定エラー時等）の status 更新漏れを修正し、多重投稿を完全停止
  - 改善: SELECT * を廃止し、カラム名を明示指定することで将来の不整合リスクを排除
@@ -119,25 +121,30 @@ def get_internal_link(product_id, author, genre, db_path, ai_tags=None):
         c = conn.cursor()
 
         # スコア式とパラメータを組み立てる
-        weight_sql = "0"
+        weight_clauses = []
         weight_params = []
 
         # AIタグ一致: 1タグにつき +5点
         for t in (ai_tags or []):
             if t:
-                weight_sql += " + (CASE WHEN ai_tags LIKE ? THEN 5 ELSE 0 END)"
+                weight_clauses.append("(CASE WHEN ai_tags LIKE ? THEN 5 ELSE 0 END)")
                 weight_params.append(f"%{t}%")
 
         # 著者一致: +10点（AIタグ3件一致より低いが確実な関連性）
         if author and author.strip():
-            weight_sql += " + (CASE WHEN author=? THEN 10 ELSE 0 END)"
+            weight_clauses.append("(CASE WHEN author=? THEN 10 ELSE 0 END)")
             weight_params.append(author.strip())
+
+        if weight_clauses:
+            order_clause = " + ".join(weight_clauses) + " DESC, published_at DESC"
+        else:
+            order_clause = "published_at DESC"
 
         sql = (
             "SELECT title, wp_post_url "
             "FROM novelove_posts "
             "WHERE status='published' AND genre=? AND product_id!=? AND wp_post_url != '' "
-            f"ORDER BY ({weight_sql}) DESC, published_at DESC "
+            f"ORDER BY {order_clause} "
             "LIMIT 1"
         )
         # バインド順: genre → product_id → weight_params
