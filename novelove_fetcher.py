@@ -755,11 +755,11 @@ def fetch_and_stock_all():
             c.execute(
                 """INSERT INTO novelove_posts
                     (product_id, title, author, genre, site, status, release_date, description,
-                    affiliate_url, image_url, product_url, post_type, desc_score, last_error, ai_tags, wp_post_id)
+                    affiliate_url, image_url, product_url, post_type, desc_score, last_error, ai_tags, wp_post_url)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (pid, item.get("title"), author, save_genre,
                  f"{site}:r18={is_r18}", final_status, rdate, desc,
-                 aff_url, image_url, item.get("URL", ""), "regular", final_score, last_error, ai_tags_str, None)
+                 aff_url, image_url, item.get("URL", ""), "regular", final_score, last_error, ai_tags_str, "")
             )
             logger.info(f"[{site}] [{final_status}] {item.get('title','')[:40]}")
             added += 1
