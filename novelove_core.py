@@ -189,7 +189,8 @@ def init_db():
             published_at  TIMESTAMP,
             post_type     TEXT DEFAULT 'regular',
             desc_score    INTEGER DEFAULT 0,
-            ai_tags       TEXT DEFAULT ''
+            ai_tags       TEXT DEFAULT '',
+            reviewer      TEXT DEFAULT ''
         )''')
         for col, definition in [
             ("last_error",  "TEXT DEFAULT ''"),

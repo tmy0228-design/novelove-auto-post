@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v11.4.8
+Novelove 自動投稿エンジン v12.1.0
 【多重投稿ループ停止・データフロー修復・堅牢性強化】
 ==========================================================
 【変更点 v11.4.8】
@@ -461,8 +461,8 @@ def generate_article(target):
                 try:
                     rd = target["release_date"][:10].replace("-", "/")
                     release_display = f'<p style="text-align:center; color:#666; font-size:0.9em; margin-bottom:10px;">発売日：{rd}</p>\n'
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"  [発売日整形失敗] {e}")
             
             # v12.0.0: AI生成SEOタイトル・抜粋の優先利用
             tags_for_seo = ai_tags_from_ai if ai_tags_from_ai else db_ai_tags
@@ -1065,7 +1065,9 @@ def fetch_ranking_dlsite(genre):
                         desc_tag = dsoup.select_one('meta[property="og:description"]')
                         if desc_tag: desc = desc_tag.get('content', '')
                         if _is_noise_content(title, desc): continue
-                except: continue
+                except Exception as e:
+                    logger.warning(f"  [DLsite詳細取得失敗] {title[:20]}: {e}")
+                    continue
                 aff_id = DLSITE_AFFILIATE_ID
                 pid = link.rstrip("/").split("/")[-1].replace(".html", "")
                 floor = "bl" if is_bl else "girls"
@@ -1102,7 +1104,9 @@ def fetch_ranking_digiket(genre):
                 if any(kw in t for kw in tl_keywords) or "乙女" in str(anchor.parent):
                     link = anchor.get("href")
                     if not link.startswith("http"): link = "https://www.digiket.com" + link
-                    itm_id = re.search(r"ID=(ITM\d+)", link).group(1)
+                    _m = re.search(r"ID=(ITM\d+)", link)
+                    if not _m: continue  # IDパターン不一致: AttributeError防止
+                    itm_id = _m.group(1)
                     if itm_id in seen_ids: continue
                     seen_ids.add(itm_id)
                     desc, img, _, _ = scrape_digiket_description(link)
@@ -1135,7 +1139,8 @@ def fetch_ranking_digiket(genre):
                     aff_url += f"AFID={DIGIKET_AFFILIATE_ID}/"
                 items.append({"title": title, "url": aff_url, "image_url": img, "description": desc})
                 if len(items) >= 5: return items
-        except: pass
+        except Exception as e:
+            logger.warning(f"  [DigiKet XML API失敗] {e}")
         url = "https://www.digiket.com/comics/ranking_week.php" # フォールバック
 
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -1443,7 +1448,7 @@ def main():
         logger.info("🚨 緊急停止中のためスキップ。解除: rm emergency_stop.lock")
         return
 
-    logger.info("Novelove エンジン v11.4.14 起動")
+    logger.info("Novelove エンジン v12.1.0 起動")
     init_db()
     # メインロックチェック
     if os.path.exists(MAIN_LOCK_FILE):
