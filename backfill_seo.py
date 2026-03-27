@@ -13,6 +13,9 @@ import time
 import re
 import requests
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # DeepSeek API設定
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
