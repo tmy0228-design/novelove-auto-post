@@ -105,7 +105,7 @@ def update_about_html():
         return mapping.get(id_str, id_str)
 
     for pair_key, desc in RELATIONSHIPS.items():
-        id1, id2 = pair_key.split('-')
+        id1, id2 = pair_key.split('_')
         name1 = get_name(id1)
         name2 = get_name(id2)
         rel_html += f"""    <div style="background:#fff; border-radius:12px; padding:20px; box-shadow:0 4px 10px rgba(0,0,0,0.05); border:1px solid #eee;">
