@@ -66,7 +66,7 @@ else:
 
 # --- Discord通知機能 ---
 # --- ライター性格設定・執筆ルール（novelove_soul.py に分離管理）---
-from novelove_soul import REVIEWERS, MOOD_PATTERNS, FACT_GUARD, NG_PHRASES
+from novelove_soul import REVIEWERS, MOOD_PATTERNS, FACT_GUARD, NG_PHRASES, get_relationship
 
 from novelove_core import (
     logger, ERROR_LABELS, notify_discord, _clean_description,
@@ -253,6 +253,10 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None, is_novel=Fa
 TAGS: （以下のリストから作品に合うものを最大3つ、カンマ区切りで出力。該当なしは「なし」と出力）
 BL系: オメガバース/ヤンデレ/スパダリ/執着/年下攻め/幼なじみ/ケンカップル/主従/サラリーマン/年の差/転生/契約/再会/一途/運命
 TL系: 溺愛/身分差/契約結婚/御曹司/騎士/オフィスラブ/腹黒/同居/嫉妬/強引/独占欲/初恋/記憶喪失/歳の差/ハッピーエンド
+
+SEO_META:
+seo_title=（32文字以内。**上記【対象作品情報】のあらすじに書かれた具体的な設定・属性・キーワード**を使うこと。存在しない設定・キャラ・展開は絶対に使わないこと。読者の感情を揺さぶる言葉で表現する。末尾に「| Novelove」は付けない。）
+meta_desc=（80文字程度。**あらすじに実際に書かれた内容**に基づき、誰のどんな性癖に刺さるかを具体的に断言すること。あらすじにない要素を創作することは絶対禁止。読後にどんな感情が待っているかを約束する一文で締める。）
 {FACT_GUARD}{NG_PHRASES}
 """
 
@@ -382,6 +386,24 @@ def generate_article(target):
         final_model = model_name
         final_proc_time = proc_time
         if content:
+            # v12.0.0: AI生成SEOメタの抽出（SEO_META: セクション）
+            ai_seo_title = ""
+            ai_meta_desc = ""
+            if "SEO_META:" in content:
+                parts_seo = content.split("SEO_META:")
+                content = parts_seo[0].strip()
+                seo_lines = parts_seo[1].strip().splitlines()
+                for sline in seo_lines:
+                    sline = sline.strip()
+                    if sline.startswith("seo_title="):
+                        ai_seo_title = sline[len("seo_title="):].strip().strip('「」')
+                    elif sline.startswith("meta_desc="):
+                        ai_meta_desc = sline[len("meta_desc="):].strip()
+                if ai_seo_title:
+                    logger.info(f"  [SEO] AI生成タイトル取得: {ai_seo_title[:30]}...")
+                if ai_meta_desc:
+                    logger.info(f"  [SEO] AI生成抜粋取得: {ai_meta_desc[:30]}...")
+
             # v11.4.0: AI生成タグの抽出
             ai_tags_from_ai = []
             if "TAGS:" in content:
@@ -435,17 +457,28 @@ def generate_article(target):
                 except:
                     pass
             
-            # v11.4.0: SEO用タグ。AI生成タグがあればそれを優先、なければDB保存タグ
+            # v12.0.0: AI生成SEOタイトル・抜粋の優先利用
             tags_for_seo = ai_tags_from_ai if ai_tags_from_ai else db_ai_tags
             tag_str = "・".join(tags_for_seo[:2]) if tags_for_seo else ""
-            if tag_str:
+
+            # SEOタイトル: AIが生成したものを優先。なければテンプレートフォールバック
+            if ai_seo_title:
+                # 32文字超過サニタイズ
+                seo_title_body = ai_seo_title[:32]
+                seo_title = f"{seo_title_body}｜Novelove"
+            elif tag_str:
                 seo_title = f"『{target['title']}』あらすじ紹介！{tag_str}の{format_name}を紹介 | Novelove"
             else:
                 seo_title = f"『{target['title']}』あらすじ紹介！注目の{format_name}を詳しく紹介 | Novelove"
             if len(seo_title) > 70:
                 seo_title = seo_title[:68] + "… | Novelove"
-                
-            excerpt = make_excerpt(target["description"], target["title"], target["genre"], reviewer_name=reviewer["name"], ai_tags=tags_for_seo)
+
+            # 抜粋: AIが生成したものを優先。なければテンプレートフォールバック
+            if ai_meta_desc:
+                # 160文字超過サニタイズ
+                excerpt = ai_meta_desc[:160]
+            else:
+                excerpt = make_excerpt(target["description"], target["title"], target["genre"], reviewer_name=reviewer["name"], ai_tags=tags_for_seo)
             wp_title = target["title"]
             internal_link_html = ""
             if internal_link:
@@ -1131,34 +1164,75 @@ def fetch_ranking_digiket(genre):
         logger.error(f"DigiKet Ranking Error ({genre}): {e}")
     return items
 
-def format_ranking_prompt(site_name, genre, items, reviewer):
+def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
+    """
+    v12.0.0: ランキング記事を2名の掛け合い形式で生成するプロンプトを作成。
+    reviewer = メインMC（専門担当者）
+    guest    = ゲスト（別ジャンル担当者）。Noneの場合は1名形式にフォールバック。
+    """
     items_xml = ""
     for idx, item in enumerate(items):
         desc = mask_input(item.get("description", ""), level=1)[:300]
         items_xml += f'\n<item rank="{idx+1}">\n  <title>{item["title"]}</title>\n  <description>{desc}...</description>\n</item>\n'
-    chat_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
-    chat_close = '</div></div>'
-    return f'''あなたは「{reviewer["name"]}」として、今週の{site_name}における{genre}総合人気ランキング（漫画＋小説）TOP5を紹介するアフィリエイト記事を執筆してください。
+
+    # MC（左）の吹き出し
+    mc_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
+    mc_close = '</div></div>'
+
+    if guest is None:
+        # フォールバック: 旧来の1名形式
+        return f'''あなたは「{reviewer["name"]}」として、今週の{site_name}における{genre}総合人気ランキング（漫画＋小説）TOP5を紹介するアフィリエイト記事を執筆してください。
 【キャラクター設定: {reviewer["name"]}】
 ・性格: {reviewer["personality"]}
 ・文体: {reviewer["tone"]}
 ・挨拶: {reviewer["greeting"]}
-【執筆の最重要ルール】
-・冒頭のコメントおよび各作品の「推しポイント」は、必ず上記「{reviewer["name"]}」の性格や口調になりきった「セリフ口調（喋り言葉）」で執筆してください。
-【執筆ルール】HTML形式で出力してください。<article>タグで全体を囲む必要はありません。
+【執筆ルール】HTML形式で出力してください。
 1. 冒頭キャラコメント
-{chat_open}（{reviewer["name"]}の口調による挨拶と期待感。60〜80字以内）{chat_close}
-2. ランキングTOP5
-<div class="ranking-item" style="margin-bottom: 50px; padding-bottom: 40px; border-bottom: 1px dashed #eee;">
-  <div class="ranking-badge" style="font-size: 1.6em; font-weight: bold; margin-bottom: 15px; color: #ff4785;">[RANK_BADGE_{{rank}}]</div>
-  [IMAGE_{{rank}}]
-  <h3 style="margin-top: 20px; font-size: 1.3em; line-height: 1.4;">[TITLE_{{rank}}]</h3>
-  <p class="ranking-desc" style="color: #666; line-height: 1.6; margin-bottom: 20px;">（紹介文1〜2行）</p>
-  {chat_open}<strong>{reviewer["name"]}の推しポイント：</strong><br>（30〜50字のセリフ口調）{chat_close}
-  [REVIEW_LINK_{{rank}}]
-</div>
+{mc_open}（{reviewer["name"]}の口調による挨拶と期待感。60〜80字以内）{mc_close}
+2. ランキングTOP5（各作品につき紹介文＋推しポイント吹き出し）
+[IMAGE_{{rank}}] [RANK_BADGE_{{rank}}] [TITLE_{{rank}}] [REVIEW_LINK_{{rank}}]
 3. 締めキャラコメント
-{chat_open}（振り返りと読者への呼びかけ。100〜120字以内）{chat_close}
+{mc_open}（振り返りと読者への呼びかけ。100〜120字以内）{mc_close}
+【ランキングデータ】
+{items_xml}
+'''
+
+    # ゲスト（右）の吹き出し
+    guest_open  = f'<div class="speech-bubble-right"><img src="/wp-content/uploads/icons/{guest["face_image"]}.png" alt="{guest["name"]}" /><div class="speech-text">'
+    guest_close = '</div></div>'
+
+    # 2人の関係性テキストを取得
+    relationship = get_relationship(reviewer["id"], guest["id"])
+
+    return f'''今回は「{reviewer["name"]}」（メインMC）と「{guest["name"]}」（ゲスト）の2人の対話形式で、今週の{site_name}における{genre}総合人気ランキング（漫画＋小説）TOP5を紹介するアフィリエイト記事を執筆してください。
+【メインMC: {reviewer["name"]}】
+・性格: {reviewer["personality"]}
+・文体: {reviewer["tone"]}
+・挨拶: {reviewer["greeting"]}
+【ゲスト: {guest["name"]}】
+・性格: {guest["personality"]}
+・文体: {guest["tone"]}
+・挨拶: {guest["greeting"]}
+【2人の関係性】
+{relationship}
+【執筆の最重要ルール（必ず守ること）】
+1. 地の文は一切書かないこと。すべての文章を以下のどちらかの吹き出しHTMLで表現すること。
+2. {reviewer["name"]}の発言には必ず「メインMC吹き出し」を使用すること:
+{mc_open}（セリフ）{mc_close}
+3. {guest["name"]}の発言には必ず「ゲスト吹き出し」を使用すること:
+{guest_open}（セリフ）{guest_close}
+4. 2人の性格の違いと関係性に基づいた自然なテンポで会話を進めること。
+5. raw HTMLのみを出力。```やコードブロックは使わないこと。
+【記事の構成】
+- 冒頭：2人のオープニングトーク（お互いに挨拶し、今週のランキングへの期待を語る。合計4〜6往復。）
+- 第5位〜第2位：各作品ごとに、あらすじ説明（MC主導）→ゲストのリアクション→推しポイントの掘り下げ（最低3往復）
+  ・各作品の前後に必ず HTML プレースホルダーを置くこと:
+    [IMAGE_{{rank}}]
+    <div class="ranking-badge" style="font-size:1.6em;font-weight:bold;margin-bottom:15px;color:#ff4785;">[RANK_BADGE_{{rank}}]</div>
+    <h3 style="margin-top:20px;font-size:1.3em;">[TITLE_{{rank}}]</h3>
+    [REVIEW_LINK_{{rank}}]
+- 第1位：2人で熱量MAXに語り倒す（最低5往復）。プレースホルダーは同様に配置。
+- 締め：2人で今週の感想と読者へのメッセージを語る（合計3〜4往復）。
 【ランキングデータ】
 {items_xml}
 '''
@@ -1248,7 +1322,12 @@ def process_ranking_articles():
 
                 top_image_url = items[0].get("image_url", "")
                 reviewer, _ = _get_reviewer_for_genre(genre)
-                prompt = format_ranking_prompt(site, genre, items, reviewer)
+                # v12.0.0: ゲストレビュアーをMC以外のREVIEWERSからランダムに選出
+                guest_candidates = [r for r in REVIEWERS if r["id"] != reviewer["id"]]
+                guest = random.choice(guest_candidates) if guest_candidates else None
+                logger.info(f"  [ランキング] MC={reviewer['name']} / ゲスト={guest['name'] if guest else 'なし'}")
+                prompt = format_ranking_prompt(site, genre, items, reviewer, guest=guest)
+
                 
                 messages = [
                     {"role": "system", "content": "あなたは優秀なアフィリエイトブロガーです。"},
