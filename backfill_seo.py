@@ -37,7 +37,7 @@ def get_all_posts():
     """公開済みの全記事リスト（ID, post_title, post_content）を取得"""
     print("公開済みの記事一覧を取得しています...")
     # JSON形式で出力させてパースする
-    json_str = run_wp_cli(["post", "list", "--post_type=post", "--post_status=publish", "--format=json", "--fields=ID,post_title,post_content"])
+    json_str = run_wp_cli(["post", "list", "--post_type=post", "--post_status=publish", "--posts_per_page=-1", "--format=json", "--fields=ID,post_title,post_content"])
     if not json_str:
         return []
     try:
