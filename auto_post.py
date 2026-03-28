@@ -961,9 +961,9 @@ def _execute_posting_flow(row, cursor, conn):
     
     if link:
         ai_tags_str = ",".join(final_ai_tags)
-        # v11.4.0: ai_tags も最新版で上書き保存
+        # v11.4.0: ai_tags も最新版で上書き保存, 過去のエラー履歴（last_error）もクリア
         cursor.execute(
-            "UPDATE novelove_posts SET status='published', wp_post_url=?, published_at=datetime('now', 'localtime'), reviewer=?, ai_tags=? WHERE product_id=?",
+            "UPDATE novelove_posts SET status='published', wp_post_url=?, published_at=datetime('now', 'localtime'), reviewer=?, ai_tags=?, last_error=NULL WHERE product_id=?",
             (link, rev_name, ai_tags_str, pid)
         )
         conn.commit()
