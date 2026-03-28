@@ -49,9 +49,9 @@ DMM_API_ID       = os.environ.get("DMM_API_ID", "")
 DMM_AFFILIATE_API_ID = os.environ.get("DMM_AFFILIATE_API_ID", "")
 
 # === 定数 ===
-SALE_TAG_NAME     = "🔥期間限定セール"
+SALE_TAG_NAME     = "期間限定セール"
 SALE_TAG_SLUG     = "sale"
-BESTSELLER_TAG_NAME = "🏆売れ筋作品"
+BESTSELLER_TAG_NAME = "売れ筋作品"
 BESTSELLER_TAG_SLUG = "best-seller"
 
 # セール認定の最低割引率
