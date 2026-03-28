@@ -193,12 +193,16 @@ def init_db():
             reviewer      TEXT DEFAULT ''
         )''')
         for col, definition in [
-            ("last_error",  "TEXT DEFAULT ''"),
-            ("desc_score",  "INTEGER DEFAULT 0"),
-            ("post_type",   "TEXT DEFAULT 'regular'"),
-            ("site",        "TEXT DEFAULT ''"),
-            ("ai_tags",     "TEXT DEFAULT ''"),
-            ("reviewer",    "TEXT DEFAULT ''"),
+            ("last_error",        "TEXT DEFAULT ''"),
+            ("desc_score",        "INTEGER DEFAULT 0"),
+            ("post_type",         "TEXT DEFAULT 'regular'"),
+            ("site",              "TEXT DEFAULT ''"),
+            ("ai_tags",           "TEXT DEFAULT ''"),
+            ("reviewer",          "TEXT DEFAULT ''"),
+            # === フェーズ2（Nexusダッシュボード）向けカラム ===
+            ("sale_discount_rate", "INTEGER DEFAULT 0"),   # セール割引率（%）
+            ("last_revived_at",    "TIMESTAMP DEFAULT NULL"), # 最後に蘇生処理をした日時
+            ("revive_score",       "INTEGER DEFAULT 0"),   # 蘇生ポテンシャルスコア
         ]:
             try:
                 c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
