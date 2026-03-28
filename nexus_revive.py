@@ -358,7 +358,7 @@ def fetch_dlsite_ranking_product_ids():
     """
     ranking_ids = set()
     ranking_urls = [
-        "https://www.dlsite.com/girls/ranking",
+        "https://www.dlsite.com/girls/ranking/week",  # 週間ランキング（日次より安定）
     ]
     for url in ranking_urls:
         try:
