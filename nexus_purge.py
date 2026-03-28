@@ -17,6 +17,7 @@ from novelove_core import (
     db_connect,
 )
 
+WP_SITE_URL = os.environ.get("WP_SITE_URL", "https://novelove.jp")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("NexusPurge")
 WP_USER = os.environ.get("WP_USER", "novelove-admin")
@@ -133,7 +134,8 @@ def run_purge(dry_run=False):
         c = conn.cursor()
         
         # published で desc_score = 0 の記事を探す (AI審査が抜けていた期間の投稿データ)
-        rows = c.execute("SELECT product_id, title, description, genre, published_at FROM novelove_posts WHERE status='published' AND desc_score=0 ORDER BY published_at DESC").fetchall()
+        # ランキング記事（ranking）は対象外とし、通常記事（regular）のみをパージ対象とする
+        rows = c.execute("SELECT product_id, title, description, genre, published_at FROM novelove_posts WHERE status='published' AND post_type='regular' AND desc_score=0 ORDER BY published_at DESC").fetchall()
         
         if not rows:
             conn.close()
