@@ -42,6 +42,7 @@ Novelove 自動投稿エンジン v12.1.0
 ==========================================================
 """
 import random
+import difflib
 import subprocess
 import requests
 import json
@@ -858,6 +859,39 @@ def _run_main_logic():
         )
     logger.info("=" * 60)
 
+# === [v12.2.0] クロスDB重複排除（Fuzzy Matching）===
+def normalize_title(title):
+    """タイトルから装飾（括弧とその中身）とスペースを除去し、スッピン文字列を返す。"""
+    t = re.sub(r'[\[\(（【〈《「『].*?[\]\)）】〉》」』]', '', str(title))
+    t = re.sub(r'[\s　]+', '', t)
+    return t.strip()
+
+def is_cross_db_duplicate(new_title, current_pid, threshold=0.90):
+    """全DBを横断し、スッピンタイトルの類似度が閾値以上の published 記事があるか判定する。"""
+    norm_new = normalize_title(new_title)
+    if not norm_new:
+        return False, "", 0.0
+    for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
+        if not os.path.exists(db_p):
+            continue
+        try:
+            c2 = db_connect(db_p)
+            rows = c2.execute(
+                "SELECT product_id, title FROM novelove_posts WHERE status='published' AND product_id!=?",
+                (current_pid,)
+            ).fetchall()
+            c2.close()
+            for r in rows:
+                norm_existing = normalize_title(r['title'])
+                if not norm_existing:
+                    continue
+                ratio = difflib.SequenceMatcher(None, norm_new, norm_existing).ratio()
+                if ratio >= threshold:
+                    return True, r['title'], ratio
+        except Exception as e:
+            logger.warning(f"  [重複チェック] DB読み込みエラー ({db_p}): {e}")
+    return False, "", 0.0
+
 def _execute_posting_flow(row, cursor, conn):
     """v11.4.0: 執筆・タグ抽出・投稿・通知フロー。"""
     pid = row["product_id"]
@@ -895,17 +929,13 @@ def _execute_posting_flow(row, cursor, conn):
         "ai_tags":       row["ai_tags"]
     }
 
-    # v11.4.7: 投稿直前のタイトル重複チェック (24hガードレール)
-    day_ago = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-    dup = cursor.execute(
-        "SELECT product_id FROM novelove_posts WHERE status='published' AND title=? AND published_at > ?",
-        (title, day_ago)
-    ).fetchone()
-    if dup:
-        logger.warning(f"  [重複防止] 同タイトルの記事が直近24h以内に投稿済みです: {title[:40]}")
-        cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='duplicate' WHERE product_id=?", (pid,))
+    # v12.2.0: 全DB横断・Fuzzy Matching重複チェック (旧24hガードレールを完全置換)
+    is_dup, dup_title, dup_ratio = is_cross_db_duplicate(title, pid)
+    if is_dup:
+        logger.warning(f"  [重複ブロック] スッピンタイトル '{normalize_title(title)}' は '{normalize_title(dup_title)}' と類似度 {dup_ratio:.0%} のためスキップ (元: {dup_title[:40]})")
+        cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='duplicate_fuzzy' WHERE product_id=?", (pid,))
         conn.commit()
-        return False, "duplicate"
+        return False, "duplicate_fuzzy"
 
     # 記事生成 (v11.4.0: 12要素対応)
     res = generate_article(target)
