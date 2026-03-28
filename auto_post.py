@@ -876,6 +876,7 @@ def is_cross_db_duplicate(new_title, current_pid, threshold=0.90):
             continue
         try:
             c2 = db_connect(db_p)
+            c2.row_factory = sqlite3.Row
             rows = c2.execute(
                 "SELECT product_id, title FROM novelove_posts WHERE status='published' AND product_id!=?",
                 (current_pid,)
