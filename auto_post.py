@@ -265,6 +265,8 @@ TL系: 溺愛/身分差/契約結婚/御曹司/騎士/オフィスラブ/腹黒/
 SEO_META:
 seo_title=（32文字以内。**上記【対象作品情報】のあらすじに書かれた具体的な設定・属性・キーワード**を使うこと。存在しない設定・キャラ・展開は絶対に使わないこと。読者の感情を揺さぶる言葉で表現する。末尾に「| Novelove」は付けない。）
 meta_desc=（80文字程度。**あらすじに実際に書かれた内容**に基づき、誰のどんな性癖に刺さるかを具体的に断言すること。あらすじにない要素を創作することは絶対禁止。読後にどんな感情が待っているかを約束する一文で締める。）
+
+SCORE: （1〜5の整数。この作品を読者にどれくらい強くおすすめできるかを、客観的な品質・魅力に基づいて5段階で厳しく評価してください。4以上が合格点です）
 {FACT_GUARD}{NG_PHRASES}
 """
 
@@ -416,8 +418,8 @@ def generate_article(target):
             ai_tags_from_ai = []
             if "TAGS:" in content:
                 parts = content.split("TAGS:")
-                content = parts[0].strip()
-                tag_line = parts[1].split("\n")[0].strip()
+                content_for_tags = parts[0].strip()
+                tag_line = parts[1].split("SEO_META:")[0].split("\n")[0].strip()
                 if tag_line and tag_line != "なし":
                     # スラッシュ区切りまたはカンマ区切りを想定
                     raw_tags = [t.strip() for t in tag_line.replace("/", ",").split(",") if t.strip()]
@@ -427,6 +429,17 @@ def generate_article(target):
                                 ai_tags_from_ai.append(allowed)
                                 break
                     ai_tags_from_ai = list(dict.fromkeys(ai_tags_from_ai))[:3]
+
+            # AI事前評価スコアの抽出（1〜5点）
+            ai_score = 0
+            if "SCORE:" in content:
+                parts_score = content.split("SCORE:")
+                score_str = parts_score[1].split("\n")[0].strip()
+                import re
+                match = re.search(r'\d+', score_str)
+                if match:
+                    ai_score = int(match.group())
+                content = parts_score[0].strip()
 
             if not _check_image_ok(target["image_url"]):
                 logger.warning(f"  [画像NG] 投稿直前チェックで無効: {target['image_url']}")
@@ -502,12 +515,12 @@ def generate_article(target):
             )
             word_count = len(content)
             is_r18_val = ":r18=1" in str(target.get("site", ""))
-            return wp_title, full_content, excerpt, seo_title, is_r18_val, "ok", model_name, level_name, proc_time, word_count, reviewer_name, ai_tags_from_ai
+            return wp_title, full_content, excerpt, seo_title, is_r18_val, "ok", model_name, level_name, proc_time, word_count, reviewer_name, ai_tags_from_ai, ai_score
         if error_type == "rate_limit":
             logger.warning("  レート制限 → フィルター試行を中断")
             break
         logger.warning(f"  [{level_name}] 失敗 → 次のフィルターレベルへ")
-    return None, None, None, None, False, final_error, final_model, "None", final_proc_time, 0, "", []
+    return None, None, None, None, False, final_error, final_model, "None", final_proc_time, 0, "", [], 0
 
 # === WordPress投稿 ===
 def get_or_create_term(name, taxonomy):
@@ -947,7 +960,14 @@ def _execute_posting_flow(row, cursor, conn):
         conn.commit()
         return False, err
 
-    wp_title, content, excerpt, seo_title, is_r18, status, model, level, ptime, words, rev_name, ai_tags_from_ai = res
+    wp_title, content, excerpt, seo_title, is_r18, status, model, level, ptime, words, rev_name, ai_tags_from_ai, ai_score = res
+
+    # AIスコア審査（4点以上で合格）
+    if ai_score < 4:
+        logger.warning(f"  [AIスコア審査落ち] スコア {ai_score}点のため不採用として除外: {title[:30]}")
+        cursor.execute("UPDATE novelove_posts SET status='excluded', last_error=? WHERE product_id=?", (f"low_score: {ai_score}", pid))
+        conn.commit()
+        return False, f"low_score: {ai_score}"
 
     # タグの優先度：AI生成タグ > DB既存タグ
     db_tags = [t.strip() for t in (row["ai_tags"] or "").split(",") if t.strip()]
@@ -961,10 +981,10 @@ def _execute_posting_flow(row, cursor, conn):
     
     if link:
         ai_tags_str = ",".join(final_ai_tags)
-        # v11.4.0: ai_tags も最新版で上書き保存, 過去のエラー履歴（last_error）もクリア
+        # v11.4.0: ai_tags も最新版で上書き保存, 過去のエラー履歴（last_error）もクリア, desc_scoreも保存
         cursor.execute(
-            "UPDATE novelove_posts SET status='published', wp_post_url=?, published_at=datetime('now', 'localtime'), reviewer=?, ai_tags=?, last_error=NULL WHERE product_id=?",
-            (link, rev_name, ai_tags_str, pid)
+            "UPDATE novelove_posts SET status='published', wp_post_url=?, published_at=datetime('now', 'localtime'), reviewer=?, ai_tags=?, last_error=NULL, desc_score=? WHERE product_id=?",
+            (link, rev_name, ai_tags_str, ai_score, pid)
         )
         conn.commit()
         

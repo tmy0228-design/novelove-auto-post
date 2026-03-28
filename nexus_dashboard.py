@@ -49,6 +49,8 @@ COLUMNS_TO_LOAD = [
     "image_url",
     "release_date",
     "post_type",
+    "product_url",
+    "affiliate_url",
 ]
 
 STATUS_MAP = {
@@ -138,6 +140,13 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
             lambda v: f"🔥{v}%" if v > 0 else "-"
         )
 
+    # リンク列の整理
+    if "wp_post_url" in display.columns:
+        display["ノベラブ"] = display["wp_post_url"]
+    
+    if "affiliate_url" in display.columns and "product_url" in display.columns:
+        display["販売元"] = display["affiliate_url"].fillna(display["product_url"])
+
     # スコアをバー表示用に整形
     if "desc_score" in display.columns:
         display["スコア"] = display["desc_score"]
@@ -160,7 +169,6 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
         "_source_db":  "DB",
         "reviewer":    "担当",
         "last_error":  "エラー",
-        "wp_post_url": "WP URL",
     }
     display = display.rename(columns={k: v for k, v in rename_map.items() if k in display.columns})
 
@@ -350,8 +358,8 @@ def main():
 
     # 表示するカラムを選定（存在するもののみ）
     show_cols_priority = [
-        "サムネイル", "ステータス", "記事種別", "DB", "タイトル", "発売日", "ジャンル",
-        "担当", "スコア", "タグ", "セール", "公開日", "取得日", "エラー",
+        "サムネイル", "ステータス", "記事種別", "DB", "タイトル", "ノベラブ", "販売元", "発売日",
+        "ジャンル", "担当", "スコア", "タグ", "セール", "公開日", "取得日", "エラー",
     ]
     show_cols = [c for c in show_cols_priority if c in display_df.columns]
 
@@ -367,6 +375,8 @@ def main():
             "記事種別":  st.column_config.TextColumn("種別", width="small"),
             "DB":       st.column_config.TextColumn("DB", width="small"),
             "タイトル": st.column_config.TextColumn(width="large"),
+            "ノベラブ": st.column_config.LinkColumn("ノベラブ", display_text="📝 開く", width="small"),
+            "販売元":   st.column_config.LinkColumn("販売元", display_text="🛒 開く", width="small"),
             "発売日":   st.column_config.TextColumn(width="small"),
             "ジャンル": st.column_config.TextColumn(width="small"),
             "担当":     st.column_config.TextColumn(width="small"),
