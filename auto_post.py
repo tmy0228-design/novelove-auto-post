@@ -396,7 +396,18 @@ def generate_article(target):
         final_model = model_name
         final_proc_time = proc_time
         if content:
-            # v12.0.0: AI生成SEOメタの抽出（SEO_META: セクション）
+            # 1. AI事前評価スコアの抽出（1〜5点）を抽出 (一番下)
+            ai_score = 0
+            if "SCORE:" in content:
+                parts_score = content.split("SCORE:")
+                score_str = parts_score[1].split("\n")[0].strip()
+                import re
+                match = re.search(r'\d+', score_str)
+                if match:
+                    ai_score = int(match.group())
+                content = parts_score[0].strip()
+
+            # 2. AI生成SEOメタの抽出（SEO_META: セクション）
             ai_seo_title = ""
             ai_meta_desc = ""
             if "SEO_META:" in content:
@@ -414,12 +425,12 @@ def generate_article(target):
                 if ai_meta_desc:
                     logger.info(f"  [SEO] AI生成抜粋取得: {ai_meta_desc[:30]}...")
 
-            # v11.4.0: AI生成タグの抽出
+            # 3. AI生成タグの抽出 (TAGS: セクション)
             ai_tags_from_ai = []
             if "TAGS:" in content:
-                parts = content.split("TAGS:")
-                content_for_tags = parts[0].strip()
-                tag_line = parts[1].split("SEO_META:")[0].split("\n")[0].strip()
+                parts_tags = content.split("TAGS:")
+                content = parts_tags[0].strip()
+                tag_line = parts_tags[1].strip().split("\n")[0].strip()
                 if tag_line and tag_line != "なし":
                     # スラッシュ区切りまたはカンマ区切りを想定
                     raw_tags = [t.strip() for t in tag_line.replace("/", ",").split(",") if t.strip()]
@@ -429,17 +440,6 @@ def generate_article(target):
                                 ai_tags_from_ai.append(allowed)
                                 break
                     ai_tags_from_ai = list(dict.fromkeys(ai_tags_from_ai))[:3]
-
-            # AI事前評価スコアの抽出（1〜5点）
-            ai_score = 0
-            if "SCORE:" in content:
-                parts_score = content.split("SCORE:")
-                score_str = parts_score[1].split("\n")[0].strip()
-                import re
-                match = re.search(r'\d+', score_str)
-                if match:
-                    ai_score = int(match.group())
-                content = parts_score[0].strip()
 
             if not _check_image_ok(target["image_url"]):
                 logger.warning(f"  [画像NG] 投稿直前チェックで無効: {target['image_url']}")
