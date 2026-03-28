@@ -47,12 +47,16 @@ COLUMNS_TO_LOAD = [
     "last_error",
     "wp_post_url",
     "image_url",
+    "release_date",
+    "post_type",
 ]
 
-STATUS_COLORS = {
-    "published": "🟢",
-    "pending":   "🟡",
-    "excluded":  "🔴",
+STATUS_MAP = {
+    "published": "🟢 公開済",
+    "pending":   "🟡 執筆待",
+    "excluded":  "🔴 除外済",
+    "failed":    "❌ 取得エラー",
+    "failed_ai": "❌ AIエラー",
 }
 
 # =====================================================================
@@ -104,32 +108,48 @@ def load_all_data() -> pd.DataFrame:
 # 2. UI ヘルパー
 # =====================================================================
 def status_badge(status: str) -> str:
-    icon = STATUS_COLORS.get(str(status), "⚪")
-    return f"{icon} {status}"
+    return STATUS_MAP.get(str(status), f"⚪ {status}")
 
 
 def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
     """表示用にカラムを整形する。"""
     display = df.copy()
 
+    # サムネイル列（ImageColumn用にそのまま渡す）
+    if "image_url" in display.columns:
+        display["サムネイル"] = display["image_url"].fillna("")
+
     # ステータスにアイコンを付与
     if "status" in display.columns:
         display["ステータス"] = display["status"].apply(status_badge)
 
-    # 日付を見やすく
-    for col, label in [("published_at", "公開日時"), ("inserted_at", "取得日時")]:
+    # 日付を見やすく（日付だけ表示、時刻は省略してスリムに）
+    for col, label in [("published_at", "公開日"), ("inserted_at", "取得日"), ("release_date", "発売日")]:
         if col in display.columns:
-            display[label] = display[col].dt.strftime("%Y-%m-%d %H:%M").fillna("-")
+            display[label] = pd.to_datetime(display[col], errors="coerce").dt.strftime("%Y/%m/%d").fillna("-")
+
+    # 記事種別（post_type）を日本語化
+    if "post_type" in display.columns:
+        display["記事種別"] = display["post_type"].map({"regular": "通常", "ranking": "ランキング"}).fillna(display["post_type"])
 
     # セール中表示
     if "sale_discount_rate" in display.columns:
         display["セール"] = display["sale_discount_rate"].apply(
-            lambda v: f"🔥 {v}%OFF" if v > 0 else "-"
+            lambda v: f"🔥{v}%" if v > 0 else "-"
         )
 
     # スコアをバー表示用に整形
     if "desc_score" in display.columns:
         display["スコア"] = display["desc_score"]
+
+    # タグを短く整形（カンマ区切りを改行なしで短縮表示）
+    if "ai_tags" in display.columns:
+        def shorten_tags(t):
+            if not t or str(t) in ("", "None", "nan"):
+                return "-"
+            tags = [x.strip() for x in str(t).split(",") if x.strip()]
+            return " ".join([f"#{tag}" for tag in tags[:3]])  # 最大3つ
+        display["タグ"] = display["ai_tags"].apply(shorten_tags)
 
     # 表示カラムを整理
     rename_map = {
@@ -139,8 +159,7 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
         "genre":       "ジャンル",
         "_source_db":  "DB",
         "reviewer":    "担当",
-        "ai_tags":     "タグ",
-        "last_error":  "最終エラー",
+        "last_error":  "エラー",
         "wp_post_url": "WP URL",
     }
     display = display.rename(columns={k: v for k, v in rename_map.items() if k in display.columns})
@@ -226,6 +245,21 @@ def main():
 
         st.markdown("---")
 
+        # 記事種別フィルター
+        if "post_type" in df.columns:
+            all_types = sorted(df["post_type"].dropna().unique().tolist())
+            type_labels = {"regular": "通常記事", "ranking": "ランキング"}
+            selected_types = st.multiselect(
+                "記事種別",
+                options=all_types,
+                default=all_types,
+                format_func=lambda x: type_labels.get(x, x)
+            )
+        else:
+            selected_types = []
+
+        st.markdown("---")
+
         # スコアフィルター
         if "desc_score" in df.columns:
             min_score = int(df["desc_score"].min())
@@ -273,6 +307,9 @@ def main():
     if selected_genres and "genre" in filtered.columns:
         filtered = filtered[filtered["genre"].isin(selected_genres)]
 
+    if selected_types and "post_type" in filtered.columns:
+        filtered = filtered[filtered["post_type"].isin(selected_types)]
+
     if "desc_score" in filtered.columns:
         filtered = filtered[
             (filtered["desc_score"] >= score_range[0]) &
@@ -313,8 +350,8 @@ def main():
 
     # 表示するカラムを選定（存在するもののみ）
     show_cols_priority = [
-        "ステータス", "DB", "タイトル", "ジャンル", "担当",
-        "スコア", "セール", "公開日時", "取得日時", "最終エラー", "タグ",
+        "サムネイル", "ステータス", "記事種別", "DB", "タイトル", "発売日", "ジャンル",
+        "担当", "スコア", "タグ", "セール", "公開日", "取得日", "エラー",
     ]
     show_cols = [c for c in show_cols_priority if c in display_df.columns]
 
@@ -323,11 +360,24 @@ def main():
         use_container_width=True,
         height=600,
         column_config={
-            "タイトル": st.column_config.TextColumn(width="large"),
-            "スコア":   st.column_config.ProgressColumn(
-                "スコア", min_value=0, max_value=5, format="%d"
+            "サムネイル": st.column_config.ImageColumn(
+                "🖼", width="small",
             ),
+            "ステータス": st.column_config.TextColumn("状態", width="small"),
+            "記事種別":  st.column_config.TextColumn("種別", width="small"),
+            "DB":       st.column_config.TextColumn("DB", width="small"),
+            "タイトル": st.column_config.TextColumn(width="large"),
+            "発売日":   st.column_config.TextColumn(width="small"),
+            "ジャンル": st.column_config.TextColumn(width="small"),
+            "担当":     st.column_config.TextColumn(width="small"),
+            "スコア":   st.column_config.ProgressColumn(
+                "スコア", min_value=0, max_value=5, format="%d", width="small",
+            ),
+            "タグ":     st.column_config.TextColumn(width="medium"),
             "セール":   st.column_config.TextColumn(width="small"),
+            "公開日":   st.column_config.TextColumn(width="small"),
+            "取得日":   st.column_config.TextColumn(width="small"),
+            "エラー":   st.column_config.TextColumn(width="medium"),
         },
     )
 
