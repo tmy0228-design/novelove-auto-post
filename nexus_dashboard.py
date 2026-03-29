@@ -128,7 +128,9 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
     # 日付を見やすく（日付だけ表示、時刻は省略してスリムに）
     for col, label in [("published_at", "公開日"), ("inserted_at", "取得日"), ("release_date", "発売日")]:
         if col in display.columns:
-            display[label] = pd.to_datetime(display[col], errors="coerce").dt.strftime("%Y/%m/%d").fillna("-")
+            # DBによって日時フォーマット（時分秒の有無）が異なるため、強制的に最初の10文字(YYYY-MM-DD)だけを抽出してパース
+            safe_dates = display[col].astype(str).str[:10]
+            display[label] = pd.to_datetime(safe_dates, errors="coerce").dt.strftime("%Y/%m/%d").fillna("-")
 
     # 記事種別（post_type）を日本語化
     if "post_type" in display.columns:
@@ -203,6 +205,7 @@ def main():
     # ─── データ読み込み ───
     with st.spinner("データを読み込んでいます..."):
         df = load_all_data()
+        df.to_csv('debug_df.csv', index=False)
 
     if df.empty:
         st.error("データが読み込めませんでした。DBファイルのパスを確認してください。")
