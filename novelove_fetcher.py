@@ -38,7 +38,11 @@ from novelove_core import (
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
     _clean_description,
     get_db_path, db_connect,
+    trigger_emergency_stop,
 )
+
+# スクレイピング構造変化の検知閾値（連続N回で緊急停止）
+SCRAPE_FAIL_THRESHOLD = 5
 
 # === 環境変数 ===
 DMM_API_ID            = os.environ.get("DMM_API_ID", "")
@@ -664,6 +668,7 @@ def fetch_and_stock_all():
 
         scraped_data.sort(key=lambda x: len(x[1]) if x[1] else 0, reverse=True)
 
+        scrape_fail_count = 0  # 構造変化検知用カウンター
         for item, desc in scraped_data:
             pid = item.get("content_id")
             last_error = ""
@@ -698,6 +703,15 @@ def fetch_and_stock_all():
                 else:
                     # v11.4.0: AI審査を廃止、スクリプトフィルタ通過で即pending
                     final_status = "pending"
+
+            # 構造変化検知: 画像なし or あらすじなし が連続したらスクレイピング異常
+            if last_error in ("no_description", "no_image", "no_desc_or_image"):
+                scrape_fail_count += 1
+                if scrape_fail_count >= SCRAPE_FAIL_THRESHOLD:
+                    trigger_emergency_stop(f"[{site}/{target['label']}] スクレイピング異常検知: 画像/あらすじ取得失敗が{SCRAPE_FAIL_THRESHOLD}件連続。HTML構造変更の可能性あり")
+                    break
+            else:
+                scrape_fail_count = 0
 
             # アフィリエイトURL生成
             image_url = item.get("imageURL", {}).get("large", "")
@@ -844,6 +858,7 @@ def fetch_digiket_items():
 
             scraped_items.sort(key=lambda x: len(x[1]) if x[1] else 0, reverse=True)
 
+            digiket_scrape_fail_count = 0  # 構造変化検知用カウンター
             for item, description, og_image_full, pid, genre, title, product_url in scraped_items:
                 try:
                     content_tag = item.find(re.compile(r"encoded", re.I))
@@ -888,6 +903,15 @@ def fetch_digiket_items():
                     else:
                         # v11.4.0: AI審査を廃止、スクリプトフィルタ通過で即pending
                         final_status = "pending"
+
+                    # 構造変化検知: 画像なし or あらすじなし が連続したらスクレイピング異常
+                    if last_error in ("no_desc_or_image", "no_image"):
+                        digiket_scrape_fail_count += 1
+                        if digiket_scrape_fail_count >= SCRAPE_FAIL_THRESHOLD:
+                            trigger_emergency_stop(f"[DigiKet/{label}] スクレイピング異常検知: 画像/あらすじ取得失敗が{SCRAPE_FAIL_THRESHOLD}件連続。HTML構造変更の可能性あり")
+                            break
+                    else:
+                        digiket_scrape_fail_count = 0
 
                     site_str = f"DigiKet:r18={is_r18}"
                     c.execute("""INSERT INTO novelove_posts

@@ -814,7 +814,7 @@ def _run_main_logic():
                 error_count = 0  # 成功したらリセット
             else:
                 # 正常な選別処理（品質フィルタ）の結果はサーキットブレーカー対象外
-                NORMAL_FILTER_REASONS = ("low_score", "duplicate_fuzzy", "image_missing", "no_desc_or_image", "excluded_foreign")
+                NORMAL_FILTER_REASONS = ("low_score", "duplicate_fuzzy", "excluded_foreign", "image_missing", "no_desc_or_image")
                 is_normal_filter = any(reason and reason.startswith(r) for r in NORMAL_FILTER_REASONS)
                 if is_normal_filter:
                     logger.info(f"  [フィルタ除外] {reason} — サーキットブレーカー対象外")
