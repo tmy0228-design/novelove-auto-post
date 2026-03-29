@@ -1448,6 +1448,14 @@ def process_ranking_articles():
                 content_html = re.sub(r"^```html\n?", "", content_html, flags=re.MULTILINE)
                 content_html = re.sub(r"^```\n?", "", content_html, flags=re.MULTILINE)
                 
+                # 自動整形のwpautop対策：吹き出しの中身を1行にまとめ、内部の改行は<br />に変換
+                def _clean_bubble(m):
+                    text = m.group(0)
+                    text = re.sub(r'>\s*\n\s*<', '><', text)
+                    text = text.replace('\n', '<br />')
+                    return text
+                content_html = re.sub(r'<div class="speech-bubble-(?:left|right)".*?</div>\s*</div>', _clean_bubble, content_html, flags=re.DOTALL)
+
                 _now = datetime.now()
                 _wk = (_now.day - 1) // 7 + 1
                 title_date = f"{_now.year}年{_now.month}月第{_wk}週"
