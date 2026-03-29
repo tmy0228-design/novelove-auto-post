@@ -170,7 +170,7 @@ def _check_wp_post_exists(url):
 def _evaluate_article_potential(title, description):
     """
     執筆前にあらすじ情報だけを元に、「情報量と面白さ」で記事化ポテンシャルを1〜5点で評価する。
-    1〜3: 不採用（即スキップ）、4: 標準記事採用、5: 特大記事採用。
+    1〜2: 不採用（即スキップ）、3: ショート記事採用、4: 標準記事採用、5: 特大記事採用。
     """
     if not description or len(description.strip()) < 50:
         return 2  # 情報が少なすぎる場合はAPIを叩かずに即終了
@@ -181,8 +181,8 @@ def _evaluate_article_potential(title, description):
 
 5: 情報が非常にリッチで面白い。キャラの心理や世界観が具体的に書かれており、嘘なく深い分析記事（約2000文字）が書ける。
 4: 情報量は標準的かつ十分。設定は手堅くまとまっており、嘘なく標準的な紹介記事（約1000文字）が書ける。
-3: 面白そうだが情報が圧倒的に不足。AIが「たぶんこういう展開だろう」と想像で嘘をでっち上げないと記事が埋まらない。
-2: 内容スッカスカ。タイトルか宣伝文句のみで、中身が全く読めない。
+3: あらすじは短いが、設定・コンセプトに徕力がある。「読んでみたい！」と思わせる面白さがある。AIが嘘をつかずに500字のコンパクトな紹介が十分書ける。
+2: 薄い上に面白くない。設定も平凡で、短く書いても読者を動かす力がない。
 1: 判定不能。外国語・ノイズ・ジャンル違い。
 
 【出力形式】
@@ -273,7 +273,7 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None, is_novel=Fa
 </ul>
 {chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
 """
-    else:
+    elif ai_score == 4:
         # スコア4：1000文字規模の標準安定記事
         html_structure = f"""
 {chat_open}（60〜80字程度。{intro_rule}）{chat_close}
@@ -294,6 +294,16 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None, is_novel=Fa
 </ul>
 {chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
 """
+    else:
+        # スコア3：500文字規模のショート記事（嘘・捏造・想像を一切禁止の厳格構成）
+        html_structure = f"""
+{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
+<h2>（あらすじから抽出したキャッチーで目を引く見出し）</h2>
+<p>（標準語で執筆）あらすじ・ツカミ。少ない情報をきれいに整理し、200〜300字程度で簡潔かつ魅力的に書き直す。
+【重要禁止事項】あらすじに書かれていないキャラクターの心理・後半の展開・存在しない設定を一切書かないこと。見どころの箇条書きは不要。事実だけで完結させること。）</p>
+{chat_open}（50〜70字程度。「こういうシチュエーション最高ですよね！」など、明らかになっている設定に対する純粋な興奮・オススメ感を短く語る。想像の展開を語ることは禁止。）{chat_close}
+"""
+
 
 
     return f"""あなたは人気ファンブログ「Novelove」の特別ライター「{reviewer["name"]}」です。
@@ -393,10 +403,10 @@ def call_deepseek(prompt):
             time.sleep(5)
             continue
         stripped = text.strip()
-        if stripped in ("0", "1", "2", "3"):
+        if stripped in ("0", "1", "2"):
             logger.warning(f"  [DeepSeek] AIスコア{stripped}点 → 投稿スキップ")
             return "", f"ai_score_{stripped}", DEEPSEEK_MODEL, proc_time
-        cleaned = re.sub(r'^[4-5]\s*\n+', '', stripped)
+        cleaned = re.sub(r'^[3-5]\s*\n+', '', stripped)
         if cleaned != stripped:
             stripped = cleaned.strip()
         if len(stripped) > 50:
@@ -992,9 +1002,9 @@ def _execute_posting_flow(row, cursor, conn):
     eval_score = _evaluate_article_potential(title, desc_str)
     logger.info(f"  -> AI品質スコア: {eval_score}/5点")
     
-    # スコア3以下は即時破棄（品質担保＆コスト削減）
-    if eval_score < 4:
-        logger.warning(f"  -> スコア不足({eval_score}点)のため執筆スキップ")
+    # スコア2以下は破棄（中身がスッカスカ、ノイズのみ）
+    if eval_score <= 2:
+        logger.warning(f"  -> 内容が不十分（スコア{eval_score}点）のため執筆スキップ")
         cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='low_score' WHERE product_id=?", (pid,))
         conn.commit()
         return False, f"low_score: {eval_score}"
