@@ -84,7 +84,13 @@ def load_all_data() -> pd.DataFrame:
                 continue
             query = f"SELECT {', '.join(cols_to_query)} FROM novelove_posts"
             df = pd.read_sql_query(query, conn)
-            df["_source_db"] = label  # どのDBから来たか記録
+            
+            # novelove.db(FANZA/DMM統合DB)の場合は、siteカラムの中身を見て表示を切り替える
+            if label == "FANZA" and "site" in df.columns:
+                df["_source_db"] = df["site"].apply(lambda x: "DMM" if x and "DMM" in str(x) else "FANZA")
+            else:
+                df["_source_db"] = label
+            
             conn.close()
             frames.append(df)
         except Exception as e:
@@ -205,7 +211,6 @@ def main():
     # ─── データ読み込み ───
     with st.spinner("データを読み込んでいます..."):
         df = load_all_data()
-        df.to_csv('debug_df.csv', index=False)
 
     if df.empty:
         st.error("データが読み込めませんでした。DBファイルのパスを確認してください。")
@@ -238,10 +243,11 @@ def main():
         st.markdown("---")
 
         # DBフィルター
+        db_options = sorted(df["_source_db"].dropna().unique().tolist()) if "_source_db" in df.columns else list(DB_SOURCES.keys())
         selected_dbs = st.multiselect(
             "プラットフォーム",
-            options=list(DB_SOURCES.keys()),
-            default=list(DB_SOURCES.keys()),
+            options=db_options,
+            default=db_options,
         )
 
         st.markdown("---")
