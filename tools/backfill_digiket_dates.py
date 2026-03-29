@@ -5,7 +5,10 @@ release_date が空 or NULL のものに対して
 詳細ページをスクレイピングして発売日を補完するスクリプト。
 """
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# tools/ の親ディレクトリ（scripts/）をモジュール検索パスに追加
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, SCRIPT_DIR)
+
 
 from novelove_fetcher import scrape_digiket_description
 from novelove_core import logger, db_connect, DB_FILE_DIGIKET
