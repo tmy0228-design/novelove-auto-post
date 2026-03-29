@@ -167,8 +167,48 @@ def _check_wp_post_exists(url):
     except Exception:
         return False
 
+def _evaluate_article_potential(title, description):
+    """
+    執筆前にあらすじ情報だけを元に、「情報量と面白さ」で記事化ポテンシャルを1〜5点で評価する。
+    1〜3: 不採用（即スキップ）、4: 標準記事採用、5: 特大記事採用。
+    """
+    if not description or len(description.strip()) < 50:
+        return 2  # 情報が少なすぎる場合はAPIを叩かずに即終了
+    
+    prompt = f"""
+以下の作品タイトルとあらすじを読み、「嘘や想像を一切交えずに、充実した作品紹介記事が書ける情報量があるか」を1〜5点で評価してください。
+ページ数、ファイル形式、単なる宣伝文句などの「無意味なノイズ情報」は無視し、純粋な【物語の設定・展開・キャラクターの背景】の情報の深達度だけで審査してください。
+
+5: 情報が非常にリッチで面白い。キャラの心理や世界観が具体的に書かれており、嘘なく深い分析記事（約2000文字）が書ける。
+4: 情報量は標準的かつ十分。設定は手堅くまとまっており、嘘なく標準的な紹介記事（約1000文字）が書ける。
+3: 面白そうだが情報が圧倒的に不足。AIが「たぶんこういう展開だろう」と想像で嘘をでっち上げないと記事が埋まらない。
+2: 内容スッカスカ。タイトルか宣伝文句のみで、中身が全く読めない。
+1: 判定不能。外国語・ノイズ・ジャンル違い。
+
+【出力形式】
+評価の数字（1、2、3、4、5のいずれかの半角数字1文字）のみを出力してください。理由やその他の文字は一切不要です。
+
+【対象作品情報】
+タイトル: {title}
+あらすじ: {description[:1000]}
+"""
+    messages = [
+        {"role": "system", "content": "あなたはプロの編集者です。情報量と面白さだけで厳密に審査してください。"},
+        {"role": "user", "content": prompt}
+    ]
+    # トークンを極限まで絞って即座に結果を返す（AIの無駄話で数字が途切れないようマージンを取る）
+    content, err = _call_deepseek_raw(messages, max_tokens=50, temperature=0.3)
+    if err != "ok" or not content:
+        return 0
+
+    import re
+    match = re.search(r"[1-5]", content)
+    if match:
+        return int(match.group())
+    return 0
+
 # === AI執筆 ===
-def build_prompt(target, reviewer, mask_level=0, internal_link=None, is_novel=False, is_guest=False, mood=""):
+def build_prompt(target, reviewer, mask_level=0, internal_link=None, is_novel=False, is_guest=False, mood="", ai_score=4):
     safe_title = mask_input(target["title"], mask_level)
     safe_desc  = mask_input(target["description"], mask_level)
     label      = _genre_label(target["genre"], safe_title)
@@ -198,51 +238,47 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None, is_novel=Fa
     if target["genre"] == "doujin_voice":
         voice_hint = "\n【ボイス作品紹介のコツ】声優の演技・音質・耳への心地よさに言及すること。「耳が溶ける」「ヘッドホン必須」「通勤中に聴けない」などのリアクションを使ってもOK。"
 
-    zero_note = "小説ではない" if is_novel else "マンガではない"
     mood_note = f"\n今回の感情モード: {mood}" if mood else ""
-    return f"""あなたは人気ファンブログ「Novelove」のライター「{reviewer["name"]}」です。
-【事前審査（最初に必ず実行すること）】
-以下の基準で対象作品を0〜5点でスコアリングしてください。
-- 5点：超新着・最高品質。読者が確実に惹きつけられる独自性や魅力があり、文句なしの最高傑作。
-- 4点：良作・採用。ストーリーやキャラの魅力が具体的に書かれ、内容が明確にイメージできる。
-- 3点：標準的だが、独自性や熱量が不足している（不採用）。
-- 2〜1点：情報が少なすぎる、またはジャンルや内容がズレている。
-- 0点：外国語版（韓国・中国・英語等）、ボイスのみ、動画のみ、{zero_note}。
-スコアが0点の場合は、**数字「0」とだけ回答してください**（記事は一切書かないこと）。
-スコアが1〜3点の場合は、**スコアの数字のみ**回答してください。
-スコアが4〜5点の場合のみ、以下の形式で記事を執筆してください。
-【キャラクター設定】
-名前: {reviewer["name"]}
-性格: {reviewer["personality"]}
-文体・口調: {reviewer["tone"]}
-今回の紹介の注目点（{medium_label}）: {focus}{mood_note}{guest_hint}{novel_rules}
-【執筆ルール】
-1. キャラクターコメント（吹き出し）と記事本文（HTMLタグ部分）を完全に書き分けること。
-2. 記事本文（<h2>, <p>, <ul>, <li>タグの中身）は**「標準的で丁寧な日本語（ですます調）」**で、客観的な紹介文として執筆すること。担当ライターの口調や一人称を混ぜないこと。
-3. 直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
-4. キャラクターコメント（吹き出し）の中身のみ、{reviewer["name"]}の個性を全開にした口調で執筆すること。
-5. 紹介対象は「{label}」です。オタク的な表現は吹き出しコメントの中でのみ使用すること。
-6. **【重要】スコアが4〜5点の場合、スコアの数字は出力せず、記事本文（HTML）のみを出力してください。**
-7. コメントのボリューム:
-   - 冒頭：60〜80字程度。今回の感情モードに合わせた、キャラらしい導入。
-   - 中間：50〜70字程度。紹介への短いリアクション。
-   - 総評：100〜120字程度。熱い布教とまとめ。{voice_hint}
-8. 吹き出しコメントではキャラ設定に合ったオタク用語や口癖を自然に使うこと。ただし記事本文（ですます調パート）には使用しないこと。
-9. 紹介文（本文 <p>タグ）の注意:
-   - 毎回「本作は〜」「この作品は〜」で書き始めないこと。世界観の描写、問いかけ、シーンの切り取りなど多様な書き出しを工夫すること。
-   - あらすじの情報が少ない場合は無理に膨らませず短くまとめてよい（200字程度でも可）。存在しない設定やキャラクターを補って字数を稼ぐことは絶対禁止。
-10. h2見出しは毎回異なる切り口で書くこと。「○○に迫る」「○○が紡ぐ」のようなテンプレ表現は避けること。
-11. 見どころの3点は、この作品ならではの魅力を優先順に並べること。毎回「ストーリー→ビジュアル→キャラクター」の同じ順番にしないこと。
-12. 「こんな人におすすめ」は、あらすじに書かれた具体的な設定・属性に基づくこと。「BLが好きな方」「TLファンの方」のような汎用的な表現は禁止。
-【対象作品情報】
-タイトル: {safe_title}
-あらすじ: {safe_desc}
-アフィリエイトURL: {target["affiliate_url"]}
-【出力形式（HTML）】
-指示文・説明文は一切出力せず、以下の構成のみを出力してください。
-{chat_open}（60〜80字程度の冒頭コメント）{chat_close}
+    
+    # === マンネリ化防止ロジック（10%の確率で設定の身の上話を引き出す） ===
+    import random
+    if random.random() < 0.1:
+        intro_rule = f"冒頭の挨拶では、あなたのキャラクター設定にある身の上話（例: {reviewer.get('greeting', '')}）を自然に絡めてください。"
+    else:
+        intro_rule = "冒頭の挨拶では、あなたの年齢や職業等といった自己紹介・身の上話をするのは【絶対に禁止】します。" \
+                     "あなたの【キャラクターの口調や口癖だけ】を維持したまま、作品のあらすじに対する新鮮なリアクションだけで書き出してください。"
+
+    # === スコア別構成制御ロジック ===
+    if ai_score >= 5:
+        # スコア5：2000文字規模の特大フルダイブ記事
+        html_structure = f"""
+{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
 <h2>（作品の世界観や魅力を引き出すキャッチーな見出し）</h2>
-<p>（標準語で執筆）あらすじ・世界観。200〜400字程度。</p>
+<p>（標準語で執筆）あらすじ・世界観。情報を深く噛み砕いて400〜500字程度でリッチに解説。</p>
+{chat_open}（50〜70字程度。設定への熱いリアクション）{chat_close}
+<h2>キャラクターの魅力と関係性</h2>
+<p>（標準語で執筆）キャラクターの性格、2人の関係性がどう変化するかなど、深い分析を400〜500字程度で執筆。</p>
+{chat_open}（50〜70字程度。キャラ愛や尊さへのリアクション）{chat_close}
+<h2>見どころ</h2>
+<ul>
+  <li><strong>（魅力ポイント1）</strong>：（標準語で執筆）魅力を具体的に。</li>
+  <li><strong>（魅力ポイント2）</strong>：（標準語で執筆）魅力を具体的に。</li>
+  <li><strong>（魅力ポイント3）</strong>：（標準語で執筆）魅力を具体的に。</li>
+</ul>
+<h2>こんな人におすすめ</h2>
+<ul style="list-style-type: none; padding-left: 0;">
+  <li>✅ （標準語で執筆）おすすめの層1</li>
+  <li>✅ （標準語で執筆）おすすめの層2</li>
+  <li>✅ （標準語で執筆）おすすめの層3</li>
+</ul>
+{chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
+"""
+    else:
+        # スコア4：1000文字規模の標準安定記事
+        html_structure = f"""
+{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
+<h2>（作品の世界観や魅力を引き出すキャッチーな見出し）</h2>
+<p>（標準語で執筆）あらすじ・世界観。300〜400字程度で過不足なく解説。</p>
 {chat_open}（50〜70字程度の紹介への反応）{chat_close}
 <h2>見どころ</h2>
 <ul>
@@ -257,6 +293,34 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None, is_novel=Fa
   <li>✅ （標準語で執筆）おすすめの層3</li>
 </ul>
 {chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
+"""
+
+
+    return f"""あなたは人気ファンブログ「Novelove」の特別ライター「{reviewer["name"]}」です。
+【キャラクター設定】
+名前: {reviewer["name"]}
+性格: {reviewer["personality"]}
+文体・口調: {reviewer["tone"]}
+今回の紹介の注目点（{medium_label}）: {focus}{mood_note}{guest_hint}{novel_rules}
+【執筆ルール】
+1. キャラクターコメント（吹き出し）と記事本文（HTMLタグ部分）を完全に書き分けること。
+2. 記事本文（<h2>, <p>, <ul>, <li>タグの中身）は**「標準的で丁寧な日本語（ですます調）」**で、客観的な紹介文として執筆すること。担当ライターの口調や一人称を混ぜないこと。
+3. 直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
+4. キャラクターコメント（吹き出し）の中身のみ、{reviewer["name"]}の個性を全開にした口調で執筆すること。
+5. 吹き出しコメントではキャラ設定に合ったオタク用語や口癖を自然に使うこと。ただし記事本文（ですます調パート）には使用しないこと。
+6. {voice_hint}
+7. 記事本文（<p>タグ）では、あらすじ情報から「存在しない設定やキャラクター」を創作（ハルシネーション）して文字を水増しすることは絶対禁止。
+8. h2見出しは毎回異なる切り口で書くこと。「○○に迫る」「○○が紡ぐ」のようなテンプレ表現は避けること。
+9. 見どころの3点は、この作品ならではの魅力を優先順に並べること。毎回「ストーリー→ビジュアル→キャラクター」の同じ順番にしないこと。
+10. 「こんな人におすすめ」は、具体的な設定に基づくこと。「BL/TLが好きな方」のような汎用表現は禁止。
+【対象作品情報】
+タイトル: {safe_title}
+あらすじ: {safe_desc}
+アフィリエイトURL: {target["affiliate_url"]}
+【出力形式（HTML）】
+指示文・説明文は一切出力せず、以下の構成のみを出力してください。
+
+{html_structure}
 
 TAGS: （以下のリストから作品に合うものを最大3つ、カンマ区切りで出力。該当なしは「なし」と出力）
 BL系: オメガバース/ヤンデレ/スパダリ/執着/年下攻め/幼なじみ/ケンカップル/主従/サラリーマン/年の差/転生/契約/再会/一途/運命
@@ -265,8 +329,6 @@ TL系: 溺愛/身分差/契約結婚/御曹司/騎士/オフィスラブ/腹黒/
 SEO_META:
 seo_title=（32文字以内。**上記【対象作品情報】のあらすじに書かれた具体的な設定・属性・キーワード**を使うこと。存在しない設定・キャラ・展開は絶対に使わないこと。読者の感情を揺さぶる言葉で表現する。末尾に「| Novelove」は付けない。）
 meta_desc=（80文字程度。**あらすじに実際に書かれた内容**に基づき、誰のどんな性癖に刺さるかを具体的に断言すること。あらすじにない要素を創作することは絶対禁止。読後にどんな感情が待っているかを約束する一文で締める。）
-
-SCORE: （1〜5の整数。この作品を読者にどれくらい強くおすすめできるかを、客観的な品質・魅力に基づいて5段階で厳しく評価してください。4以上が合格点です）
 {FACT_GUARD}{NG_PHRASES}
 """
 
@@ -390,22 +452,16 @@ def generate_article(target):
     for mask_level in [0, 1, 2]:
         level_name = ["フィルターなし", "軽めフィルター", "ガチガチフィルター"][mask_level]
         logger.info(f"  [{level_name}] で執筆試行中...")
-        prompt = build_prompt(target, reviewer, mask_level, internal_link, is_novel=is_novel, is_guest=is_guest, mood=mood)
+        prompt = build_prompt(target, reviewer, mask_level, internal_link, is_novel=is_novel, is_guest=is_guest, mood=mood, ai_score=target.get("desc_score", 4))
         content, error_type, model_name, proc_time = call_deepseek(prompt)
         final_error = error_type
         final_model = model_name
         final_proc_time = proc_time
         if content:
-            # 1. AI事前評価スコアの抽出（1〜5点）を抽出 (一番下)
-            ai_score = 0
-            if "SCORE:" in content:
-                parts_score = content.split("SCORE:")
-                score_str = parts_score[1].split("\n")[0].strip()
-                import re
-                match = re.search(r'\d+', score_str)
-                if match:
-                    ai_score = int(match.group())
-                content = parts_score[0].strip()
+            # 抽出処理: もうSCORE出力は撤廃したため、SCORE抽出ロジックごと消去
+            # 記事本来の ai_score は target["desc_score"] を利用する仕組みに変更
+            ai_score = target.get("desc_score", 4)
+
 
             # 2. AI生成SEOメタの抽出（SEO_META: セクション）
             ai_seo_title = ""
@@ -923,13 +979,27 @@ def _execute_posting_flow(row, cursor, conn):
     
     # --- [v11.4.14] AI審査前のコスト最適化（事前キーワードフィルタ） ---
     title_str = str(row['title'])
-    desc_str = str(row['description'])
+    desc_str = str(row['description']) if 'description' in row.keys() else ""
     ng_patterns = ["動画", "ボイス", "シチュエーションCD", "ASMR", "English", "Chinese", "サンプル", "【ボイス】", "【動画】"]
     if any(p in title_str for p in ng_patterns) or any(p in desc_str for p in ng_patterns):
         logger.info(f"  [Pre-Filter] 不採用キーワード、または不適合形式を検知したため除外します: {title_str[:30]}...")
         cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='excluded_by_pre_filter' WHERE product_id=?", (row['product_id'],))
         conn.commit()
         return False, "excluded_by_pre_filter"
+
+    # 🌟 NEW: AI事前評価スキップロジック
+    logger.info(f"  [{row['genre']}] 事前品質審査開始: {title[:30]}...")
+    eval_score = _evaluate_article_potential(title, desc_str)
+    logger.info(f"  -> AI品質スコア: {eval_score}/5点")
+    
+    # スコア3以下は即時破棄（品質担保＆コスト削減）
+    if eval_score < 4:
+        logger.warning(f"  -> スコア不足({eval_score}点)のため執筆スキップ")
+        cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='low_score' WHERE product_id=?", (pid,))
+        conn.commit()
+        return False, f"low_score: {eval_score}"
+        
+    logger.info(f"  ✅ スコア基準クリア ({eval_score}点)。執筆を開始します。")
 
     # DigiKet高解像度化を一元処理
     img_url = row["image_url"] or ""
@@ -942,11 +1012,12 @@ def _execute_posting_flow(row, cursor, conn):
         "author":        row["author"] or "",
         "genre":         row["genre"],
         "site":          row["site"],
-        "description":   row["description"],
+        "description":   desc_str,
         "affiliate_url": row["affiliate_url"],
         "image_url":     img_url,
         "release_date":  row["release_date"],
-        "ai_tags":       row["ai_tags"]
+        "ai_tags":       row["ai_tags"],
+        "desc_score":    eval_score  # スコアを渡す
     }
 
     # v12.2.0: 全DB横断・Fuzzy Matching重複チェック (旧24hガードレールを完全置換)
@@ -968,12 +1039,9 @@ def _execute_posting_flow(row, cursor, conn):
 
     wp_title, content, excerpt, seo_title, is_r18, status, model, level, ptime, words, rev_name, ai_tags_from_ai, ai_score = res
 
-    # AIスコア審査（4点以上で合格）
-    if ai_score < 4:
-        logger.warning(f"  [AIスコア審査落ち] スコア {ai_score}点のため不採用として除外: {title[:30]}")
-        cursor.execute("UPDATE novelove_posts SET status='excluded', last_error=? WHERE product_id=?", (f"low_score: {ai_score}", pid))
-        conn.commit()
-        return False, f"low_score: {ai_score}"
+    # AIスコア安全弁（通常は事前審査済みなのでここには来ないが、万一のフェイルセーフ）
+    if ai_score == 0:
+        ai_score = eval_score  # 事前審査でのスコアを使用
 
     # タグの優先度：AI生成タグ > DB既存タグ
     db_tags = [t.strip() for t in (row["ai_tags"] or "").split(",") if t.strip()]
@@ -1306,15 +1374,20 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 {items_xml}
 '''
 
-def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_image_url="", excerpt="", reviewer_name=""):
+def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_image_url="", excerpt="", reviewer_name="", guest_name=""):
     now = datetime.now()
     week = str((now.day - 1) // 7 + 1)
     slug = f"{site_name.lower()}-{genre.lower()}-ranking-{now.strftime('%Y')}-{now.strftime('%m')}-w{week}"
+    
+    tags_to_add = []
+    if guest_name:
+        tags_to_add.append(guest_name)
+        
     wp_url = post_to_wordpress(
         title=title, content=content, genre=genre, image_url=top_image_url,
         excerpt=excerpt, seo_title=f"{title} | Novelove",
         slug=slug, is_r18=False, site_label=site_name,
-        reviewer=reviewer_name
+        reviewer=reviewer_name, ai_tags=tags_to_add
     )
     if wp_url:
         logger.info(f"✅ ランキング投稿成功: {wp_url}")
@@ -1405,7 +1478,7 @@ def process_ranking_articles():
                 
                 content_html = ""
                 for attempt in range(3):
-                    html_text, err = _call_deepseek_raw(messages, max_tokens=2500, temperature=0.7)
+                    html_text, err = _call_deepseek_raw(messages, max_tokens=6000, temperature=0.7)
                     if err == "ok" and html_text:
                         content_html = html_text
                         break
@@ -1427,7 +1500,7 @@ def process_ranking_articles():
                     rank = idx + 1
                     content_html = content_html.replace(f"[RANK_BADGE_{rank}]", medals.get(rank, f"{rank}位"))
                     content_html = content_html.replace(f"[TITLE_{rank}]", item["title"])
-                    img_elem = f'<div style="text-align: center;"><a href="{item["url"]}" target="_blank" rel="noopener"><img src="{item["image_url"]}" alt="{item["title"]}" style="max-height: 400px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" /></a></div>'
+                    img_elem = f'<div style="text-align: center;"><a href="{item["url"]}" target="_blank" rel="noopener"><img src="{item["image_url"]}" alt="{item["title"]}" style="max-height: 400px; max-width: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" /></a></div>'
                     text_link_elem = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:10px; margin-bottom:15px;"><a href="{item["url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{item["title"]}』の詳細をチェック！</a></p>'
                     content_html = content_html.replace(f"[IMAGE_{rank}]", f"{img_elem}{text_link_elem}")
                     
@@ -1535,7 +1608,8 @@ def process_ranking_articles():
                 final_content += ranking_credit
                 
                 logger.info(f"  -> {genre} 投稿実行中...")
-                _post_ranking_article_to_wordpress(post_title, final_content, genre, site, top_image_url, excerpt=meta_desc, reviewer_name=reviewer["name"])
+                guest_n = guest["name"] if guest else ""
+                _post_ranking_article_to_wordpress(post_title, final_content, genre, site, top_image_url, excerpt=meta_desc, reviewer_name=reviewer["name"], guest_name=guest_n)
                 
                 # 記事間の待機 (30分)
                 if genre == "BL":
