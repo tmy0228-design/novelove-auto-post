@@ -813,8 +813,14 @@ def _run_main_logic():
                 posted = True
                 error_count = 0  # 成功したらリセット
             else:
-                error_count += 1
-                # ★ 3回連続失敗でサーキットブレーカー発動
+                # 正常な選別処理（品質フィルタ）の結果はサーキットブレーカー対象外
+                NORMAL_FILTER_REASONS = ("low_score", "duplicate_fuzzy", "image_missing", "no_desc_or_image", "excluded_foreign")
+                is_normal_filter = any(reason and reason.startswith(r) for r in NORMAL_FILTER_REASONS)
+                if is_normal_filter:
+                    logger.info(f"  [フィルタ除外] {reason} — サーキットブレーカー対象外")
+                else:
+                    error_count += 1
+                # ★ 3回連続「異常系」失敗でサーキットブレーカー発動
                 if error_count >= 3:
                     trigger_emergency_stop(f"投稿が3回連続失敗しました（最後の理由: {reason}）")
                     break
