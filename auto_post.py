@@ -1448,13 +1448,56 @@ def process_ranking_articles():
                 content_html = re.sub(r"^```html\n?", "", content_html, flags=re.MULTILINE)
                 content_html = re.sub(r"^```\n?", "", content_html, flags=re.MULTILINE)
                 
-                # 自動整形のwpautop対策：吹き出しの中身を1行にまとめ、内部の改行は<br />に変換
-                def _clean_bubble(m):
-                    text = m.group(0)
-                    text = re.sub(r'>\s*\n\s*<', '><', text)
-                    text = text.replace('\n', '<br />')
-                    return text
-                content_html = re.sub(r'<div class="speech-bubble-(?:left|right)".*?</div>\s*</div>', _clean_bubble, content_html, flags=re.DOTALL)
+                # 自動整形のwpautop対策：Gutenberg HTMLブロックで括る＆安全な表示用CSS注入
+                def _wrap_html_block(m):
+                    t = m.group(0).strip()
+                    return f"<!-- wp:html -->\n{t}\n<!-- /wp:html -->"
+                content_html = re.sub(r'<div class="speech-bubble-(?:left|right)".*?</div>\s*</div>', _wrap_html_block, content_html, flags=re.DOTALL)
+
+                css_injection = """<!-- wp:html -->
+<style>
+.speech-bubble-left, .speech-bubble-right {
+    display: flex !important;
+    align-items: flex-start !important;
+    margin-bottom: 24px !important;
+    gap: 16px !important;
+    clear: both !important;
+}
+.speech-bubble-right {
+    flex-direction: row-reverse !important;
+}
+.speech-bubble-left img, .speech-bubble-right img {
+    width: 60px !important;
+    height: 60px !important;
+    min-width: 60px !important;
+    border-radius: 50% !important;
+    object-fit: cover !important;
+    margin: 0 !important;
+}
+.speech-bubble-left .speech-text, .speech-bubble-right .speech-text {
+    background: #fff0f5 !important;
+    padding: 16px !important;
+    border-radius: 8px !important;
+    border: 1px solid #ffb6c1 !important;
+    position: relative !important;
+    max-width: 80% !important;
+    line-height: 1.6 !important;
+}
+.speech-bubble-right .speech-text {
+    background: #f0f8ff !important;
+    border: 1px solid #add8e6 !important;
+}
+@media (max-width:600px) {
+    .speech-bubble-left img, .speech-bubble-right img {
+        width: 40px !important;
+        height: 40px !important;
+        min-width: 40px !important;
+    }
+}
+</style>
+<!-- /wp:html -->
+"""
+                content_html = css_injection + content_html
 
                 _now = datetime.now()
                 _wk = (_now.day - 1) // 7 + 1
