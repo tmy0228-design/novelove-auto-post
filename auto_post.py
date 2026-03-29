@@ -797,7 +797,7 @@ def _run_main_logic():
         logger.info(f"🕒 クールダウン中（{elapsed:.1f}分経過）。0.1秒で終了します。")
         return
 
-    # 処理開始時刻（10分タイムアウト用）
+    # 処理開始時刻（5分タイムアウト用）
     start_time = time.time()
 
     fetch_and_stock_all()
@@ -841,9 +841,9 @@ def _run_main_logic():
     error_count = 0  # ★ 連続失敗カウンター
 
     for i in range(len(FETCH_TARGETS)):
-        # ★ 10分タイムアウトチェック
-        if time.time() - start_time > 600:
-            trigger_emergency_stop("処理が10分を超過しました（タイムアウト）")
+        # ★ 5分タイムアウトチェック
+        if time.time() - start_time > 300:
+            trigger_emergency_stop("処理が5分を超過しました（タイムアウト）")
             break
 
         target_info = FETCH_TARGETS[(g_idx_base + i) % len(FETCH_TARGETS)]
