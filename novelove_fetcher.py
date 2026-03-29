@@ -286,9 +286,10 @@ def scrape_dlsite_description(url):
 
 def scrape_digiket_description(url):
     """
-    DigiKetの商品詳細ページからあらすじ、og:image、ページ数、公式メディア種別をタプルで返す。
-    戻り値: (description: str, og_img_url: str, pages: int or None, official_format: str or None)
+    DigiKetの商品詳細ページからあらすじ、og:image、ページ数、公式メディア種別、登録日をタプルで返す。
+    戻り値: (description: str, og_img_url: str, pages: int or None, official_format: str or None, release_date: str)
     official_format: "comic" / "novel" / None（判定不能時）
+    release_date: "YYYY-MM-DD" 形式、取得できなければ ""
     """
     try:
         with requests.Session() as session:
@@ -306,7 +307,7 @@ def scrape_digiket_description(url):
             r = session.get(url, timeout=20)
             if r.status_code != 200:
                 logger.warning(f"  [DigiKet] HTTPエラー {r.status_code}: {url}")
-                return "", "", None, None
+                return "", "", None, None, ""
             detected_enc = r.apparent_encoding
             if not detected_enc or detected_enc.lower() == 'ascii':
                 detected_enc = 'shift-jis'
@@ -362,6 +363,20 @@ def scrape_digiket_description(url):
             og_img = soup.select_one('meta[property="og:image"]')
             if og_img and og_img.get('content'):
                 og_img_url = og_img.get('content')
+
+            # v12.2.3: 登録日（発売日）の取得
+            release_date = ""
+            for label_text in ["登録日", "発売日", "発行日", "配信日"]:
+                dt_tag = soup.find("div", class_="sub2", string=lambda t: t and label_text in t)
+                if dt_tag:
+                    dd_tag = dt_tag.find_next_sibling("div", class_="sub-data2")
+                    if dd_tag:
+                        raw = dd_tag.text.strip()
+                        m_d = re.match(r"(\d{4})年(\d{1,2})月(\d{1,2})日", raw)
+                        if m_d:
+                            release_date = f"{m_d.group(1)}-{m_d.group(2).zfill(2)}-{m_d.group(3).zfill(2)}"
+                    break
+
             if description:
                 description = html.unescape(description)
                 description = _clean_description(description)
@@ -381,19 +396,19 @@ def scrape_digiket_description(url):
                         if official_format:
                             break
 
-                return description, og_img_url, pages, official_format
+                return description, og_img_url, pages, official_format, release_date
             logger.warning(f"  [DigiKet] あらすじ特定失敗: {url}")
-            return "", og_img_url, pages, None
+            return "", og_img_url, pages, None, release_date
     except Exception as e:
         logger.error(f"  [DigiKet] エラー発生: {e}")
-        return "", "", None, None
+        return "", "", None, None, ""
 
 def scrape_description(product_url, site="FANZA", genre=""):
     if not product_url: return ""
     if "dlsite" in str(product_url).lower():
         return scrape_dlsite_description(product_url)
     if "digiket" in str(product_url).lower():
-        desc, _, _, _ = scrape_digiket_description(product_url)
+        desc, _, _, _, _ = scrape_digiket_description(product_url)
         return desc
     session = _make_fanza_session()
     try:
@@ -834,7 +849,7 @@ def fetch_digiket_items():
                     if genre is None: continue
 
                     # v11.3.1/v11.3.2: 詳細スクレイピングでページ数と公式カテゴリを取得
-                    desc_full, og_image_full, d_pages, d_format = scrape_digiket_description(product_url)
+                    desc_full, og_image_full, d_pages, d_format, d_date = scrape_digiket_description(product_url)
                     time.sleep(1.0)
 
                     if d_format == "comic":
@@ -851,7 +866,7 @@ def fetch_digiket_items():
                         continue
 
                     desc_text = desc_full if desc_full else (item.find("description").text if item.find("description") else "")
-                    scraped_items.append((item, desc_text, og_image_full, pid, genre, title, product_url))
+                    scraped_items.append((item, desc_text, og_image_full, pid, genre, title, product_url, d_date))
                 except Exception as e:
                     logger.error(f"      - DigiKet 予備スクレイプエラー: {e}")
                     continue
@@ -859,14 +874,19 @@ def fetch_digiket_items():
             scraped_items.sort(key=lambda x: len(x[1]) if x[1] else 0, reverse=True)
 
             digiket_scrape_fail_count = 0  # 構造変化検知用カウンター
-            for item, description, og_image_full, pid, genre, title, product_url in scraped_items:
+            for item, description, og_image_full, pid, genre, title, product_url, d_date in scraped_items:
                 try:
                     content_tag = item.find(re.compile(r"encoded", re.I))
                     content_encoded = content_tag.text if content_tag else ""
                     creator_tag = item.find(re.compile(r"creator", re.I))
                     author = creator_tag.text if creator_tag else ""
                     date_tag = item.find(re.compile(r"date", re.I))
-                    date_str = date_tag.text if date_tag else datetime.now().strftime("%Y-%m-%d")
+                    date_str = date_tag.text if date_tag else ""
+                    # v12.2.3: 詳細ページから取得した発売日を優先する
+                    if d_date:
+                        date_str = d_date
+                    elif not date_str:
+                        date_str = datetime.now().strftime("%Y-%m-%d")
                     package_tag = item.find("package")
                     image_url = package_tag.text.strip() if package_tag else ""
                     if image_url.startswith("//"): image_url = "https:" + image_url
