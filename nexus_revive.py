@@ -394,8 +394,8 @@ def fetch_digiket_ranking_product_ids():
                     continue
                 # DigiKetのXML はエンコーディングが不安定なため、生テキストから正規表現で抽出
                 content = r.content.decode("utf-8", errors="ignore")
-                # DigiKet の作品URLパターン: /a/item/ITEM<数字>/
-                item_ids = set(re.findall(r"ITEM(\d+)", content))
+                # DigiKet の作品IDパターン: ITM{数字}（3文字、ITEM ではなく ITM）
+                item_ids = set(re.findall(r"ITM(\d+)", content))
                 for iid in item_ids:
                     ranking_ids.add(f"ITM{iid}")
             except Exception as e:
