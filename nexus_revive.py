@@ -271,6 +271,7 @@ def fetch_fanza_ranking_product_ids():
         {"site": "FANZA", "service": "ebook",  "floor": "bl"},
         {"site": "FANZA", "service": "ebook",  "floor": "tl"},
         {"site": "DMM.com", "service": "ebook", "floor": "comic"},
+        {"site": "DMM.com", "service": "ebook", "floor": "novel"},
     ]
 
     for fl in floors:
@@ -281,7 +282,7 @@ def fetch_fanza_ranking_product_ids():
                 "site": fl["site"],
                 "service": fl["service"],
                 "floor": fl["floor"],
-                "hits": 10,
+                "hits": 20,
                 "sort": "rank",
                 "output": "json",
             }
@@ -358,7 +359,8 @@ def fetch_dlsite_ranking_product_ids():
     """
     ranking_ids = set()
     ranking_urls = [
-        "https://www.dlsite.com/girls/ranking/week",  # 週間ランキング（日次より安定）
+        "https://www.dlsite.com/girls/ranking/week",  # 女性向け週間ランキング
+        "https://www.dlsite.com/bl/ranking/week",     # BL週間ランキング（v12.7.0追加）
     ]
     for url in ranking_urls:
         try:
@@ -405,23 +407,27 @@ def fetch_digiket_ranking_product_ids():
 
 def fetch_digiket_sale_product_ids():
     """
-    DigiKetのセール情報をトップページのスクレイピングで取得する（隔離処理）。
-    取得に失敗しても他サイトの処理に影響しない。
+    DigiKetのセール情報をジャンル別専用URLからスクレイピングで取得する（v12.7.0刷新）。
+    camp=on パラメータにより本物のセール中作品のみを厳密に取得。
+    取得に失敗しても他サイトの処理に影響しない（隔離設計）。
     """
     sale_ids = set()
-    try:
-        r = requests.get("https://www.digiket.com/", headers=HEADERS, timeout=15)
-        if r.status_code != 200:
-            logger.warning(f"  [DigiKet] トップページ取得失敗: status={r.status_code}")
-            return sale_ids
-        # EUC-JP でデコード（DigiKetの標準エンコーディング）
-        html_text = r.content.decode("EUC-JP", errors="ignore")
-        # セール告知エリアから作品ID（ITEM数字）を抽出
-        sale_section = re.findall(r"(?:セール|sale|SALE|割引|OFF|キャンペーン).*?ITM(\d+)", html_text, re.IGNORECASE | re.DOTALL)
-        for iid in sale_section:
-            sale_ids.add(f"ITM{iid}")
-    except Exception as e:
-        logger.warning(f"  [DigiKet] セール取得エラー（スクレイピング）: {e}")
+    # 女性向けジャンル別のセール専用URL（camp=on で本物のセール中のみに絞込）
+    sale_urls = [
+        "https://www.digiket.com/b/result/_data/limit=300/camp=on/sort=camp_end/",   # 女性向同人
+        "https://www.digiket.com/bl/result/_data/limit=300/camp=on/sort=camp_end/",  # BL商業
+    ]
+    for url in sale_urls:
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=15)
+            if r.status_code != 200:
+                logger.warning(f"  [DigiKet] セールページ取得失敗: status={r.status_code} url={url}")
+                continue
+            html_text = r.content.decode("EUC-JP", errors="ignore")
+            for iid in re.findall(r"ITM(\d+)", html_text):
+                sale_ids.add(f"ITM{iid}")
+        except Exception as e:
+            logger.warning(f"  [DigiKet] セール取得エラー ({url}): {e}")
 
     logger.info(f"  [DigiKet] セール作品 {len(sale_ids)}件 検知")
     return sale_ids
