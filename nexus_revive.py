@@ -354,9 +354,10 @@ def fetch_dlsite_sale_product_ids(published_pids):
 
 def fetch_dlsite_ranking_product_ids():
     """
-    DLsiteのランキングページからTOP作品のRJコードを取得する。
-    girls（女性向け）カテゴリのランキングをスクレイピング。
+    DLsiteのランキングページからTOP20のRJコードを取得する。
+    各URLあたら20件に統一（v12.7.0）。
     """
+    RANKING_TOP_N = 30  # 各URLから取得するTOP件数（FANZA=20×4フロア に合わせたバランス調整）
     ranking_ids = set()
     ranking_urls = [
         "https://www.dlsite.com/girls/ranking/week",  # 女性向け週間ランキング
@@ -367,7 +368,8 @@ def fetch_dlsite_ranking_product_ids():
             r = requests.get(url, headers=HEADERS, timeout=15)
             if r.status_code != 200:
                 continue
-            rjs = set(re.findall(r"(RJ\d{6,10})", r.text))
+            # 出現順を保持して重複除去→先頤20件のみ取得
+            rjs = list(dict.fromkeys(re.findall(r"(RJ\d{6,10})", r.text)))[:RANKING_TOP_N]
             ranking_ids.update(rjs)
         except Exception as e:
             logger.warning(f"  [DLsite] ランキング取得エラー: {e}")
@@ -381,9 +383,10 @@ def fetch_dlsite_ranking_product_ids():
 # =====================================================================
 def fetch_digiket_ranking_product_ids():
     """
-    DigiKet公式XML API の sort=week (週間情報) を使って
-    ランキング上位の作品IDを取得する。
+    DigiKet公式XML API の sort=week を使って週間ランキングTOP20の作品IDを取得する。
+    各ターゲットあたら20件に統一（v12.7.0）。
     """
+    RANKING_TOP_N = 30  # 各ターゲットから取得するTOP件数（FANZA=20×4フロア に合わせたバランス調整）
     ranking_ids = set()
     for tgt in DIGIKET_TARGETS:
         for sort_type in ["week"]:  # 週間のみ（各サイト統一：月間は除外）
@@ -392,10 +395,9 @@ def fetch_digiket_ranking_product_ids():
                 r = requests.get(url, timeout=15)
                 if r.status_code != 200:
                     continue
-                # DigiKetのXML はエンコーディングが不安定なため、生テキストから正規表現で抽出
                 content = r.content.decode("utf-8", errors="ignore")
-                # DigiKet の作品IDパターン: ITM{数字}（3文字、ITEM ではなく ITM）
-                item_ids = set(re.findall(r"ITM(\d+)", content))
+                # 出現順を保持して重複除去→先頤20件のみ取得
+                item_ids = list(dict.fromkeys(re.findall(r"ITM(\d+)", content)))[:RANKING_TOP_N]
                 for iid in item_ids:
                     ranking_ids.add(f"ITM{iid}")
             except Exception as e:
