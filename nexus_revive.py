@@ -386,7 +386,7 @@ def fetch_digiket_ranking_product_ids():
     """
     ranking_ids = set()
     for tgt in DIGIKET_TARGETS:
-        for sort_type in ["week", "month"]:
+        for sort_type in ["week"]:  # 週間のみ（各サイト統一：月間は除外）
             try:
                 url = f"https://api.digiket.com/xml/api/getxml.php?target={tgt['target']}&sort={sort_type}"
                 r = requests.get(url, timeout=15)
