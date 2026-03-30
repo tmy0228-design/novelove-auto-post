@@ -1,5 +1,19 @@
 # Changelog
 
+## [v12.7.0] - 2026-03-31
+### Changed
+- **Nexus エンジン：DigiKet セール検知の精度100%化**:
+  - トップページの正規表現スクレイピング（`OFF` 等による誤検知あり）を廃止。
+  - ジャンル別セール専用URL（`camp=on` パラメータ）によるスクレイピングに置き換え。
+  - 対象URL: 女性向同人（`/b/`）・BL商業（`/bl/`）の2ジャンル。
+- **Nexus エンジン：ランキング取得範囲の最適化**:
+  - FANZA: `hits: 10` → `hits: 20` に増加、`novel` フロアを追加（4フロア体制）。
+  - DLsite: BL週間ランキング（`/bl/ranking/week`）を追加。各URL TOP30に制限。
+  - DigiKet: 週間のみに統一（月間を除外）、各ターゲット TOP30に制限。
+  - 全サイトの候補数バランスを調整（FANZA≈80件、DLsite≈60件、DigiKet≈90件）。
+### Fixed
+- DigiKet ランキングの正規表現バグ修正（`ITEM` → `ITM`）。従来0件だった検知が正常化。
+
 ## [v12.6.0] - 2026-03-31
 ### Changed
 - **サーバー移行（ConoHa VPS → XSERVER VPS 6GB）**:

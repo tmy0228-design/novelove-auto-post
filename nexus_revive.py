@@ -354,8 +354,8 @@ def fetch_dlsite_sale_product_ids(published_pids):
 
 def fetch_dlsite_ranking_product_ids():
     """
-    DLsiteのランキングページからTOP20のRJコードを取得する。
-    各URLあたら20件に統一（v12.7.0）。
+    DLsiteのランキングページからTOP30のRJコードを取得する。
+    各URLあたり30件（FANZA=20×4フロアとのバランス調整、v12.7.0）。
     """
     RANKING_TOP_N = 30  # 各URLから取得するTOP件数（FANZA=20×4フロア に合わせたバランス調整）
     ranking_ids = set()
@@ -368,7 +368,7 @@ def fetch_dlsite_ranking_product_ids():
             r = requests.get(url, headers=HEADERS, timeout=15)
             if r.status_code != 200:
                 continue
-            # 出現順を保持して重複除去→先頤20件のみ取得
+            # 出現順を保持して重複除去→先頭30件のみ取得
             rjs = list(dict.fromkeys(re.findall(r"(RJ\d{6,10})", r.text)))[:RANKING_TOP_N]
             ranking_ids.update(rjs)
         except Exception as e:
@@ -383,8 +383,8 @@ def fetch_dlsite_ranking_product_ids():
 # =====================================================================
 def fetch_digiket_ranking_product_ids():
     """
-    DigiKet公式XML API の sort=week を使って週間ランキングTOP20の作品IDを取得する。
-    各ターゲットあたら20件に統一（v12.7.0）。
+    DigiKet公式XML API の sort=week を使って週間ランキングTOP30の作品IDを取得する。
+    各ターゲットあたり30件（FANZA=20×4フロアとのバランス調整、v12.7.0）。
     """
     RANKING_TOP_N = 30  # 各ターゲットから取得するTOP件数（FANZA=20×4フロア に合わせたバランス調整）
     ranking_ids = set()
@@ -396,7 +396,7 @@ def fetch_digiket_ranking_product_ids():
                 if r.status_code != 200:
                     continue
                 content = r.content.decode("utf-8", errors="ignore")
-                # 出現順を保持して重複除去→先頤20件のみ取得
+                # 出現順を保持して重複除去→先頭30件のみ取得
                 item_ids = list(dict.fromkeys(re.findall(r"ITM(\d+)", content)))[:RANKING_TOP_N]
                 for iid in item_ids:
                     ranking_ids.add(f"ITM{iid}")
