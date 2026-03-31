@@ -80,9 +80,16 @@ ERROR_LABELS = {
     "no_desc_or_image": "説明/画像無し",
     "wp_post_failed": "WP投稿失敗",
     "duplicate": "重複(既出)",
+    "duplicate_fuzzy": "重複(類似タイトル)",
     "fetch_failed": "取得失敗",
     "expired": "有効期限切れ",
-    "inventory_full": "在庫上限超過"
+    "inventory_full": "在庫上限超過",
+    "low_score": "品質スコア不足",
+    "thin_score3": "スコア3タグ不足",
+    "content_block": "AI執筆ブロック",
+    "image_missing": "画像無効(直前チェック)",
+    "excluded_by_pre_filter": "事前キーワード除外",
+    "ai_failed": "AI執筆失敗",
 }
 
 def notify_discord(message, username="ノベラブ通知くん", avatar_url=None):
