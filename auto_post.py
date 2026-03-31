@@ -584,17 +584,10 @@ def generate_article(target):
             else:
                 excerpt = make_excerpt(target["description"], target["title"], target["genre"], reviewer_name=reviewer["name"], ai_tags=tags_for_seo)
             wp_title = target["title"]
-            internal_link_html = ""
-            if internal_link:
-                internal_link_html = (
-                    f'<div style="border:1px solid #f0c0c0; border-radius:8px; padding:15px; margin:20px 0; background:#fff8f8;">\n'
-                    f'<p style="margin:0 0 8px; font-weight:bold; color:#c0607f;">📚 あわせて読みたい</p>\n'
-                    f'<p><a href="{internal_link["url"]}">{internal_link["title"]}</a></p>\n'
-                    f'</div>\n'
-                )
+            # あわせて読みたい（文字リンク）は廃止。YARPPプラグインによる関連記事表示に移行。
             full_content = (
                 badge_html + img_html + release_display + text_link +
-                content + button_html + internal_link_html + credit_html
+                content + button_html + credit_html
             )
             word_count = len(content)
             is_r18_val = ":r18=1" in str(target.get("site", ""))
