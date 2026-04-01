@@ -210,6 +210,9 @@ def init_db():
             ("sale_discount_rate", "INTEGER DEFAULT 0"),   # セール割引率（%）
             ("last_revived_at",    "TIMESTAMP DEFAULT NULL"), # 最後に蘇生処理をした日時
             ("revive_score",       "INTEGER DEFAULT 0"),   # 蘇生ポテンシャルスコア
+            # === 専売タグ・公式属性タグ連携 ===
+            ("original_tags",     "TEXT DEFAULT ''"),      # 公式属性タグ（カンマ区切り）
+            ("is_exclusive",      "INTEGER DEFAULT 0"),    # 専売・独占フラグ（1=専売）
         ]:
             try:
                 c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")

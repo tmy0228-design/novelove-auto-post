@@ -241,7 +241,7 @@ def _check_image_ok(image_url):
 def scrape_dlsite_description(url):
     try:
         r = requests.get(url, headers=HEADERS, timeout=15)
-        if r.status_code != 200: return ""
+        if r.status_code != 200: return "", "", False
         text = r.text
         soup_pre = BeautifulSoup(text, 'html.parser')
         wg_links = [a.get("href", "") for a in soup_pre.select(".work_genre a")]
@@ -254,14 +254,28 @@ def scrape_dlsite_description(url):
             detected = [name for code, name in type_map.items()
                         if any(f"/work_type/{code}" in link for link in wg_links)]
             logger.warning(f"[DLsite] 漫画・ノベル以外の形式（{', '.join(detected) or '不明'}）のため除外: {url}")
-            return "__EXCLUDED_TYPE__"
+            return "__EXCLUDED_TYPE__", "", False
         lang_labels = [a.text.strip() for a in soup_pre.select(".work_genre a")]
         FOREIGN_LABELS = ["韓国語", "中国語", "繁體中文", "繁体中文", "简体中文", "English", "英語"]
         for lbl in lang_labels:
             if any(fl in lbl for fl in FOREIGN_LABELS):
                 logger.warning(f"[DLsite] 外国語版ラベル（{lbl}）のため除外: {url}")
-                return "__EXCLUDED_TYPE__"
+                return "__EXCLUDED_TYPE__", "", False
         soup = BeautifulSoup(text, 'html.parser')
+        # === 属性タグ取得（ジャンル行の<a>タグ） ===
+        attr_tags = []
+        for th in soup.find_all('th'):
+            if th.get_text(strip=True) == 'ジャンル':
+                td = th.find_next_sibling('td')
+                if td:
+                    attr_tags = [a.get_text(strip=True) for a in td.find_all('a') if a.get_text(strip=True)]
+                break
+        # === 専売判定 ===
+        is_exclusive = bool(
+            soup.find(lambda tag: tag.has_attr('class') and 'type_exclusive' in tag.get('class', []))
+            or soup.find(attrs={'title': '専売'})
+        )
+        tags_str = ','.join(attr_tags[:10])  # 最大10個
         for trash in soup.select('.work_outline, .work_parts_area.outline, .work_parts_area.chobit, .work_edition'):
             trash.decompose()
         container = soup.select_one('.work_parts_container')
@@ -269,19 +283,19 @@ def scrape_dlsite_description(url):
             t = container.get_text(separator="\n", strip=True)
             if "作品内容" in t:
                 t = t.split("作品内容")[-1]
-            if len(t) > 100: return t.strip()
+            if len(t) > 100: return t.strip(), tags_str, is_exclusive
         for h3 in soup.find_all(['h3', 'div'], string=re.compile(r'作品内容')):
             next_div = h3.find_next_sibling('div')
             if next_div:
                 t = next_div.get_text(separator="\n", strip=True)
-                if len(t) > 50: return t.strip()
+                if len(t) > 50: return t.strip(), tags_str, is_exclusive
         meta_desc = soup.select_one('meta[property="og:description"]')
         if meta_desc and meta_desc.get('content'):
-            return meta_desc.get('content').strip()
-        return ""
+            return meta_desc.get('content').strip(), tags_str, is_exclusive
+        return "", tags_str, is_exclusive
     except Exception as e:
         logger.error(f"DLsiteスクレイピングエラー: {e}")
-        return ""
+        return "", "", False
 
 
 def scrape_digiket_description(url):
@@ -406,7 +420,8 @@ def scrape_digiket_description(url):
 def scrape_description(product_url, site="FANZA", genre=""):
     if not product_url: return ""
     if "dlsite" in str(product_url).lower():
-        return scrape_dlsite_description(product_url)
+        desc, _tags, _excl = scrape_dlsite_description(product_url)
+        return desc
     if "digiket" in str(product_url).lower():
         desc, _, _, _, _ = scrape_digiket_description(product_url)
         return desc
@@ -677,7 +692,14 @@ def fetch_and_stock_all():
             if _is_thin_content(title_str, item):
                 logger.info(f"  [薄いコンテンツ除外] {title_str[:40]}")
                 continue
-            desc = scrape_description(p_url, site=site, genre=target["genre"])
+            if site == "DLsite":
+                desc, dl_tags_str, dl_is_exclusive = scrape_dlsite_description(p_url)
+                item["_original_tags"] = dl_tags_str
+                item["_is_exclusive"] = 1 if dl_is_exclusive else 0
+            else:
+                desc = scrape_description(p_url, site=site, genre=target["genre"])
+                item["_original_tags"] = ""
+                item["_is_exclusive"] = 0
             time.sleep(1.0)
             scraped_data.append((item, desc))
 
@@ -728,6 +750,14 @@ def fetch_and_stock_all():
             else:
                 scrape_fail_count = 0
 
+            # FANZAジャンルタグ取得・独占判定
+            if site in ("FANZA", "DMM.com"):
+                _fanza_noise = {"単行本", "マンガ誌", "アンソロジー", "雑誌", "モノクロ", "フルカラー"}
+                _item_genres = item.get("iteminfo", {}).get("genre", []) or []
+                _genre_names = [g.get("name", "") if isinstance(g, dict) else str(g) for g in _item_genres]
+                _fanza_tags = [g for g in _genre_names if g and g not in _fanza_noise]
+                item["_original_tags"] = ",".join(_fanza_tags[:10])
+                item["_is_exclusive"] = 1 if "独占販売" in _genre_names else 0
             # アフィリエイトURL生成
             image_url = item.get("imageURL", {}).get("large", "")
             if site == "DLsite":
@@ -781,14 +811,18 @@ def fetch_and_stock_all():
                     save_genre = save_genre.replace("doujin_", "novel_").replace("comic_", "novel_")
 
             ai_tags_str = ",".join(ai_tags)
+            _orig_tags = item.get("_original_tags", "")
+            _is_excl = item.get("_is_exclusive", 0)
             c.execute(
                 """INSERT INTO novelove_posts
                     (product_id, title, author, genre, site, status, release_date, description,
-                    affiliate_url, image_url, product_url, post_type, desc_score, last_error, ai_tags, wp_post_url)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    affiliate_url, image_url, product_url, post_type, desc_score, last_error, ai_tags, wp_post_url,
+                    original_tags, is_exclusive)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (pid, item.get("title"), author, save_genre,
                  f"{site}:r18={is_r18}", final_status, rdate, desc,
-                 aff_url, image_url, item.get("URL", ""), "regular", final_score, last_error, ai_tags_str, "")
+                 aff_url, image_url, item.get("URL", ""), "regular", final_score, last_error, ai_tags_str, "",
+                 _orig_tags, _is_excl)
             )
             logger.info(f"[{site}] [{final_status}] {item.get('title','')[:40]}")
             added += 1
@@ -850,6 +884,23 @@ def fetch_digiket_items():
 
                     # v11.3.1/v11.3.2: 詳細スクレイピングでページ数と公式カテゴリを取得
                     desc_full, og_image_full, d_pages, d_format, d_date = scrape_digiket_description(product_url)
+                    # DigiKet キータグ・専売判定
+                    try:
+                        _dk_r = requests.get(product_url, headers=HEADERS, timeout=10)
+                        _dk_r.encoding = _dk_r.apparent_encoding or "utf-8"
+                        _dk_text = _dk_r.text
+                        _key_m = re.search(r"キー\s*[：:]\s*(.+)", _dk_text)
+                        _dk_keys = []
+                        if _key_m:
+                            _key_str = _key_m.group(1).strip().split("\n")[0]
+                            _key_str = re.sub(r"<[^>]+>", " ", _key_str)
+                            _dk_keys = [k.strip() for k in re.split(r"[、,\s]+", _key_str) if k.strip()]
+                            _dk_keys = [k for k in _dk_keys if k not in {"フルカラー", "モノクロ"}]
+                        _dk_is_excl = any(kw in _dk_text for kw in ("デジケット限定", "DiGiket専売", "DigiKet限定", "限定配信"))
+                        _dk_tags_str = ",".join(_dk_keys[:10])
+                    except Exception:
+                        _dk_tags_str = ""
+                        _dk_is_excl = False
                     time.sleep(1.0)
 
                     if d_format == "comic":
@@ -866,7 +917,7 @@ def fetch_digiket_items():
                         continue
 
                     desc_text = desc_full if desc_full else (item.find("description").text if item.find("description") else "")
-                    scraped_items.append((item, desc_text, og_image_full, pid, genre, title, product_url, d_date))
+                    scraped_items.append((item, desc_text, og_image_full, pid, genre, title, product_url, d_date, _dk_tags_str, _dk_is_excl))
                 except Exception as e:
                     logger.error(f"      - DigiKet 予備スクレイプエラー: {e}")
                     continue
@@ -874,7 +925,7 @@ def fetch_digiket_items():
             scraped_items.sort(key=lambda x: len(x[1]) if x[1] else 0, reverse=True)
 
             digiket_scrape_fail_count = 0  # 構造変化検知用カウンター
-            for item, description, og_image_full, pid, genre, title, product_url, d_date in scraped_items:
+            for item, description, og_image_full, pid, genre, title, product_url, d_date, _dk_tags_str, _dk_is_excl in scraped_items:
                 try:
                     content_tag = item.find(re.compile(r"encoded", re.I))
                     content_encoded = content_tag.text if content_tag else ""
@@ -936,10 +987,12 @@ def fetch_digiket_items():
                     site_str = f"DigiKet:r18={is_r18}"
                     c.execute("""INSERT INTO novelove_posts
                         (product_id, title, author, genre, site, status, release_date, description,
-                        affiliate_url, image_url, product_url, desc_score, last_error, ai_tags, wp_post_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        affiliate_url, image_url, product_url, desc_score, last_error, ai_tags, wp_post_id,
+                        original_tags, is_exclusive)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (pid, title, author, genre, site_str, final_status, date_str, description,
-                         affiliate_url, image_url, product_url, final_score, last_error, ai_tags_str, None))
+                         affiliate_url, image_url, product_url, final_score, last_error, ai_tags_str, None,
+                         _dk_tags_str, 1 if _dk_is_excl else 0))
                     new_count += 1
                     logger.info(f"    - 追加: {title[:30]} [{final_status}] genre:{genre}")
                 except Exception as e:

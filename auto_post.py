@@ -167,7 +167,7 @@ def _check_wp_post_exists(url):
     except Exception:
         return False
 
-def _evaluate_article_potential(title, description):
+def _evaluate_article_potential(title, description, original_tags=""):
     """
     執筆前にあらすじ情報だけを元に、「情報量と面白さ」で記事化ポテンシャルを1〜5点で評価する。
     1〜2: 不採用（即スキップ）、3: ショート記事採用、4: 標準記事採用、5: 特大記事採用。
@@ -191,6 +191,7 @@ def _evaluate_article_potential(title, description):
 【対象作品情報】
 タイトル: {title}
 あらすじ: {description[:1000]}
+{f"公式属性タグ: {original_tags}" if original_tags else ""}
 """
     messages = [
         {"role": "system", "content": "あなたはプロの編集者です。情報量と面白さだけで厳密に審査してください。"},
@@ -208,7 +209,7 @@ def _evaluate_article_potential(title, description):
     return 0
 
 # === AI執筆 ===
-def build_prompt(target, reviewer, mask_level=0, internal_link=None, is_novel=False, is_guest=False, mood="", ai_score=4):
+def build_prompt(target, reviewer, mask_level=0, internal_link=None, is_novel=False, is_guest=False, mood="", ai_score=4, original_tags="", is_exclusive=False):
     safe_title = mask_input(target["title"], mask_level)
     safe_desc  = mask_input(target["description"], mask_level)
     label      = _genre_label(target["genre"], safe_title)
@@ -239,6 +240,12 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None, is_novel=Fa
         voice_hint = "\n【ボイス作品紹介のコツ】声優の演技・音質・耳への心地よさに言及すること。「耳が溶ける」「ヘッドホン必須」「通勤中に聴けない」などのリアクションを使ってもOK。"
 
     mood_note = f"\n今回の感情モード: {mood}" if mood else ""
+    _tag_rule_nl = "\n"
+    _tag_rule_str = (_tag_rule_nl + "[公式属性タグの活用]" + _tag_rule_nl +
+        "作品には以下の公式属性タグが設定されています: " + original_tags + _tag_rule_nl +
+        "これらを活かして、具体的で読者に刺さる紹介文・おすすめコメントを書いてください。" +
+        "ファイル形式等の形式情報は無視し、内容・属性に関わる情報のみを参考にしてください。"
+    ) if original_tags else ""
     
     # === マンネリ化防止ロジック（10%の確率で設定の身の上話を引き出す） ===
     import random
@@ -334,6 +341,8 @@ def build_prompt(target, reviewer, mask_level=0, internal_link=None, is_novel=Fa
 【対象作品情報】
 タイトル: {safe_title}
 あらすじ: {safe_desc}
+{f"公式属性タグ: {original_tags}" if original_tags else ""}
+{f"販売形態: {str(target.get('site', '')).split(':')[0]}専売（他サービスでは購入できない限定作品）" if is_exclusive else ""}
 アフィリエイトURL: {target["affiliate_url"]}
 【出力形式（HTML）】
 指示文・説明文は一切出力せず、以下の構成のみを出力してください。
@@ -347,6 +356,7 @@ TL系: 溺愛/身分差/契約結婚/御曹司/騎士/オフィスラブ/腹黒/
 SEO_META:
 seo_title=（32文字以内。**上記【対象作品情報】のあらすじに書かれた具体的な設定・属性・キーワード**を使うこと。存在しない設定・キャラ・展開は絶対に使わないこと。読者の感情を揺さぶる言葉で表現する。末尾に「| Novelove」は付けない。）
 meta_desc=（80文字程度。**あらすじに実際に書かれた内容**に基づき、誰のどんな性癖に刺さるかを具体的に断言すること。あらすじにない要素を創作することは絶対禁止。読後にどんな感情が待っているかを約束する一文で締める。）
+{("" if not original_tags else _tag_rule_str)}
 {FACT_GUARD}{NG_PHRASES}
 """
 
@@ -470,7 +480,7 @@ def generate_article(target):
     for mask_level in [0, 1, 2]:
         level_name = ["フィルターなし", "軽めフィルター", "ガチガチフィルター"][mask_level]
         logger.info(f"  [{level_name}] で執筆試行中...")
-        prompt = build_prompt(target, reviewer, mask_level, internal_link, is_novel=is_novel, is_guest=is_guest, mood=mood, ai_score=target.get("desc_score", 4))
+        prompt = build_prompt(target, reviewer, mask_level, internal_link, is_novel=is_novel, is_guest=is_guest, mood=mood, ai_score=target.get("desc_score", 4), original_tags=target.get("original_tags", ""), is_exclusive=bool(target.get("is_exclusive", 0)))
         content, error_type, model_name, proc_time = call_deepseek(prompt)
         final_error = error_type
         final_model = model_name
@@ -526,7 +536,7 @@ def generate_article(target):
 
             if not _check_image_ok(target["image_url"]):
                 logger.warning(f"  [画像NG] 投稿直前チェックで無効: {target['image_url']}")
-                return None, None, None, None, False, "image_missing", model_name, level_name, proc_time, 0, "", []
+                return None, None, None, None, False, "image_missing", model_name, level_name, proc_time, 0, "", [], ai_score
 
             img_html = f'<p style="text-align:center;margin:20px 0;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow"><img src="{target["image_url"]}" alt="{target["title"]}" style="max-width:500px;width:100%;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.18);" /></a></p>\n'
             site_raw = target.get("site", "FANZA")
@@ -562,7 +572,22 @@ def generate_article(target):
                     logger.warning(f"  [発売日整形失敗] {e}")
             
             # v12.0.0: AI生成SEOタイトル・抜粋の優先利用
-            tags_for_seo = ai_tags_from_ai if ai_tags_from_ai else db_ai_tags
+            # まずベースとなるAI生成タグリストを確定
+            if not ai_tags_from_ai:
+                ai_tags_from_ai = list(db_ai_tags)
+
+            # 専売タグをWPタグリストに追加
+            _site_raw = str(target.get("site", "")).split(":")[0]
+            _is_excl = bool(target.get("is_exclusive", 0))
+            if _is_excl:
+                if "DLsite" in _site_raw and "DLsite専売" not in ai_tags_from_ai:
+                    ai_tags_from_ai.append("DLsite専売")
+                elif "FANZA" in _site_raw and "FANZA独占" not in ai_tags_from_ai:
+                    ai_tags_from_ai.append("FANZA独占")
+                elif "DigiKet" in _site_raw and "DigiKet限定" not in ai_tags_from_ai:
+                    ai_tags_from_ai.append("DigiKet限定")
+            
+            tags_for_seo = ai_tags_from_ai
             tag_str = "・".join(tags_for_seo[:2]) if tags_for_seo else ""
 
             # SEOタイトル: AIが生成したものを優先。なければテンプレートフォールバック
@@ -1073,7 +1098,8 @@ def _execute_posting_flow(row, cursor, conn):
 
     # 🌟 NEW: AI事前評価スキップロジック
     logger.info(f"  [{row['genre']}] 事前品質審査開始: {title[:30]}...")
-    eval_score = _evaluate_article_potential(title, desc_str)
+    _orig_tags_for_eval = row["original_tags"] if "original_tags" in row.keys() else ""
+    eval_score = _evaluate_article_potential(title, desc_str, original_tags=_orig_tags_for_eval)
     logger.info(f"  -> AI品質スコア: {eval_score}/5点")
     
     # スコア2以下は破棄（中身がスッカスカ、ノイズのみ）
@@ -1101,7 +1127,9 @@ def _execute_posting_flow(row, cursor, conn):
         "image_url":     img_url,
         "release_date":  row["release_date"],
         "ai_tags":       row["ai_tags"],
-        "desc_score":    eval_score  # スコアを渡す
+        "desc_score":    eval_score,  # スコアを渡す
+        "original_tags": row["original_tags"] if "original_tags" in row.keys() else "",
+        "is_exclusive":  row["is_exclusive"] if "is_exclusive" in row.keys() else 0,
     }
 
     # v12.2.0: 全DB横断・Fuzzy Matching重複チェック (旧24hガードレールを完全置換)
@@ -1127,9 +1155,8 @@ def _execute_posting_flow(row, cursor, conn):
     if ai_score == 0:
         ai_score = eval_score  # 事前審査でのスコアを使用
 
-    # タグの優先度：AI生成タグ > DB既存タグ
-    db_tags = [t.strip() for t in (row["ai_tags"] or "").split(",") if t.strip()]
-    final_ai_tags = ai_tags_from_ai if ai_tags_from_ai else db_tags
+    # タグ: generate_article内で既にDB既存タグへのフォールバック＋専売タグ付与済み
+    final_ai_tags = ai_tags_from_ai
 
     link = post_to_wordpress(
         wp_title, content, row["genre"], img_url,
