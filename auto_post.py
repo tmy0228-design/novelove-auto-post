@@ -1166,12 +1166,39 @@ def _execute_posting_flow(row, cursor, conn):
     
     if link:
         ai_tags_str = ",".join(final_ai_tags)
+        # v12.8.0: wp_tags（WPへ実際に送信した完成品タグ一覧）を構築してDBへ書き戻す
+        # ※ post_to_wordpress() 内のタグ構築ロジック(L746-778)と完全一致させること
+        _normalized_labels = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet"}
+        _site_name_for_wp = _normalized_labels.get(site_label, site_label)
+        _wp_tags_parts = []
+        if _site_name_for_wp:
+            _wp_tags_parts.append(_site_name_for_wp)
+        for _t in final_ai_tags:
+            if _t and _t not in _wp_tags_parts:
+                _wp_tags_parts.append(_t)
+        if rev_name and rev_name not in _wp_tags_parts:
+            _wp_tags_parts.append(rev_name)
+        # ランキング記事特例（post_to_wordpress L763-767 と同一）
+        _is_ranking = "ranking" in str(pid).lower() or "ランキング" in str(row["title"])
+        if _is_ranking:
+            _allowed = []
+            if _site_name_for_wp and _site_name_for_wp in _wp_tags_parts:
+                _allowed.append(_site_name_for_wp)
+            if rev_name and rev_name in _wp_tags_parts:
+                _allowed.append(rev_name)
+            _wp_tags_parts = _allowed
+        # exclude_list フィルタ（post_to_wordpress L777-778 と同一）
+        _exclude = ("BL", "TL", "コミック", "小説", "漫画", "BLコミック", "TLコミック", "BL同人", "TL同人", "商業BL", "同人BL", "商業TL", "同人TL", "商業BL小説", "商業TL小説")
+        _wp_tags_parts = [_t for _t in _wp_tags_parts if _t not in _exclude]
+        wp_tags_str = ",".join(_wp_tags_parts)
         # v11.4.0: ai_tags も最新版で上書き保存, 過去のエラー履歴（last_error）もクリア, desc_scoreも保存
+        # v12.8.0: wp_tags も同時保存
         cursor.execute(
-            "UPDATE novelove_posts SET status='published', wp_post_url=?, published_at=datetime('now', 'localtime'), reviewer=?, ai_tags=?, last_error=NULL, desc_score=? WHERE product_id=?",
-            (link, rev_name, ai_tags_str, ai_score, pid)
+            "UPDATE novelove_posts SET status='published', wp_post_url=?, published_at=datetime('now', 'localtime'), reviewer=?, ai_tags=?, wp_tags=?, last_error=NULL, desc_score=? WHERE product_id=?",
+            (link, rev_name, ai_tags_str, wp_tags_str, ai_score, pid)
         )
         conn.commit()
+
         
         # 統計取得
         total_daily = 0
