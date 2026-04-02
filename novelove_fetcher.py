@@ -752,7 +752,7 @@ def fetch_and_stock_all():
 
             # FANZAジャンルタグ取得・独占判定
             if site in ("FANZA", "DMM.com"):
-                _fanza_noise = {"単行本", "マンガ誌", "アンソロジー", "雑誌", "モノクロ", "フルカラー"}
+                _fanza_noise = {"単行本", "マンガ誌", "アンソロジー", "雑誌", "モノクロ", "フルカラー", "GIGATOON", "単話", "無料作品", "成人向け", "全年齢向け", "男性向け", "女性向け", "乙女向け"}
                 _item_genres = item.get("iteminfo", {}).get("genre", []) or []
                 _genre_names = [g.get("name", "") if isinstance(g, dict) else str(g) for g in _item_genres]
                 _fanza_tags = [g for g in _genre_names if g and g not in _fanza_noise]
