@@ -197,7 +197,8 @@ def init_db():
             post_type     TEXT DEFAULT 'regular',
             desc_score    INTEGER DEFAULT 0,
             ai_tags       TEXT DEFAULT '',
-            reviewer      TEXT DEFAULT ''
+            reviewer      TEXT DEFAULT '',
+            wp_tags       TEXT DEFAULT ''
         )''')
         for col, definition in [
             ("last_error",        "TEXT DEFAULT ''"),
@@ -213,6 +214,8 @@ def init_db():
             # === 専売タグ・公式属性タグ連携 ===
             ("original_tags",     "TEXT DEFAULT ''"),      # 公式属性タグ（カンマ区切り）
             ("is_exclusive",      "INTEGER DEFAULT 0"),    # 専売・独占フラグ（1=専売）
+            # === 完成品タグキャッシュ (v12.8.0) ===
+            ("wp_tags",           "TEXT DEFAULT ''"),      # 実際にWPへ送信した/送信予定の完成品タグ一覧
         ]:
             try:
                 c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
