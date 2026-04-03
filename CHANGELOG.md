@@ -1,5 +1,16 @@
 # Changelog
 
+## [v12.9.1] - 2026-04-03
+### Fixed (Critical)
+- **FANZA あらすじスクレイピングの完全修復**:
+  - FANZAがSPA（React/Next.js）構造にリニューアルした影響で、従来のセレクタ（`__NEXT_DATA__` JSON、`sc-` クラスのpタグ等）が全滅し、OGPメタタグ（92文字切り詰め）のみがフォールバックで返されていた致命的バグを修正。
+  - `novelove_fetcher.py` の `scrape_description()` に、Next.jsのSPA内部ペイロード（`self.__next_f.push`）からJSONを正規表現で抽出する新ロジックを追加。フルテキストのあらすじ取得を復旧。
+  - 修正後、pending状態の30件のFANZA記事のあらすじを再スクレイピングし、110〜735文字のフルテキストに復元完了。
+- **スクレイピング失敗時のDiscord即時通知を全サイトに追加**:
+  - FANZA/DLsite: あらすじ取得が空の場合、`notify_discord()` で即座に「スクレイピング監視」通知を送信。
+  - DigiKet: 同様に、あらすじ取得失敗時に即時通知を追加。
+  - 従来は5件連続失敗後の緊急停止のみだったが、1件単位での即時検知が可能に。
+
 ## [v12.9.0] - current-date
 ### Added & Changed
 - **「クッキーモンスター戦略」によるアフィリエイトCTRの最適化**:

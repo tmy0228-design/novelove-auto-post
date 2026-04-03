@@ -38,7 +38,7 @@ from novelove_core import (
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
     _clean_description,
     get_db_path, db_connect,
-    trigger_emergency_stop,
+    trigger_emergency_stop, notify_discord,
 )
 
 # スクレイピング構造変化の検知閾値（連続N回で緊急停止）
@@ -474,7 +474,18 @@ def scrape_description(product_url, site="FANZA", genre=""):
                     return desc.strip()
             except Exception:
                 pass
+        # JSペイロード内の生テキスト検索 (SPA構造対応)
         best_desc = ""
+        for m in re.findall(r'"description":"([^"\\]*(?:\\.[^"\\]*)*)"', text):
+            try:
+                decoded = json.loads('"' + m + '"')
+                decoded = html.unescape(decoded)
+                if len(decoded) > len(best_desc) and '<' not in decoded:
+                    best_desc = decoded
+            except Exception:
+                continue
+        if len(best_desc) > 50: return best_desc
+        
         for p_tag in soup.find_all("p"):
             classes = " ".join(p_tag.get("class", []))
             if "sc-" in classes:
@@ -718,6 +729,7 @@ def fetch_and_stock_all():
             elif not desc:
                 last_error = "no_description"
                 failed_titles.append(item.get("title", "不明"))
+                notify_discord(f"⚠️ [{site}] スクレイピング失敗: {item.get('title','')[:40]}\nURL: {p_url}", username="スクレイピング監視")
             elif _is_noise_content(item.get("title", ""), desc):
                 last_error = "excluded_foreign"
             elif site == "FANZA" and target.get("genre") == "doujin_tl":
@@ -965,6 +977,7 @@ def fetch_digiket_items():
 
                     if not description or len(description) <= 50:
                         last_error = "no_desc_or_image"
+                        notify_discord(f"⚠️ [DigiKet] スクレイピング失敗: {title[:40]}\nURL: {product_url}", username="スクレイピング監視")
                     elif not image_url:
                         last_error = "no_image"
                     elif _is_noise_content(title, description):
