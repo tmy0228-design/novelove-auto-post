@@ -52,6 +52,7 @@ COLUMNS_TO_LOAD = [
     "product_url",
     "affiliate_url",
     "is_desc_updated",
+    "description",
     "prev_description",
     "rewrite_count",
     # === GSC (S5) ===
