@@ -216,6 +216,9 @@ def init_db():
             ("is_exclusive",      "INTEGER DEFAULT 0"),    # 専売・独占フラグ（1=専売）
             # === 完成品タグキャッシュ (v12.8.0) ===
             ("wp_tags",           "TEXT DEFAULT ''"),      # 実際にWPへ送信した/送信予定の完成品タグ一覧
+            # === リライトエンジン基盤 (v12.9.0) ===
+            ("rewrite_count",     "INTEGER DEFAULT 0"),    # リライト回数
+            ("is_desc_updated",   "INTEGER DEFAULT 0"),    # あらすじ更新検知フラグ
         ]:
             try:
                 c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
