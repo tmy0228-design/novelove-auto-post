@@ -455,10 +455,12 @@ def main():
                 col_prev, col_new = st.columns(2)
                 with col_prev:
                     st.caption(f"旧あらすじ（{len(prev_desc)}文字）")
-                    st.text_area("旧あらすじ", value=prev_desc, height=200, disabled=True, key="prev_desc_view", label_visibility="collapsed")
+                    st.text_area("旧あらすじ", value=prev_desc, height=200, disabled=True,
+                                 key=f"prev_desc_view_{row['product_id']}", label_visibility="collapsed")
                 with col_new:
                     st.caption(f"新あらすじ（{len(new_desc)}文字）")
-                    st.text_area("新あらすじ", value=new_desc, height=200, disabled=True, key="new_desc_view", label_visibility="collapsed")
+                    st.text_area("新あらすじ", value=new_desc, height=200, disabled=True,
+                                 key=f"new_desc_view_{row['product_id']}", label_visibility="collapsed")
 
                 # 変化量の表示
                 import difflib
