@@ -221,6 +221,11 @@ def init_db():
             ("is_desc_updated",   "INTEGER DEFAULT 0"),    # あらすじ更新検知フラグ
             # === あらすじ更新検知 (S4) ===
             ("prev_description",  "TEXT DEFAULT ''"),      # 更新前の旧あらすじ（差分ビュー用）
+            # === Google Search Console 連携 (S5) ===
+            ("gsc_indexed",       "INTEGER DEFAULT 0"),    # インデックス登録済みか（0/1）
+            ("gsc_impressions",   "INTEGER DEFAULT 0"),    # 直近30日間の表示回数
+            ("gsc_clicks",        "INTEGER DEFAULT 0"),    # 直近30日間のクリック数
+            ("gsc_last_checked",  "TIMESTAMP DEFAULT NULL"),  # GSC最終チェック日時
         ]:
             try:
                 c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")

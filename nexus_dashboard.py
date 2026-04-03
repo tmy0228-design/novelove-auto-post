@@ -54,6 +54,11 @@ COLUMNS_TO_LOAD = [
     "is_desc_updated",
     "prev_description",
     "rewrite_count",
+    # === GSC (S5) ===
+    "gsc_indexed",
+    "gsc_impressions",
+    "gsc_clicks",
+    "gsc_last_checked",
 ]
 
 STATUS_MAP = {
@@ -105,7 +110,8 @@ def load_all_data() -> pd.DataFrame:
     combined = pd.concat(frames, ignore_index=True, sort=False)
 
     # 型の整理
-    for col in ["desc_score", "sale_discount_rate", "is_desc_updated", "rewrite_count"]:
+    for col in ["desc_score", "sale_discount_rate", "is_desc_updated", "rewrite_count",
+                 "gsc_indexed", "gsc_impressions", "gsc_clicks"]:
         if col in combined.columns:
             combined[col] = pd.to_numeric(combined[col], errors="coerce").fillna(0).astype(int)
     for col in ["inserted_at", "published_at", "last_revived_at"]:
@@ -602,15 +608,84 @@ def main():
             st.warning("該当する作品IDが見つかりませんでした。")
 
     # =====================================================================
+    # GSC 死に記事アラートパネル
+    # =====================================================================
+    if any(c in df.columns for c in ["gsc_indexed", "gsc_impressions", "gsc_clicks"]):
+        st.markdown("---")
+        st.markdown("#### ⚠️ GSC 死に記事アラート")
+
+        published = df[df["status"] == "published"].copy() if "status" in df.columns else df.copy()
+        gsc_checked = published[published["gsc_last_checked"].notna()] if "gsc_last_checked" in published.columns else pd.DataFrame()
+
+        if gsc_checked.empty:
+            st.info(
+                "📡 まだ GSC データがありません。\n"
+                "サーバーで `python nexus_gsc.py` を実行してください。"
+            )
+        else:
+            # 死に記事 3レベルに分類
+            lv1 = gsc_checked[gsc_checked["gsc_indexed"] == 0]
+            lv2 = gsc_checked[
+                (gsc_checked["gsc_indexed"] == 1) &
+                (gsc_checked["gsc_impressions"] == 0)
+            ]
+            lv3 = gsc_checked[
+                (gsc_checked["gsc_indexed"] == 1) &
+                (gsc_checked["gsc_impressions"] > 0) &
+                (gsc_checked["gsc_clicks"] == 0)
+            ]
+
+            # サマリーカード
+            gc1, gc2, gc3, gc4 = st.columns(4)
+            gc1.metric("📡 GSC確認済み", f"{len(gsc_checked):,}件")
+            gc2.metric("🔴 Lv1 未インデックス", f"{len(lv1):,}件")
+            gc3.metric("🟡 Lv2 表示0",         f"{len(lv2):,}件")
+            gc4.metric("🟠 Lv3 クリック0",      f"{len(lv3):,}件")
+
+            # 各レベルの詳細テーブル
+            for level_name, level_df, color_emoji in [
+                ("🔴 Lv1: 未インデックス（公開後30日以上・Googleに登録されていない）", lv1, "🔴"),
+                ("🟡 Lv2: 表示0（インデックス済みだが30日間表示なし）",             lv2, "🟡"),
+                ("🟠 Lv3: クリック0（表示はあるがクリックされていない）",            lv3, "🟠"),
+            ]:
+                if level_df.empty:
+                    continue
+                with st.expander(f"{level_name} — {len(level_df)}件", expanded=(color_emoji == "🔴")):
+                    show_dead_cols = [c for c in [
+                        "product_id", "title", "gsc_impressions", "gsc_clicks",
+                        "gsc_last_checked", "wp_post_url", "published_at"
+                    ] if c in level_df.columns]
+                    dead_display = level_df[show_dead_cols].copy()
+                    dead_display.columns = [
+                        c.replace("product_id", "作品ID")
+                         .replace("title", "タイトル")
+                         .replace("gsc_impressions", "表示回数")
+                         .replace("gsc_clicks", "クリック数")
+                         .replace("gsc_last_checked", "GSC最終確認")
+                         .replace("wp_post_url", "記事URL")
+                         .replace("published_at", "公開日")
+                        for c in show_dead_cols
+                    ]
+                    st.dataframe(
+                        dead_display,
+                        use_container_width=True,
+                        height=min(300, 35 * len(level_df) + 38),
+                        column_config={
+                            "記事URL": st.column_config.LinkColumn(
+                                "記事URL", display_text="📝 開く", width="small"
+                            ),
+                        },
+                    )
+
+    # =====================================================================
     # フッター
     # =====================================================================
     st.markdown("---")
     st.caption(
-        "🌌 Nexus Dashboard (Phase 2 / Step 2) | "
-        "リライト: DRY-RUNで内容確認 → サーバーで --execute 実行"
+        "🌌 Nexus Dashboard (Phase 2 / Step 3) | "
+        "リライト・あらすじ更新検知・GSC死に記事アラート"
     )
 
 
 if __name__ == "__main__":
     main()
-
