@@ -24,6 +24,7 @@ import os
 import re
 import json
 import sqlite3
+import difflib
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
@@ -41,6 +42,7 @@ from novelove_core import (
     db_connect, notify_discord,
     WP_SITE_URL, HEADERS,
 )
+from novelove_fetcher import scrape_description
 
 # === 環境変数 ===
 WP_USER          = os.environ.get("WP_USER", "")
@@ -611,7 +613,109 @@ def run_nexus():
 
 
 # =====================================================================
-# 7. エントリーポイント
+# 7. あらすじ更新検知（S4）
+# =====================================================================
+def run_desc_check():
+    """
+    公開済み記事のあらすじを取得元サイトから再取得し、
+    DBの既存 description と比較して変化があれば is_desc_updated=1 をセット。
+    旧あらすじは prev_description に退避し、description を新しいあらすじで上書き。
+    """
+    logger.info("=" * 60)
+    logger.info("📝 あらすじ更新検知バッチ開始")
+    logger.info("=" * 60)
+
+    updated_count = 0
+    checked_count = 0
+    errors = []
+
+    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
+        if not os.path.exists(db_path):
+            continue
+        try:
+            conn = db_connect(db_path)
+            conn.row_factory = sqlite3.Row
+            # product_url がある published 記事のみ対象
+            rows = conn.execute(
+                """SELECT product_id, product_url, description, site, genre
+                   FROM novelove_posts
+                   WHERE status='published' AND product_url != '' AND product_url IS NOT NULL"""
+            ).fetchall()
+            conn.close()
+        except Exception as e:
+            logger.warning(f"  [DB] 読み込みエラー ({db_path}): {e}")
+            errors.append(str(e))
+            continue
+
+        for row in rows:
+            pid         = row["product_id"]
+            product_url = row["product_url"]
+            old_desc    = row["description"] or ""
+            site_raw    = row["site"] or ""
+            genre_raw   = row["genre"] or ""
+
+            try:
+                new_desc = scrape_description(product_url, site=site_raw, genre=genre_raw)
+            except Exception as e:
+                logger.warning(f"  [DESC] 取得失敗 ({pid}): {e}")
+                errors.append(f"{pid}: {e}")
+                continue
+
+            # 取得失敗・除外判定は無視
+            if not new_desc or new_desc in ("__EXCLUDED_TYPE__",):
+                continue
+
+            checked_count += 1
+
+            # difflib で内容の変化を検知
+            ratio = difflib.SequenceMatcher(None, old_desc, new_desc).ratio()
+            if ratio >= 0.99:  # 99%以上一致 → 変化なし
+                continue
+
+            # 変化あり: 旧あらすじを退避して新しいあらすじで上書き
+            logger.info(
+                f"  [📝 更新検知] {pid} | 類似度={ratio:.1%} "
+                f"| 旧:{len(old_desc)}文字 → 新:{len(new_desc)}文字"
+            )
+            try:
+                conn2 = db_connect(db_path)
+                conn2.execute(
+                    """UPDATE novelove_posts
+                       SET is_desc_updated = 1,
+                           prev_description = ?,
+                           description = ?
+                       WHERE product_id = ?""",
+                    (old_desc, new_desc, pid),
+                )
+                conn2.commit()
+                conn2.close()
+                updated_count += 1
+            except Exception as e:
+                logger.error(f"  [DB] 更新失敗 ({pid}): {e}")
+                errors.append(f"{pid}: DB更新失敗 {e}")
+
+    # Discord サマリー
+    summary = (
+        f"📝 **[あらすじ更新検知]** ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n"
+        f"┣ 確認済み: {checked_count}件 / 更新検知: {updated_count}件\n"
+    )
+    if errors:
+        summary += f"┗ ⚠️ 取得エラー: {len(errors)}件"
+    else:
+        summary += f"┗ ✅ 全件正常取得完了"
+
+    if updated_count > 0:
+        notify_discord(summary, username="📝 あらすじ更新検知")
+
+    logger.info(summary.replace("**", "").replace("┣", "  ").replace("┗", "  "))
+    logger.info("=" * 60)
+    logger.info("🏁 あらすじ更新検知バッチ完了")
+    logger.info("=" * 60)
+
+
+# =====================================================================
+# 8. エントリーポイント
 # =====================================================================
 if __name__ == "__main__":
     run_nexus()
+    run_desc_check()

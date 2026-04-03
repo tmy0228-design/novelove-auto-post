@@ -51,6 +51,9 @@ COLUMNS_TO_LOAD = [
     "post_type",
     "product_url",
     "affiliate_url",
+    "is_desc_updated",
+    "prev_description",
+    "rewrite_count",
 ]
 
 STATUS_MAP = {
@@ -102,7 +105,7 @@ def load_all_data() -> pd.DataFrame:
     combined = pd.concat(frames, ignore_index=True, sort=False)
 
     # 型の整理
-    for col in ["desc_score", "sale_discount_rate"]:
+    for col in ["desc_score", "sale_discount_rate", "is_desc_updated", "rewrite_count"]:
         if col in combined.columns:
             combined[col] = pd.to_numeric(combined[col], errors="coerce").fillna(0).astype(int)
     for col in ["inserted_at", "published_at", "last_revived_at"]:
@@ -167,6 +170,12 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
             tags = [x.strip() for x in str(t).split(",") if x.strip()]
             return " ".join([f"#{tag}" for tag in tags[:3]])  # 最大3つ
         display["タグ"] = display["ai_tags"].apply(shorten_tags)
+
+    # あらすじ更新バッジ
+    if "is_desc_updated" in display.columns:
+        display["📝"] = display["is_desc_updated"].apply(
+            lambda v: "updated" if int(v or 0) == 1 else "-"
+        )
 
     # 表示カラムを整理
     rename_map = {
@@ -367,7 +376,7 @@ def main():
 
     # 表示するカラムを選定（存在するもののみ）
     show_cols_priority = [
-        "サムネイル", "ステータス", "記事種別", "DB", "タイトル", "ノベラブ", "販売元", "発売日",
+        "サムネイル", "ステータス", "記事種別", "DB", "タイトル", "📝", "ノベラブ", "販売元", "発売日",
         "ジャンル", "担当", "スコア", "タグ", "セール", "公開日", "取得日", "エラー",
     ]
     show_cols = [c for c in show_cols_priority if c in display_df.columns]
@@ -384,6 +393,7 @@ def main():
             "記事種別":  st.column_config.TextColumn("種別", width="small"),
             "DB":       st.column_config.TextColumn("DB", width="small"),
             "タイトル": st.column_config.TextColumn(width="large"),
+            "📝":       st.column_config.TextColumn("あらすじ", width="small"),
             "ノベラブ": st.column_config.LinkColumn("ノベラブ", display_text="📝 開く", width="small"),
             "販売元":   st.column_config.LinkColumn("販売元", display_text="🛒 開く", width="small"),
             "発売日":   st.column_config.TextColumn(width="small"),
@@ -428,6 +438,42 @@ def main():
                     st.markdown(f"**WP記事**: [{row['wp_post_url']}]({row['wp_post_url']})")
                 if row.get("sale_discount_rate", 0) > 0:
                     st.success(f"🔥 現在 {row['sale_discount_rate']}% セール中！")
+
+            # ── あらすじ差分ビュー（更新検知時のみ表示） ──
+            if int(row.get("is_desc_updated") or 0) == 1:
+                st.markdown("---")
+                prev_desc = row.get("prev_description") or ""
+                new_desc  = row.get("description") or ""
+                st.warning("📝 **あらすじが更新されました！** リライトを検討してください。")
+                col_prev, col_new = st.columns(2)
+                with col_prev:
+                    st.caption(f"旧あらすじ（{len(prev_desc)}文字）")
+                    st.text_area("旧あらすじ", value=prev_desc, height=200, disabled=True, key="prev_desc_view", label_visibility="collapsed")
+                with col_new:
+                    st.caption(f"新あらすじ（{len(new_desc)}文字）")
+                    st.text_area("新あらすじ", value=new_desc, height=200, disabled=True, key="new_desc_view", label_visibility="collapsed")
+
+                # 変化量の表示
+                import difflib
+                ratio = difflib.SequenceMatcher(None, prev_desc, new_desc).ratio()
+                char_diff = len(new_desc) - len(prev_desc)
+                diff_sign = "+" if char_diff >= 0 else ""
+                st.caption(f"内容一致率: {ratio:.1%} | 文字数差: {diff_sign}{char_diff}文字")
+
+                if st.button("✅ 確認済み（フラグをリセット）", key="btn_confirm_desc"):
+                    try:
+                        from novelove_core import get_db_path, db_connect as _dbc
+                        _db = _dbc(get_db_path(row.get("site", "")))
+                        _db.execute(
+                            "UPDATE novelove_posts SET is_desc_updated = 0 WHERE product_id = ?",
+                            (row["product_id"],)
+                        )
+                        _db.commit()
+                        _db.close()
+                        st.success("フラグをリセットしました。データを再読み込みしてください。")
+                        st.cache_data.clear()
+                    except Exception as e:
+                        st.error(f"❌ リセット失敗: {e}")
 
             # ── 下段: リライトパネル（published のみ表示） ──
             if row.get("status") == "published":

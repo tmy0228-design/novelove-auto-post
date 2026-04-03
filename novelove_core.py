@@ -219,6 +219,8 @@ def init_db():
             # === リライトエンジン基盤 (v12.9.0) ===
             ("rewrite_count",     "INTEGER DEFAULT 0"),    # リライト回数
             ("is_desc_updated",   "INTEGER DEFAULT 0"),    # あらすじ更新検知フラグ
+            # === あらすじ更新検知 (S4) ===
+            ("prev_description",  "TEXT DEFAULT ''"),      # 更新前の旧あらすじ（差分ビュー用）
         ]:
             try:
                 c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
