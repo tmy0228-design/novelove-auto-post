@@ -457,13 +457,13 @@ def main():
                     selected_reviewer_label = st.selectbox(
                         "担当ライター",
                         options=list(REVIEWER_OPTIONS.keys()),
-                        key="rewrite_reviewer",
+                        key="sel_reviewer",
                     )
                 with rc2:
                     selected_mood_label = st.selectbox(
                         "感情モード",
                         options=list(MOOD_OPTIONS.keys()),
-                        key="rewrite_mood",
+                        key="sel_mood",
                     )
 
                 reviewer_id = REVIEWER_OPTIONS[selected_reviewer_label]
@@ -476,48 +476,60 @@ def main():
                 )
 
                 if st.button("🧪 DRY-RUN で内容を確認", key="btn_dryrun"):
-                    st.session_state["rewrite_pid"]      = str(row["product_id"])
-                    st.session_state["rewrite_reviewer"] = reviewer_id
-                    st.session_state["rewrite_mood"]     = mood_str
-                    st.session_state["rewrite_phase"]    = "running_dryrun"
+                    st.session_state["rw_pid"]      = str(row["product_id"])
+                    st.session_state["rw_reviewer"] = reviewer_id
+                    st.session_state["rw_mood"]     = mood_str
+                    st.session_state["rw_phase"]    = "running_dryrun"
 
                 # ── DRY-RUN 実行 ──
-                if st.session_state.get("rewrite_phase") == "running_dryrun" and \
-                   st.session_state.get("rewrite_pid") == str(row["product_id"]):
+                if st.session_state.get("rw_phase") == "running_dryrun" and \
+                   st.session_state.get("rw_pid") == str(row["product_id"]):
 
                     with st.spinner("🤖 AI執筆中（DRY-RUN）..."):
                         try:
                             from nexus_rewrite import run_rewrite
-                            import io, contextlib
+                            import io, logging
 
-                            # ログをキャプチャして表示する
+                            # loggerの出力をキャプチャするハンドラを一時追加
                             log_buffer = io.StringIO()
-                            with contextlib.redirect_stdout(log_buffer):
+                            _capture_handler = logging.StreamHandler(log_buffer)
+                            _capture_handler.setFormatter(logging.Formatter("%(message)s"))
+                            _nv_logger = logging.getLogger("novelove")
+                            _nv_logger.addHandler(_capture_handler)
+                            try:
                                 success = run_rewrite(
-                                    product_id=st.session_state["rewrite_pid"],
-                                    reviewer_id=st.session_state["rewrite_reviewer"],
-                                    mood=st.session_state["rewrite_mood"],
+                                    product_id=st.session_state["rw_pid"],
+                                    reviewer_id=st.session_state["rw_reviewer"],
+                                    mood=st.session_state["rw_mood"],
                                     execute=False,
                                 )
+                            finally:
+                                _nv_logger.removeHandler(_capture_handler)
 
-                            st.session_state["rewrite_dryrun_success"] = success
-                            st.session_state["rewrite_phase"] = "dryrun_done"
+                            st.session_state["rw_log"] = log_buffer.getvalue()
+                            st.session_state["rw_dryrun_success"] = success
+                            st.session_state["rw_phase"] = "dryrun_done"
                         except Exception as e:
                             st.error(f"❌ DRY-RUN 実行中にエラーが発生しました: {e}")
-                            st.session_state["rewrite_phase"] = None
+                            st.session_state["rw_phase"] = None
 
                 # ── DRY-RUN 結果表示 ──
-                if st.session_state.get("rewrite_phase") == "dryrun_done" and \
-                   st.session_state.get("rewrite_pid") == str(row["product_id"]):
+                if st.session_state.get("rw_phase") == "dryrun_done" and \
+                   st.session_state.get("rw_pid") == str(row["product_id"]):
 
-                    if st.session_state.get("rewrite_dryrun_success"):
-                        st.success("✅ DRY-RUN 完了！ログを確認してください。")
+                    if st.session_state.get("rw_dryrun_success"):
+                        st.success("✅ DRY-RUN 完了！")
+                        # キャプチャしたログを表示
+                        captured_log = st.session_state.get("rw_log", "")
+                        if captured_log:
+                            with st.expander("📋 実行ログ（クリックで展開）", expanded=True):
+                                st.text(captured_log)
                         st.markdown(
                             "**本番実行するには、サーバーで以下のコマンドを実行してください:**"
                         )
-                        pid_val      = st.session_state["rewrite_pid"]
-                        rev_val      = st.session_state.get("rewrite_reviewer") or ""
-                        mood_val     = st.session_state.get("rewrite_mood") or ""
+                        pid_val      = st.session_state["rw_pid"]
+                        rev_val      = st.session_state.get("rw_reviewer") or ""
+                        mood_val     = st.session_state.get("rw_mood") or ""
                         cmd_parts    = [f"python nexus_rewrite.py --product-id {pid_val}"]
                         if rev_val:
                             cmd_parts.append(f'--reviewer {rev_val}')
@@ -527,12 +539,16 @@ def main():
                         st.code(" ".join(cmd_parts), language="bash")
 
                         if st.button("🔄 別の設定で再度 DRY-RUN", key="btn_reset_dryrun"):
-                            st.session_state["rewrite_phase"] = None
+                            st.session_state["rw_phase"] = None
                             st.rerun()
                     else:
                         st.error("❌ DRY-RUN が失敗しました。ログを確認してください。")
+                        captured_log = st.session_state.get("rw_log", "")
+                        if captured_log:
+                            with st.expander("📋 実行ログ", expanded=True):
+                                st.text(captured_log)
                         if st.button("🔄 やり直す", key="btn_retry"):
-                            st.session_state["rewrite_phase"] = None
+                            st.session_state["rw_phase"] = None
                             st.rerun()
             else:
                 st.caption(f"⚠️ この記事はステータスが `{row.get('status', '-')}` のためリライトできません（published のみ対象）")
