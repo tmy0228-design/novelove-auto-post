@@ -1165,6 +1165,10 @@ def _execute_posting_flow(row, cursor, conn):
 
     wp_title, content, excerpt, seo_title, is_r18, status, model, level, ptime, words, rev_name, ai_tags_from_ai, ai_score = res
 
+    # NEW: 執筆完了時に、取得できたあらすじの文字数をログに出力（安定動作の証明）
+    desc_c_len = len(str(target.get("description", "")))
+    logger.info(f"  [完了] AI執筆完了！(抽出あらすじ文字数: {desc_c_len}文字)")
+
     # AIスコア安全弁（通常は事前審査済みなのでここには来ないが、万一のフェイルセーフ）
     if ai_score == 0:
         ai_score = eval_score  # 事前審査でのスコアを使用
