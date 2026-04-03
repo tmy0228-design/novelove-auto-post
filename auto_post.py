@@ -1241,7 +1241,7 @@ def _execute_posting_flow(row, cursor, conn):
         notify_discord(
             f"✅ **[{site_label}] [{_genre_label(row['genre'])}] 投稿成功！**\n"
             f"**タイトル**: {wp_title}\n"
-            f"**統計**: 今日 {total_daily}件目 / スコア{ai_score} / {words}文字 / ライター: {rev_name}\n"
+            f"**統計**: 今日 {total_daily}件目 / スコア{ai_score} / あらすじ{desc_c_len}文字 / 記事{words}文字 / ライター: {rev_name}\n"
             f"**投稿待ち在庫**: {inventory_str}\n"
             f"**URL**: {link}",
             username="ノベラブ通知くん"
