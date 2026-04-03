@@ -115,10 +115,10 @@ def fetch_gsc_url_data(service) -> dict:
 # =====================================================================
 # 3. インデックス状態の確認（URL Inspection API）
 # =====================================================================
-def check_indexed(service, url: str) -> bool:
+def check_indexed(service, url: str):
     """
     URL Inspection API で指定URLがGoogleにインデックスされているか返す。
-    APIコール数が多いため、未インデックス疑いのもの（表示0）のみ呼ぶこと。
+    戻り値: True=インデックス済み / False=未インデックス / None=API失敗（判定不能）
     """
     try:
         result = service.urlInspection().index().inspect(
@@ -132,7 +132,7 @@ def check_indexed(service, url: str) -> bool:
         return verdict == "PASS"
     except Exception as e:
         logger.warning(f"    [GSC] URL Inspection 失敗 ({url}): {e}")
-        return False  # 判定不能 → 未インデックス扱いにしない（False = 不明）
+        return None  # 判定不能 → 分類・DB更新をスキップする
 
 
 # =====================================================================
@@ -205,6 +205,11 @@ def run_gsc():
                 indexed = check_indexed(service, url)
             else:
                 indexed = True  # 表示があればインデックス済みとみなす
+
+            # API判定不能（None）の場合はDB更新・分類をスキップ
+            if indexed is None:
+                logger.warning(f"  [GSC] {pid} — インデックス判定不能のためスキップ")
+                continue
 
             # DB 更新
             try:

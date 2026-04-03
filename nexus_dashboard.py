@@ -115,7 +115,7 @@ def load_all_data() -> pd.DataFrame:
                  "gsc_indexed", "gsc_impressions", "gsc_clicks"]:
         if col in combined.columns:
             combined[col] = pd.to_numeric(combined[col], errors="coerce").fillna(0).astype(int)
-    for col in ["inserted_at", "published_at", "last_revived_at"]:
+    for col in ["inserted_at", "published_at", "last_revived_at", "gsc_last_checked"]:
         if col in combined.columns:
             combined[col] = pd.to_datetime(combined[col], errors="coerce")
 
