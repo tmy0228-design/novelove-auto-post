@@ -184,7 +184,7 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
     # あらすじ更新バッジ
     if "is_desc_updated" in display.columns:
         display["📝"] = display["is_desc_updated"].apply(
-            lambda v: "updated" if int(v or 0) == 1 else "-"
+            lambda v: "updated" if (pd.notna(v) and int(v) == 1) else "-"
         )
 
     # 表示カラムを整理
@@ -452,7 +452,7 @@ def main():
                     st.success(f"🔥 現在 {int(row['sale_discount_rate'])}% セール中！")
 
             # ── あらすじ差分ビュー（更新検知時のみ表示） ──
-            if int(row.get("is_desc_updated") or 0) == 1:
+            if pd.notna(row.get("is_desc_updated")) and int(row.get("is_desc_updated")) == 1:
                 st.markdown("---")
                 prev_raw = row.get("prev_description")
                 new_raw  = row.get("description")

@@ -567,28 +567,25 @@ def run_nexus():
         # --- セールタグの計算 ---
         if pid in pids_needing_sale_tag:
             new_tags.add(sale_tag_id)
-            stats["sale_added"] += 1
-            logs.append(f"  🔥 セールタグ付与: {pid}")
+            logs.append(("sale_added", f"  🔥 セールタグ付与: {pid}"))
         elif pid in pids_losing_sale_tag:
             new_tags.discard(sale_tag_id)
-            stats["sale_removed"] += 1
-            logs.append(f"  ❄️ セールタグ剥奪: {pid}")
+            logs.append(("sale_removed", f"  ❄️ セールタグ剥奪: {pid}"))
 
         # --- 売れ筋タグの計算 ---
         if pid in pids_needing_rank_tag:
             new_tags.add(bestseller_tag_id)
-            stats["rank_added"] += 1
-            logs.append(f"  🏆 売れ筋タグ付与: {pid}")
+            logs.append(("rank_added", f"  🏆 売れ筋タグ付与: {pid}"))
         elif pid in pids_losing_rank_tag:
             new_tags.discard(bestseller_tag_id)
-            stats["rank_removed"] += 1
-            logs.append(f"  📉 売れ筋タグ剥奪: {pid}")
+            logs.append(("rank_removed", f"  📉 売れ筋タグ剥奪: {pid}"))
 
         # --- WPへの一括更新リクエスト ---
         if new_tags != original_tags:
             if update_post_tags(wp_post_id, list(new_tags)):
-                for l in logs:
-                    logger.info(l)
+                for stat_key, log_msg in logs:
+                    stats[stat_key] += 1
+                    logger.info(log_msg)
             else:
                 # 失敗時はカウントを戻すような厳密なロールバックは行わない（次回cronで再トライされるため）
                 logger.warning(f"  ⚠️ タグ一括更新失敗: {pid}")
