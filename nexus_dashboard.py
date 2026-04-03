@@ -125,6 +125,9 @@ def load_all_data() -> pd.DataFrame:
 # =====================================================================
 # 2. UI ヘルパー
 # =====================================================================
+def safe_str(val, default="-"):
+    return str(val) if pd.notna(val) and str(val).strip() else default
+
 def status_badge(status: str) -> str:
     return STATUS_MAP.get(str(status), f"⚪ {status}")
 
@@ -432,25 +435,29 @@ def main():
             # ── 上段: 記事情報 ──
             c1, c2 = st.columns([1, 2])
             with c1:
-                if pd.notna(row.get("image_url")) and row.get("image_url"):
-                    st.image(row["image_url"], width=200, caption=row.get("title", ""))
+                img_url = safe_str(row.get("image_url"), "")
+                if img_url:
+                    st.image(img_url, width=200, caption=safe_str(row.get("title"), ""))
             with c2:
-                st.markdown(f"**タイトル**: {row.get('title', '-')}")
-                st.markdown(f"**作品ID**: `{row.get('product_id', '-')}`")
-                st.markdown(f"**ステータス**: {status_badge(row.get('status', '-'))}")
-                st.markdown(f"**あらすじスコア**: {row.get('desc_score', '-')}")
-                st.markdown(f"**担当ライター**: {row.get('reviewer', '-')}")
-                st.markdown(f"**タグ**: {row.get('ai_tags', '-')}")
-                if row.get("wp_post_url"):
-                    st.markdown(f"**WP記事**: [{row['wp_post_url']}]({row['wp_post_url']})")
-                if row.get("sale_discount_rate", 0) > 0:
-                    st.success(f"🔥 現在 {row['sale_discount_rate']}% セール中！")
+                st.markdown(f"**タイトル**: {safe_str(row.get('title'))}")
+                st.markdown(f"**作品ID**: `{safe_str(row.get('product_id'))}`")
+                st.markdown(f"**ステータス**: {status_badge(row.get('status'))}")
+                st.markdown(f"**あらすじスコア**: {safe_str(row.get('desc_score'))}")
+                st.markdown(f"**担当ライター**: {safe_str(row.get('reviewer'))}")
+                st.markdown(f"**タグ**: {safe_str(row.get('ai_tags'))}")
+                wp_url = safe_str(row.get("wp_post_url"), "")
+                if wp_url:
+                    st.markdown(f"**WP記事**: [{wp_url}]({wp_url})")
+                if pd.notna(row.get("sale_discount_rate")) and int(row.get("sale_discount_rate", 0)) > 0:
+                    st.success(f"🔥 現在 {int(row['sale_discount_rate'])}% セール中！")
 
             # ── あらすじ差分ビュー（更新検知時のみ表示） ──
             if int(row.get("is_desc_updated") or 0) == 1:
                 st.markdown("---")
-                prev_desc = row.get("prev_description") or ""
-                new_desc  = row.get("description") or ""
+                prev_raw = row.get("prev_description")
+                new_raw  = row.get("description")
+                prev_desc = str(prev_raw) if pd.notna(prev_raw) else ""
+                new_desc  = str(new_raw) if pd.notna(new_raw) else ""
                 st.warning("📝 **あらすじが更新されました！** リライトを検討してください。")
                 col_prev, col_new = st.columns(2)
                 with col_prev:

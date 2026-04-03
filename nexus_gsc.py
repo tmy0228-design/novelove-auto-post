@@ -196,7 +196,10 @@ def run_gsc():
             pid = row["product_id"]
             url = row["wp_post_url"]
 
-            gsc_info    = url_data.get(url, None)
+            url_slash = url if url.endswith('/') else url + '/'
+            url_no_slash = url.rstrip('/')
+            gsc_info    = url_data.get(url_slash) or url_data.get(url_no_slash)
+
             impressions = gsc_info["impressions"] if gsc_info else 0
             clicks      = gsc_info["clicks"]      if gsc_info else 0
 
