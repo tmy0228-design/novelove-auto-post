@@ -347,7 +347,8 @@ def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
                SET reviewer = ?,
                    ai_tags  = ?,
                    wp_tags  = ?,
-                   rewrite_count = COALESCE(rewrite_count, 0) + 1
+                   rewrite_count = COALESCE(rewrite_count, 0) + 1,
+                   is_desc_updated = 0
                WHERE product_id = ?""",
             (rev_name, ai_tags_str, wp_tags_str, product_id),
         )
