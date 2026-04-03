@@ -51,7 +51,7 @@ from novelove_core import (
     WP_SITE_URL, SCRIPT_DIR,
 )
 # auto_post.py から執筆エンジンのみを借用
-from auto_post import generate_article, get_or_create_term, AI_TAG_WHITELIST
+from auto_post import generate_article, get_or_create_term
 
 # === 環境変数 ===
 WP_USER         = os.environ.get("WP_USER", "")
