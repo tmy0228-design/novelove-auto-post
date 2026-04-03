@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v12.1.0
+Novelove 自動投稿エンジン v12.9.0
 【多重投稿ループ停止・データフロー修復・堅牢性強化】
 ==========================================================
 【変更点 v11.4.8】
@@ -455,9 +455,23 @@ def make_excerpt(description, title, genre, reviewer_name="", ai_tags=None):
         text = text[:158] + "…"
     return text
 
-def generate_article(target):
-    reviewer, is_guest = _get_reviewer_for_genre(target["genre"])
-    mood = random.choice(MOOD_PATTERNS)
+def generate_article(target, override_reviewer_id=None, override_mood=None):
+    if override_reviewer_id:
+        from novelove_soul import REVIEWERS
+        matched_reviewers = [r for r in REVIEWERS if r["id"] == override_reviewer_id]
+        if matched_reviewers:
+            reviewer = matched_reviewers[0]
+            is_guest = target.get("genre") not in reviewer.get("genres", [])
+        else:
+            reviewer, is_guest = _get_reviewer_for_genre(target["genre"])
+    else:
+        reviewer, is_guest = _get_reviewer_for_genre(target["genre"])
+
+    if override_mood:
+        mood = override_mood
+    else:
+        mood = random.choice(MOOD_PATTERNS)
+
     is_novel = target["genre"] in ("novel_bl", "novel_tl")
     reviewer_name = reviewer["name"]
     # DBから取得したai_tagsがあれば先行パース
@@ -547,8 +561,8 @@ def generate_article(target):
             elif "コミック" in format_name or "漫画" in format_name: icon = "🎨"
             elif "同人" in format_name: icon = "📚"
             badge_html = f'\n<p style="text-align:center; margin-bottom:20px;">\n<span style="background:#fefefe; border:1px solid #ddd; padding:6px 16px; border-radius:25px; font-weight:bold; color:#444; box-shadow:0 2px 4px rgba(0,0,0,0.05); display:inline-block;">{icon} {site_display} {format_name}</span>\n</p>'
-            text_link = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:5px; margin-bottom:15px;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{target["title"]}』の詳細をチェック！</a></p>\n'
-            button_html = get_affiliate_button_html(target["affiliate_url"], "作品の詳細を見る")
+            text_link = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:5px; margin-bottom:15px;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{target["title"]}』の試し読み・お得なセール状況をチェック！</a></p>\n'
+            button_html = get_affiliate_button_html(target["affiliate_url"], "無料で試し読みする")
             if "FANZA" in site_display:
                 credit_html = (
                     f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'
@@ -1639,7 +1653,7 @@ def process_ranking_articles():
                     content_html = content_html.replace(f"[RANK_BADGE_{rank}]", medals.get(rank, f"{rank}位"))
                     content_html = content_html.replace(f"[TITLE_{rank}]", item["title"])
                     img_elem = f'<div style="text-align: center;"><a href="{item["url"]}" target="_blank" rel="noopener"><img src="{item["image_url"]}" alt="{item["title"]}" style="max-height: 400px; max-width: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" /></a></div>'
-                    text_link_elem = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:10px; margin-bottom:15px;"><a href="{item["url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{item["title"]}』の詳細をチェック！</a></p>'
+                    text_link_elem = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:10px; margin-bottom:15px;"><a href="{item["url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{item["title"]}』を試し読みする</a></p>'
                     content_html = content_html.replace(f"[IMAGE_{rank}]", f"{img_elem}{text_link_elem}")
                     
                     pid = item.get("content_id", "")
@@ -1768,7 +1782,7 @@ def main():
         logger.info("🚨 緊急停止中のためスキップ。解除: rm emergency_stop.lock")
         return
 
-    logger.info("Novelove エンジン v12.1.0 起動")
+    logger.info("Novelove エンジン v12.9.0 起動")
     init_db()
     # メインロックチェック
     if os.path.exists(MAIN_LOCK_FILE):
