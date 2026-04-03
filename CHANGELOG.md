@@ -1,5 +1,19 @@
 # Changelog
 
+## [v12.9.2] - 2026-04-03
+### Fixed
+- **`novelove_core.py` スキーマ定義の実装漏れを修正**:
+  - CHANGELOGには v12.9.0 で追加済みと記載されていた `rewrite_count` および `is_desc_updated` カラムが、`novelove_core.py` の CREATE TABLE 定義・ALTER TABLE マイグレーションリストの両方に存在していなかったバグを修正。
+  - 将来の `nexus_rewrite.py` 実装時にSQLiteエラーが発生するリスクを事前に排除。
+
+### Added
+- **Discord投稿成功通知に「あらすじ取得文字数」を追加**:
+  - `auto_post.py` の投稿成功時Discord通知メッセージを更新。従来の「{words}文字」（記事本文の文字数）に加え、「あらすじ{desc_c_len}文字」（スクレイピングで取得した元サイトのあらすじ文字数）を並記。
+  - スクレイピングの品質を投稿ごとにDiscordで即確認できるようになり、SPA化対応後のFANZAスクレイパーの動作監視が容易に。
+  - 通知フォーマット例: `スコア8 / あらすじ382文字 / 記事4521文字 / ライター: 紫苑`
+- **AI執筆完了時にあらすじ文字数をログ出力**:
+  - `auto_post.py` の `_execute_posting_flow()` にて、`generate_article()` 成功直後に取得あらすじ文字数をINFOログとして出力するよう追加。
+
 ## [v12.9.1] - 2026-04-03
 ### Fixed (Critical)
 - **FANZA あらすじスクレイピングの完全修復**:
