@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v12.9.0
+Novelove 自動投稿エンジン v13.0.0
 【多重投稿ループ停止・データフロー修復・堅牢性強化】
 ==========================================================
 【変更点 v11.4.8】
@@ -1788,7 +1788,7 @@ def main():
         logger.info("🚨 緊急停止中のためスキップ。解除: rm emergency_stop.lock")
         return
 
-    logger.info("Novelove エンジン v12.9.0 起動")
+    logger.info("Novelove エンジン v13.0.0 起動")
     init_db()
     # メインロックチェック
     if os.path.exists(MAIN_LOCK_FILE):
