@@ -116,48 +116,6 @@ DEEPSEEK_MODEL   = "deepseek-chat"
 
 
 # === 内部リンク取得 ===
-def get_internal_link(product_id, author, genre, db_path, ai_tags=None):
-    conn = db_connect(db_path)
-    try:
-        c = conn.cursor()
-
-        # スコア式とパラメータを組み立てる
-        weight_clauses = []
-        weight_params = []
-
-        # AIタグ一致: 1タグにつき +5点
-        for t in (ai_tags or []):
-            if t:
-                weight_clauses.append("(CASE WHEN ai_tags LIKE ? THEN 5 ELSE 0 END)")
-                weight_params.append(f"%{t}%")
-
-        # 著者一致: +10点（AIタグ3件一致より低いが確実な関連性）
-        if author and author.strip():
-            weight_clauses.append("(CASE WHEN author=? THEN 10 ELSE 0 END)")
-            weight_params.append(author.strip())
-
-        if weight_clauses:
-            order_clause = " + ".join(weight_clauses) + " DESC, published_at DESC"
-        else:
-            order_clause = "published_at DESC"
-
-        sql = (
-            "SELECT title, wp_post_url "
-            "FROM novelove_posts "
-            "WHERE status='published' AND genre=? AND product_id!=? AND wp_post_url != '' "
-            f"ORDER BY {order_clause} "
-            "LIMIT 1"
-        )
-        # バインド順: genre → product_id → weight_params
-        # SQLiteの?は文字列の出現順(左→右)にバインドされる。
-        # WHERE句の genre=?, product_id!=? が ORDER BY の CASE ? より先に現れるため、
-        # パラメータは [genre, product_id] + weight_params の順にする。
-        row = c.execute(sql, [genre, product_id] + weight_params).fetchone()
-        return {"title": row[0], "url": row[1]} if row else None
-    finally:
-        conn.close()
-
-
 def _check_wp_post_exists(url):
     try:
         r = requests.head(url, timeout=10, allow_redirects=True)
@@ -210,7 +168,7 @@ def _evaluate_article_potential(title, description, original_tags=""):
     return 0
 
 # === AI執筆 ===
-def build_prompt(target, reviewer, mask_level=0, internal_link=None, is_novel=False, is_guest=False, mood="", ai_score=4, original_tags="", is_exclusive=False):
+def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False, mood="", ai_score=4, original_tags="", is_exclusive=False):
     safe_title = mask_input(target["title"], mask_level)
     safe_desc  = mask_input(target["description"], mask_level)
     label      = _genre_label(target["genre"], safe_title)
@@ -480,22 +438,13 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
     if target.get("ai_tags"):
         db_ai_tags = [t.strip() for t in target["ai_tags"].split(",") if t.strip()]
 
-    internal_link = get_internal_link(
-        target["product_id"], target.get("author", ""),
-        target["genre"], db_path=get_db_path(target.get("site")),
-        ai_tags=db_ai_tags
-    )
-    if internal_link:
-        logger.info(f"  [内部リンク] 取得成功: {internal_link['title'][:30]}")
-    else:
-        logger.info(f"  [内部リンク] 該当なし")
     final_error = "content_block"
     final_model = DEEPSEEK_MODEL
     final_proc_time = 0.0
     for mask_level in [0, 1, 2]:
         level_name = ["フィルターなし", "軽めフィルター", "ガチガチフィルター"][mask_level]
         logger.info(f"  [{level_name}] で執筆試行中...")
-        prompt = build_prompt(target, reviewer, mask_level, internal_link, is_novel=is_novel, is_guest=is_guest, mood=mood, ai_score=target.get("desc_score", 4), original_tags=target.get("original_tags", ""), is_exclusive=bool(target.get("is_exclusive", 0)))
+        prompt = build_prompt(target, reviewer, mask_level, is_novel=is_novel, is_guest=is_guest, mood=mood, ai_score=target.get("desc_score", 4), original_tags=target.get("original_tags", ""), is_exclusive=bool(target.get("is_exclusive", 0)))
         content, error_type, model_name, proc_time = call_deepseek(prompt)
         final_error = error_type
         final_model = model_name
