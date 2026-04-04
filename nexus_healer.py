@@ -5,17 +5,21 @@ import re
 import argparse
 from dotenv import load_dotenv
 
-load_dotenv()
+# --- 環境変数の読み込み ---
+env_path = "/home/kusanagi/scripts/.env"
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+else:
+    load_dotenv()
 
 # novelove_core から必要な設定をインポート
 from novelove_core import (
+    logger,
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
     db_connect,
 )
 
-import logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
-logger = logging.getLogger("NexusHealer")
+
 
 WP_SITE_URL = os.environ.get("WP_SITE_URL", "https://novelove.jp")
 WP_USER = os.environ.get("WP_USER", "novelove-admin")

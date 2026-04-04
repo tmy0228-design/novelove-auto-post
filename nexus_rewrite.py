@@ -51,7 +51,7 @@ from novelove_core import (
     WP_SITE_URL, SCRIPT_DIR,
 )
 # auto_post.py から執筆エンジンのみを借用
-from auto_post import generate_article, get_or_create_term
+from auto_post import generate_article, get_or_create_term, _evaluate_article_potential
 
 # === 環境変数 ===
 WP_USER         = os.environ.get("WP_USER", "")
@@ -316,7 +316,8 @@ def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
     リライト成功後に DB を更新する。
     - ai_tags, wp_tags, reviewer を最新値で上書き
     - rewrite_count を +1
-    - desc_score, status, published_at は変更しない
+    - desc_scoreを最新値（ai_score）で更新
+    - status, published_at は変更しない
     """
     # wp_tags の文字列を構築（post_to_wordpress / _execute_posting_flow と同一ルール）
     site_name = NORMALIZED_LABELS.get(site_label, site_label)
@@ -347,10 +348,11 @@ def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
                SET reviewer = ?,
                    ai_tags  = ?,
                    wp_tags  = ?,
+                   desc_score = ?,
                    rewrite_count = COALESCE(rewrite_count, 0) + 1,
                    is_desc_updated = 0
                WHERE product_id = ?""",
-            (rev_name, ai_tags_str, wp_tags_str, product_id),
+            (rev_name, ai_tags_str, wp_tags_str, ai_score, product_id),
         )
         conn.commit()
         conn.close()
@@ -414,7 +416,11 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     else:
         logger.info("  [タグ保護] 保護対象タグなし")
 
-    # --- Step 4: target 辞書を組み立てる（_execute_posting_flow L1133-1147 と同一構造） ---
+    # --- Step 4: 最新のあらすじでスコアを再計算・target 辞書構築 ---
+    logger.info("  [評価] 最新のあらすじから AI スコアを再計算中...")
+    latest_score = _evaluate_article_potential(title, desc_str, original_tags=row["original_tags"])
+    logger.info(f"  [評価] 元のスコア: {row['desc_score'] or 0} -> 最新スコア: {latest_score}")
+
     target = {
         "product_id":    row["product_id"],
         "title":         title,
@@ -426,7 +432,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         "image_url":     img_url,
         "release_date":  row["release_date"] or "",
         "ai_tags":       row["ai_tags"] or "",
-        "desc_score":    row["desc_score"] or 0,   # 変更しない（素材濃さの指標）
+        "desc_score":    latest_score,
         "original_tags": row["original_tags"] or "",
         "is_exclusive":  row["is_exclusive"] or 0,
     }

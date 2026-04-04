@@ -216,6 +216,11 @@ def main():
     # ─── ヘッダー ───
     st.markdown(
         """
+        <style>
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        </style>
         <div style='background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
                     padding: 24px 32px; border-radius: 12px; margin-bottom: 24px;'>
             <h1 style='color: #e94560; margin: 0; font-size: 2em;'>🌌 Nexus Dashboard</h1>
@@ -239,9 +244,9 @@ def main():
     total = len(df)
 
     # =====================================================================
-    # サイドバー：フィルターパネル
+    # サイドバー：フィルターパネル (UX向上によりメインに移動)
     # =====================================================================
-    with st.sidebar:
+    with st.expander("🔍 絞り込み・検索フィルター（ここをクリックして開く）", expanded=True):
         st.markdown("### 🔍 フィルター & 検索")
         st.markdown("---")
 
@@ -252,31 +257,34 @@ def main():
 
         # ステータスフィルター
         all_statuses = sorted(df["status"].dropna().unique().tolist()) if "status" in df.columns else []
-        selected_statuses = st.multiselect(
-            "ステータス",
+        selected_statuses = st.pills(
+            "ステータス (無選択で全表示)",
             options=all_statuses,
-            default=all_statuses,
+            default=[],
             format_func=status_badge,
+            selection_mode="multi",
         )
 
         st.markdown("---")
 
         # DBフィルター
         db_options = sorted(df["_source_db"].dropna().unique().tolist()) if "_source_db" in df.columns else list(DB_SOURCES.keys())
-        selected_dbs = st.multiselect(
-            "プラットフォーム",
+        selected_dbs = st.pills(
+            "プラットフォーム (無選択で全表示)",
             options=db_options,
-            default=db_options,
+            default=[],
+            selection_mode="multi",
         )
 
         st.markdown("---")
 
         # ジャンルフィルター
         all_genres = sorted(df["genre"].dropna().unique().tolist()) if "genre" in df.columns else []
-        selected_genres = st.multiselect(
-            "ジャンル",
+        selected_genres = st.pills(
+            "ジャンル (無選択で全表示)",
             options=all_genres,
-            default=all_genres,
+            default=[],
+            selection_mode="multi",
         )
 
         st.markdown("---")
@@ -285,11 +293,12 @@ def main():
         if "post_type" in df.columns:
             all_types = sorted(df["post_type"].dropna().unique().tolist())
             type_labels = {"regular": "通常記事", "ranking": "ランキング"}
-            selected_types = st.multiselect(
-                "記事種別",
+            selected_types = st.pills(
+                "記事種別 (無選択で全表示)",
                 options=all_types,
-                default=all_types,
-                format_func=lambda x: type_labels.get(x, x)
+                default=[],
+                format_func=lambda x: type_labels.get(x, x),
+                selection_mode="multi",
             )
         else:
             selected_types = []
@@ -391,10 +400,14 @@ def main():
     ]
     show_cols = [c for c in show_cols_priority if c in display_df.columns]
 
-    st.dataframe(
+    st.info("💡 **【超便利ワザ】一覧表の【一番左端にあるチェックボックス】をクリック**すると、下の詳細画面に作品が自動入力されます！（※文字部分をダブルクリックすると文字コピーモードになり固まるのでご注意ください！）")
+
+    event = st.dataframe(
         display_df[show_cols],
         use_container_width=True,
         height=600,
+        selection_mode="single-row",
+        on_select="rerun",
         column_config={
             "サムネイル": st.column_config.ImageColumn(
                 "🖼", width="small",
@@ -425,7 +438,19 @@ def main():
     # =====================================================================
     st.markdown("---")
     st.markdown("#### 🔎 作品IDで詳細確認・リライト")
-    detail_pid = st.text_input("作品ID（例: RJ012345 / d_12345 / ITM12345）", key="detail_pid")
+    
+    selected_pid_str = ""
+    if hasattr(event, 'selection') and isinstance(event.selection, dict) and event.selection.get("rows"):
+        try:
+            sel_idx = event.selection["rows"][0]
+            selected_pid_str = str(filtered.iloc[sel_idx]["product_id"])
+        except Exception:
+            pass
+
+    detail_pid = st.text_input(
+        "📝 作品ID（上のリストの左端のチェックボックスをクリックすると自動入力されます、手動入力も可）", 
+        value=selected_pid_str
+    )
 
     if detail_pid:
         match = df[df["product_id"].str.lower() == detail_pid.lower()]
@@ -586,19 +611,43 @@ def main():
                         if captured_log:
                             with st.expander("📋 実行ログ（クリックで展開）", expanded=True):
                                 st.text(captured_log)
-                        st.markdown(
-                            "**本番実行するには、サーバーで以下のコマンドを実行してください:**"
-                        )
-                        pid_val      = st.session_state["rw_pid"]
-                        rev_val      = st.session_state.get("rw_reviewer") or ""
-                        mood_val     = st.session_state.get("rw_mood") or ""
-                        cmd_parts    = [f"python nexus_rewrite.py --product-id {pid_val}"]
-                        if rev_val:
-                            cmd_parts.append(f'--reviewer {rev_val}')
-                        if mood_val:
-                            cmd_parts.append(f'--mood "{mood_val}"')
-                        cmd_parts.append("--execute")
-                        st.code(" ".join(cmd_parts), language="bash")
+                        st.markdown("---")
+                        st.warning("⚠️ **本番環境の WordPress 記事 と データベース が実際に書き換わります。** ログに問題がなければ以下のボタンで実行してください。")
+                        
+                        if st.button("🚀 この内容で本番環境に上書き保存する！", type="primary"):
+                            with st.spinner("本番環境への書き込みを実行しています..."):
+                                try:
+                                    import io
+                                    import logging
+                                    from novelove_core import logger as _nv_logger_exec
+                                    from nexus_rewrite import run_rewrite as exec_run_rewrite
+                                    
+                                    log_buffer_exec = io.StringIO()
+                                    _capture_handler_exec = logging.StreamHandler(log_buffer_exec)
+                                    _capture_handler_exec.setLevel(logging.INFO)
+                                    _capture_handler_exec.setFormatter(logging.Formatter('%(message)s'))
+                                    _nv_logger_exec.addHandler(_capture_handler_exec)
+                                    
+                                    try:
+                                        exec_success = exec_run_rewrite(
+                                            product_id=st.session_state["rw_pid"],
+                                            reviewer_id=st.session_state["rw_reviewer"],
+                                            mood=st.session_state["rw_mood"],
+                                            execute=True,
+                                        )
+                                    finally:
+                                        _nv_logger_exec.removeHandler(_capture_handler_exec)
+                                        
+                                    if exec_success:
+                                        st.success("🎉 **本番実行が完了しました！WordPressが正常に更新されました！**")
+                                        st.balloons()
+                                        st.info("ℹ️ データを再読み込みすると、最新の状態がデータフレームに反映されます。")
+                                    else:
+                                        st.error("❌ 本番実行でエラーが発生しました。ログを確認してください。")
+                                        with st.expander("📝 エラー詳細", expanded=True):
+                                            st.text(log_buffer_exec.getvalue())
+                                except Exception as e:
+                                    st.error(f"❌ 深刻なエラーが発生しました: {e}")
 
                         if st.button("🔄 別の設定で再度 DRY-RUN", key="btn_reset_dryrun"):
                             st.session_state["rw_phase"] = None
