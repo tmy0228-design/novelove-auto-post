@@ -794,7 +794,7 @@ def main():
             ]
             show_cols = [c for c in show_cols_priority if c in display_df.columns]
 
-            st.info("💡 **一覧表の【一番左端にあるチェックボックス】をクリック**すると、この行のデータが記憶され、隣の「🔎 リライト＆詳細ビュー」タブで詳しく確認できます。")
+            st.info("💡 **一覧表の【一番左端にあるチェックボックス】をクリック**すると、画面最下部の「🔎 ダイレクト リライト」パネルに作品IDが自動入力されます。")
 
             event = st.dataframe(
                 display_df[show_cols],
@@ -823,6 +823,14 @@ def main():
                 },
             )
 
+            # データ一覧テーブルで選択された行の作品IDを取得
+            if hasattr(event, 'selection') and isinstance(event.selection, dict) and event.selection.get("rows"):
+                try:
+                    sel_row_idx = event.selection["rows"][0]
+                    st.session_state["_selected_pid_from_list"] = str(filtered.iloc[sel_row_idx]["product_id"])
+                except Exception:
+                    pass
+
 
     
     # =====================================================================
@@ -831,22 +839,21 @@ def main():
     st.markdown("---")
     st.markdown("## 🔎 ダイレクト 作品詳細 ＆ リライト")
     st.info("💡 上の「データ一覧」や「GSCアラート」で選択した作品のIDが自動入力されます。または手動で直接IDを入力して検索も可能です。")
-    
-    # 全テーブルからの選択状態を統合
-    active_pid = ""
-    # main table
-    if 'selected_pid_str' in locals() and selected_pid_str:
-        active_pid = selected_pid_str
-    # GSC tables
-    if 'selected_gsc_pid' in locals() and selected_gsc_pid:
-        active_pid = selected_gsc_pid
-        
-    cols = st.columns([1, 2])
-    with cols[0]:
-        target_pid = st.text_input("📝 リライト対象の作品ID (例: RJ012345)", value=active_pid, placeholder="例: RJ012345")
-        
+
+    # session_state から選択済みIDを取得（テーブル選択 or 手動入力）
+    auto_pid = st.session_state.get("_selected_pid_from_list", "")
+
+    target_pid = st.text_input(
+        "📝 リライト対象の作品ID (例: RJ012345)",
+        value=auto_pid,
+        placeholder="例: RJ012345",
+        key="global_rewrite_pid_input",
+    )
+
     if target_pid:
         render_detail_panel(target_pid, df, key_prefix="global")
+    else:
+        st.caption("⬆️ 上のテキストボックスに作品IDを入力するか、データ一覧 / GSCアラートで行を選択してください。")
 
     # =====================================================================
     # フッター
