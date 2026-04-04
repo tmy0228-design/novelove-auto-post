@@ -690,7 +690,95 @@ def main():
     # =====================================================================
     # TABS: メインエリアの分割 (リスト一覧 と 詳細・リライト)
     # =====================================================================
-    tab_list, tab_detail = st.tabs(["📋 リスト一覧", "🔎 リライト＆詳細ビュー"])
+    tab_kpi, tab_list = st.tabs(["📊 KPIサマリー ＆ GSC", "📋 データ一覧"])
+
+    with tab_kpi:
+        # =====================================================================
+        # GSC 死に記事アラートパネル
+        # =====================================================================
+        if any(c in df.columns for c in ["gsc_indexed", "gsc_impressions", "gsc_clicks"]):
+            st.markdown("---")
+            st.markdown("#### ⚠️ GSC 死に記事アラート")
+
+            published = df[df["status"] == "published"].copy() if "status" in df.columns else df.copy()
+            gsc_checked = published[published["gsc_last_checked"].notna()] if "gsc_last_checked" in published.columns else pd.DataFrame()
+
+            if gsc_checked.empty:
+                st.info(
+                    "📡 まだ GSC データがありません。\n"
+                    "サーバーで `python nexus_gsc.py` を実行してください。"
+                )
+            else:
+                # 死に記事 3レベルに分類
+                lv1 = gsc_checked[gsc_checked["gsc_indexed"] == 0]
+                lv2 = gsc_checked[
+                    (gsc_checked["gsc_indexed"] == 1) &
+                    (gsc_checked["gsc_impressions"] == 0)
+                ]
+                lv3 = gsc_checked[
+                    (gsc_checked["gsc_indexed"] == 1) &
+                    (gsc_checked["gsc_impressions"] > 0) &
+                    (gsc_checked["gsc_clicks"] == 0)
+                ]
+
+                # サマリーカード
+                gc1, gc2, gc3, gc4 = st.columns(4)
+                gc1.metric("📡 GSC確認済み", f"{len(gsc_checked):,}件")
+                gc2.metric("🔴 Lv1 未インデックス", f"{len(lv1):,}件")
+                gc3.metric("🟡 Lv2 表示0",         f"{len(lv2):,}件")
+                gc4.metric("🟠 Lv3 クリック0",      f"{len(lv3):,}件")
+
+                # 各レベルの詳細テーブル
+                for level_name, level_df, color_emoji in [
+                    ("🔴 Lv1: 未インデックス（公開後30日以上・Googleに登録されていない）", lv1, "🔴"),
+                    ("🟡 Lv2: 表示0（インデックス済みだが30日間表示なし）",             lv2, "🟡"),
+                    ("🟠 Lv3: クリック0（表示はあるがクリックされていない）",            lv3, "🟠"),
+                ]:
+                    if level_df.empty:
+                        continue
+                    with st.expander(f"{level_name} — {len(level_df)}件", expanded=(color_emoji == "🔴")):
+                        show_dead_cols = [c for c in [
+                            "product_id", "title", "gsc_impressions", "gsc_clicks",
+                            "gsc_last_checked", "wp_post_url", "published_at"
+                        ] if c in level_df.columns]
+                        dead_display = level_df[show_dead_cols].copy()
+                        dead_display.columns = [
+                            c.replace("product_id", "作品ID")
+                             .replace("title", "タイトル")
+                             .replace("gsc_impressions", "表示回数")
+                             .replace("gsc_clicks", "クリック数")
+                             .replace("gsc_last_checked", "GSC最終確認")
+                             .replace("wp_post_url", "記事URL")
+                             .replace("published_at", "公開日")
+                            for c in show_dead_cols
+                        ]
+                        event_gsc = st.dataframe(
+                            dead_display,
+                            use_container_width=True,
+                            height=min(300, 35 * len(level_df) + 38),
+                            selection_mode="single-row",
+                            on_select="rerun",
+                            key=f"df_gsc_{level_name[:3]}",
+                            column_config={
+                                "記事URL": st.column_config.LinkColumn(
+                                    "記事URL", display_text="📝 開く", width="small"
+                                ),
+                            },
+                        )
+                        selected_gsc_pid = ""
+                        if hasattr(event_gsc, 'selection') and isinstance(event_gsc.selection, dict) and event_gsc.selection.get("rows"):
+                            try:
+                                sel_idx = event_gsc.selection["rows"][0]
+                                selected_gsc_pid = str(level_df.iloc[sel_idx]["product_id"])
+                            except Exception:
+                                pass
+                    
+                        if selected_gsc_pid:
+                            st.markdown("---")
+                            st.markdown(f"#### 🔎 {level_name[:3]} 選択作品の詳細・リライト")
+                            render_detail_panel(selected_gsc_pid, df, key_prefix=f"gsc_{level_name[:3]}")
+
+
 
     with tab_list:
         if filtered.empty:
@@ -735,93 +823,30 @@ def main():
                 },
             )
 
-    with tab_detail:
 
-        render_detail_panel(selected_pid_str, df, key_prefix="list")
-        # =====================================================================
-    # GSC 死に記事アラートパネル
+    
     # =====================================================================
-    if any(c in df.columns for c in ["gsc_indexed", "gsc_impressions", "gsc_clicks"]):
-        st.markdown("---")
-        st.markdown("#### ⚠️ GSC 死に記事アラート")
-
-        published = df[df["status"] == "published"].copy() if "status" in df.columns else df.copy()
-        gsc_checked = published[published["gsc_last_checked"].notna()] if "gsc_last_checked" in published.columns else pd.DataFrame()
-
-        if gsc_checked.empty:
-            st.info(
-                "📡 まだ GSC データがありません。\n"
-                "サーバーで `python nexus_gsc.py` を実行してください。"
-            )
-        else:
-            # 死に記事 3レベルに分類
-            lv1 = gsc_checked[gsc_checked["gsc_indexed"] == 0]
-            lv2 = gsc_checked[
-                (gsc_checked["gsc_indexed"] == 1) &
-                (gsc_checked["gsc_impressions"] == 0)
-            ]
-            lv3 = gsc_checked[
-                (gsc_checked["gsc_indexed"] == 1) &
-                (gsc_checked["gsc_impressions"] > 0) &
-                (gsc_checked["gsc_clicks"] == 0)
-            ]
-
-            # サマリーカード
-            gc1, gc2, gc3, gc4 = st.columns(4)
-            gc1.metric("📡 GSC確認済み", f"{len(gsc_checked):,}件")
-            gc2.metric("🔴 Lv1 未インデックス", f"{len(lv1):,}件")
-            gc3.metric("🟡 Lv2 表示0",         f"{len(lv2):,}件")
-            gc4.metric("🟠 Lv3 クリック0",      f"{len(lv3):,}件")
-
-            # 各レベルの詳細テーブル
-            for level_name, level_df, color_emoji in [
-                ("🔴 Lv1: 未インデックス（公開後30日以上・Googleに登録されていない）", lv1, "🔴"),
-                ("🟡 Lv2: 表示0（インデックス済みだが30日間表示なし）",             lv2, "🟡"),
-                ("🟠 Lv3: クリック0（表示はあるがクリックされていない）",            lv3, "🟠"),
-            ]:
-                if level_df.empty:
-                    continue
-                with st.expander(f"{level_name} — {len(level_df)}件", expanded=(color_emoji == "🔴")):
-                    show_dead_cols = [c for c in [
-                        "product_id", "title", "gsc_impressions", "gsc_clicks",
-                        "gsc_last_checked", "wp_post_url", "published_at"
-                    ] if c in level_df.columns]
-                    dead_display = level_df[show_dead_cols].copy()
-                    dead_display.columns = [
-                        c.replace("product_id", "作品ID")
-                         .replace("title", "タイトル")
-                         .replace("gsc_impressions", "表示回数")
-                         .replace("gsc_clicks", "クリック数")
-                         .replace("gsc_last_checked", "GSC最終確認")
-                         .replace("wp_post_url", "記事URL")
-                         .replace("published_at", "公開日")
-                        for c in show_dead_cols
-                    ]
-                    event_gsc = st.dataframe(
-                        dead_display,
-                        use_container_width=True,
-                        height=min(300, 35 * len(level_df) + 38),
-                        selection_mode="single-row",
-                        on_select="rerun",
-                        key=f"df_gsc_{level_name[:3]}",
-                        column_config={
-                            "記事URL": st.column_config.LinkColumn(
-                                "記事URL", display_text="📝 開く", width="small"
-                            ),
-                        },
-                    )
-                    selected_gsc_pid = ""
-                    if hasattr(event_gsc, 'selection') and isinstance(event_gsc.selection, dict) and event_gsc.selection.get("rows"):
-                        try:
-                            sel_idx = event_gsc.selection["rows"][0]
-                            selected_gsc_pid = str(level_df.iloc[sel_idx]["product_id"])
-                        except Exception:
-                            pass
-                    
-                    if selected_gsc_pid:
-                        st.markdown("---")
-                        st.markdown(f"#### 🔎 {level_name[:3]} 選択作品の詳細・リライト")
-                        render_detail_panel(selected_gsc_pid, df, key_prefix=f"gsc_{level_name[:3]}")
+    # 🔎 ダイレクト リライト・詳細パネル (完全分離・常時表示)
+    # =====================================================================
+    st.markdown("---")
+    st.markdown("## 🔎 ダイレクト 作品詳細 ＆ リライト")
+    st.info("💡 上の「データ一覧」や「GSCアラート」で選択した作品のIDが自動入力されます。または手動で直接IDを入力して検索も可能です。")
+    
+    # 全テーブルからの選択状態を統合
+    active_pid = ""
+    # main table
+    if 'selected_pid_str' in locals() and selected_pid_str:
+        active_pid = selected_pid_str
+    # GSC tables
+    if 'selected_gsc_pid' in locals() and selected_gsc_pid:
+        active_pid = selected_gsc_pid
+        
+    cols = st.columns([1, 2])
+    with cols[0]:
+        target_pid = st.text_input("📝 リライト対象の作品ID (例: RJ012345)", value=active_pid, placeholder="例: RJ012345")
+        
+    if target_pid:
+        render_detail_panel(target_pid, df, key_prefix="global")
 
     # =====================================================================
     # フッター
