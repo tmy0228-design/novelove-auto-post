@@ -1,7 +1,142 @@
+# === 絶対に無視するファイル（環境・機密） ===
 .env
 *.db
 *.log
+*.lock
 __pycache__/
 *.pyc
-auto_post.py.bak
+*.pyo
 *.bak
+*.tmp
+*.swp
+
+# === 一時調査・テストスクリプト（check_, test_, verify_, debug_, trace_ から始まるもの） ===
+check_*.py
+test_*.py
+verify_*.py
+debug_*.py
+trace_*.py
+
+# === 一時デプロイ・フェーズスクリプト ===
+phase*.py
+deploy_*.py
+setup_*.py
+install_*.py
+fix_*.py
+fetch_*.py
+find_*.py
+
+# === サーバー調査用スクリプト（使い捨て） ===
+analyze_*.py
+apply_*.py
+backfill_*.py
+cache_*.py
+clear_*.py
+count_*.py
+create_remote_backup.py
+download_backup.py
+investigate_*.py
+mark_*.py
+regen.py
+run_*.py
+unlock_server.py
+update_ui.py
+upload_*.py
+
+# === ワンオフスクリプト（Nexusコア以外のnexus_*） ===
+# nexus_dashboard.py nexus_rewrite.py nexus_healer.py nexus_revive.py nexus_gsc.py nexus_purge.py は保持
+# それ以外の nexus_ プレフィックスや _plan は除外
+nexus_dashboard_plan.md
+nexus_dashboard_plan*.md
+
+# === データ・設定・鍵ファイル（機密） ===
+.deploy_sha
+.htpasswd_nexus
+genre_index.txt
+
+# === 各種一時ファイル ===
+*.txt
+!README.md
+*.json
+*.sh
+
+# === ツールフォルダ（使い捨てサブスクリプト群） ===
+tools/
+
+# === その他のワンショット系 ===
+override_*.py
+parse_*.py
+post*.txt
+read_*.py
+remove_*.py
+restart_*.py
+restore_*.py
+revert_*.py
+robust_*.py
+search_*.py
+survey_*.py
+tag_*.txt
+widget_*.txt
+add_*.py
+force_*.py
+mirror_*.py
+move_*.py
+update_*.py
+backup_*.py
+clean_*.py
+clear_*.py
+diagnose_*.py
+disable_*.py
+do_*.py
+download_*.py
+dump_*.py
+emergency_*.py
+enable_*.py
+fanza_*.html
+final_*.py
+functions_*.php
+functions_*.txt
+get_*.py
+hide_*.py
+inspect_*.py
+install_*.py
+investigate_*.py
+launch_*.bat
+list_*.py
+migrate_*.py
+myblog.conf
+nexus_purge.py
+override_*.py
+rewrite_score3.py
+
+# === DBのwal/shmファイル ===
+*.db-shm
+*.db-wal
+*.sqlite
+
+# === CSS/PHP/HTML一時ファイル ===
+*.css
+*.html
+*.php
+*.sql
+*.conf
+
+# === バックアップ・テキストファイル ===
+bad_*.html
+backup/
+_css_*.sql
+cocoon_*.txt
+current_*.css
+current_*.php
+debug_*.html
+debug_*.txt
+debug_*.py
+functions_*.php
+functions_*.txt
+
+
+# === 画像・バイナリ ===
+*.png
+*.jpg
+*.webp
+*.gif
