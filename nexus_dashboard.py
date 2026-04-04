@@ -205,252 +205,19 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
 # =====================================================================
 # 3. Streamlit メイン画面
 # =====================================================================
-def main():
-    st.set_page_config(
-        page_title="Nexus Dashboard",
-        page_icon="🌌",
-        layout="wide",
-        initial_sidebar_state="expanded",
-    )
+# =====================================================================
+# 3. Streamlit メイン画面
+# =====================================================================
 
-    # ─── ヘッダー ───
-    st.markdown(
-        """
-        <style>
-        #MainMenu {visibility: hidden;}
-        header {visibility: hidden;}
-        footer {visibility: hidden;}
-        </style>
-        <div style='background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-                    padding: 24px 32px; border-radius: 12px; margin-bottom: 24px;'>
-            <h1 style='color: #e94560; margin: 0; font-size: 2em;'>🌌 Nexus Dashboard</h1>
-            <p style='color: #a0aec0; margin: 4px 0 0 0;'>
-                Novelove 記事データ統合ビューワー（Read-Only）
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # ─── データ読み込み ───
-    with st.spinner("データを読み込んでいます..."):
-        df = load_all_data()
-
-    if df.empty:
-        st.error("データが読み込めませんでした。DBファイルのパスを確認してください。")
-        st.info(f"検索先: {', '.join(DB_SOURCES.values())}")
-        return
-
-    total = len(df)
-
-    # =====================================================================
-    # サイドバー：フィルターパネル (UX向上によりメインに移動)
-    # =====================================================================
-    with st.expander("🔍 絞り込み・検索フィルター（ここをクリックして開く）", expanded=True):
-        st.markdown("### 🔍 フィルター & 検索")
-        st.markdown("---")
-
-        # キーワード検索
-        keyword = st.text_input("タイトル・作品IDで検索", placeholder="例: 騎士団長")
-
-        st.markdown("---")
-
-        # ステータスフィルター
-        all_statuses = sorted(df["status"].dropna().unique().tolist()) if "status" in df.columns else []
-        selected_statuses = st.pills(
-            "ステータス (無選択で全表示)",
-            options=all_statuses,
-            default=[],
-            format_func=status_badge,
-            selection_mode="multi",
-        )
-
-        st.markdown("---")
-
-        # DBフィルター
-        db_options = sorted(df["_source_db"].dropna().unique().tolist()) if "_source_db" in df.columns else list(DB_SOURCES.keys())
-        selected_dbs = st.pills(
-            "プラットフォーム (無選択で全表示)",
-            options=db_options,
-            default=[],
-            selection_mode="multi",
-        )
-
-        st.markdown("---")
-
-        # ジャンルフィルター
-        all_genres = sorted(df["genre"].dropna().unique().tolist()) if "genre" in df.columns else []
-        selected_genres = st.pills(
-            "ジャンル (無選択で全表示)",
-            options=all_genres,
-            default=[],
-            selection_mode="multi",
-        )
-
-        st.markdown("---")
-
-        # 記事種別フィルター
-        if "post_type" in df.columns:
-            all_types = sorted(df["post_type"].dropna().unique().tolist())
-            type_labels = {"regular": "通常記事", "ranking": "ランキング"}
-            selected_types = st.pills(
-                "記事種別 (無選択で全表示)",
-                options=all_types,
-                default=[],
-                format_func=lambda x: type_labels.get(x, x),
-                selection_mode="multi",
-            )
-        else:
-            selected_types = []
-
-        st.markdown("---")
-
-        # スコアフィルター
-        if "desc_score" in df.columns:
-            min_score = int(df["desc_score"].min())
-            max_score = int(df["desc_score"].max())
-            if min_score < max_score:
-                score_range = st.slider(
-                    "AIスコア範囲",
-                    min_value=min_score,
-                    max_value=max_score,
-                    value=(min_score, max_score),
-                )
-            else:
-                score_range = (min_score, max_score)
-        else:
-            score_range = (0, 99)
-
-        st.markdown("---")
-
-        # セール中のみ
-        only_sale = st.checkbox("🔥 セール中のみ")
-
-        st.markdown("---")
-        if st.button("🔄 データを再読み込み"):
-            st.cache_data.clear()
-            st.rerun()
-
-    # =====================================================================
-    # フィルタリング処理
-    # =====================================================================
-    filtered = df.copy()
-
-    if keyword:
-        mask = (
-            filtered["title"].str.contains(keyword, case=False, na=False)
-            | filtered["product_id"].str.contains(keyword, case=False, na=False)
-        )
-        filtered = filtered[mask]
-
-    if selected_statuses and "status" in filtered.columns:
-        filtered = filtered[filtered["status"].isin(selected_statuses)]
-
-    if selected_dbs:
-        filtered = filtered[filtered["_source_db"].isin(selected_dbs)]
-
-    if selected_genres and "genre" in filtered.columns:
-        filtered = filtered[filtered["genre"].isin(selected_genres)]
-
-    if selected_types and "post_type" in filtered.columns:
-        filtered = filtered[filtered["post_type"].isin(selected_types)]
-
-    if "desc_score" in filtered.columns:
-        filtered = filtered[
-            (filtered["desc_score"] >= score_range[0]) &
-            (filtered["desc_score"] <= score_range[1])
-        ]
-
-    if only_sale and "sale_discount_rate" in filtered.columns:
-        filtered = filtered[filtered["sale_discount_rate"] > 0]
-
-    # =====================================================================
-    # サマリーカード
-    # =====================================================================
-    pub_count  = len(filtered[filtered["status"] == "published"]) if "status" in filtered.columns else 0
-    pend_count = len(filtered[filtered["status"] == "pending"])   if "status" in filtered.columns else 0
-    excl_count = len(filtered[filtered["status"] == "excluded"])  if "status" in filtered.columns else 0
-    sale_count = len(filtered[filtered["sale_discount_rate"] > 0]) if "sale_discount_rate" in filtered.columns else 0
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("📦 総件数", f"{total:,}件")
-    col2.metric("🔍 絞り込み後", f"{len(filtered):,}件")
-    col3.metric("🟢 公開済み", f"{pub_count:,}件")
-    col4.metric("🟡 在庫中", f"{pend_count:,}件")
-    col5.metric("🔥 セール中", f"{sale_count:,}件")
-
-    st.markdown("---")
-
-    # =====================================================================
-    # メインテーブル
-    # =====================================================================
-    st.markdown(f"#### 📋 記事一覧（{len(filtered):,}件）")
-
-    if filtered.empty:
-        st.info("条件に一致するデータがありません。")
-        return
-
-    # 表示用に整形
-    display_df = format_display_df(filtered)
-
-    # 表示するカラムを選定（存在するもののみ）
-    show_cols_priority = [
-        "サムネイル", "ステータス", "記事種別", "DB", "タイトル", "📝", "ノベラブ", "販売元", "発売日",
-        "ジャンル", "担当", "スコア", "タグ", "セール", "公開日", "取得日", "エラー",
-    ]
-    show_cols = [c for c in show_cols_priority if c in display_df.columns]
-
-    st.info("💡 **【超便利ワザ】一覧表の【一番左端にあるチェックボックス】をクリック**すると、下の詳細画面に作品が自動入力されます！（※文字部分をダブルクリックすると文字コピーモードになり固まるのでご注意ください！）")
-
-    event = st.dataframe(
-        display_df[show_cols],
-        use_container_width=True,
-        height=600,
-        selection_mode="single-row",
-        on_select="rerun",
-        column_config={
-            "サムネイル": st.column_config.ImageColumn(
-                "🖼", width="small",
-            ),
-            "ステータス": st.column_config.TextColumn("状態", width="small"),
-            "記事種別":  st.column_config.TextColumn("種別", width="small"),
-            "DB":       st.column_config.TextColumn("DB", width="small"),
-            "タイトル": st.column_config.TextColumn(width="large"),
-            "📝":       st.column_config.TextColumn("あらすじ", width="small"),
-            "ノベラブ": st.column_config.LinkColumn("ノベラブ", display_text="📝 開く", width="small"),
-            "販売元":   st.column_config.LinkColumn("販売元", display_text="🛒 開く", width="small"),
-            "発売日":   st.column_config.TextColumn(width="small"),
-            "ジャンル": st.column_config.TextColumn(width="small"),
-            "担当":     st.column_config.TextColumn(width="small"),
-            "スコア":   st.column_config.ProgressColumn(
-                "スコア", min_value=0, max_value=5, format="%d", width="small",
-            ),
-            "タグ":     st.column_config.TextColumn(width="medium"),
-            "セール":   st.column_config.TextColumn(width="small"),
-            "公開日":   st.column_config.TextColumn(width="small"),
-            "取得日":   st.column_config.TextColumn(width="small"),
-            "エラー":   st.column_config.TextColumn(width="medium"),
-        },
-    )
-
-    # =====================================================================
-    # 詳細ビュー ＋ リライト操作パネル
-    # =====================================================================
-    st.markdown("---")
-    st.markdown("#### 🔎 作品IDで詳細確認・リライト")
-    
-    selected_pid_str = ""
-    if hasattr(event, 'selection') and isinstance(event.selection, dict) and event.selection.get("rows"):
-        try:
-            sel_idx = event.selection["rows"][0]
-            selected_pid_str = str(filtered.iloc[sel_idx]["product_id"])
-        except Exception:
-            pass
-
+# =====================================================================
+# 詳細ビュー＆リライト操作パネル (共通)
+# =====================================================================
+def render_detail_panel(selected_pid_str, df, key_prefix="list"):
     detail_pid = st.text_input(
-        "📝 作品ID（上のリストの左端のチェックボックスをクリックすると自動入力されます、手動入力も可）", 
-        value=selected_pid_str
-    )
+            "📝 作品ID（手動入力も可）", 
+            value=selected_pid_str, 
+            key=f"{key_prefix}_detail_pid_input"
+        )
 
     if detail_pid:
         match = df[df["product_id"].str.lower() == detail_pid.lower()]
@@ -501,7 +268,7 @@ def main():
                 diff_sign = "+" if char_diff >= 0 else ""
                 st.caption(f"内容一致率: {ratio:.1%} | 文字数差: {diff_sign}{char_diff}文字")
 
-                if st.button("✅ 確認済み（フラグをリセット）", key="btn_confirm_desc"):
+                if st.button("✅ 確認済み（フラグをリセット）", key=f"{key_prefix}_btn_confirm_desc"):
                     try:
                         from novelove_core import get_db_path, db_connect as _dbc
                         _db = _dbc(get_db_path(row.get("site", "")))
@@ -544,13 +311,13 @@ def main():
                     selected_reviewer_label = st.selectbox(
                         "担当ライター",
                         options=list(REVIEWER_OPTIONS.keys()),
-                        key="sel_reviewer",
+                        key=f"{key_prefix}_sel_reviewer",
                     )
                 with rc2:
                     selected_mood_label = st.selectbox(
                         "感情モード",
                         options=list(MOOD_OPTIONS.keys()),
-                        key="sel_mood",
+                        key=f"{key_prefix}_sel_mood",
                     )
 
                 reviewer_id = REVIEWER_OPTIONS[selected_reviewer_label]
@@ -562,15 +329,15 @@ def main():
                     "DRY-RUN は WP・DB に一切書き込みません。生成内容の確認のみです。"
                 )
 
-                if st.button("🧪 DRY-RUN で内容を確認", key="btn_dryrun"):
-                    st.session_state["rw_pid"]      = str(row["product_id"])
-                    st.session_state["rw_reviewer"] = reviewer_id
-                    st.session_state["rw_mood"]     = mood_str
-                    st.session_state["rw_phase"]    = "running_dryrun"
+                if st.button("🧪 DRY-RUN で内容を確認", key=f"{key_prefix}_btn_dryrun"):
+                    st.session_state[f"{key_prefix}_rw_pid"]      = str(row["product_id"])
+                    st.session_state[f"{key_prefix}_rw_reviewer"] = reviewer_id
+                    st.session_state[f"{key_prefix}_rw_mood"]     = mood_str
+                    st.session_state[f"{key_prefix}_rw_phase"]    = "running_dryrun"
 
                 # ── DRY-RUN 実行 ──
-                if st.session_state.get("rw_phase") == "running_dryrun" and \
-                   st.session_state.get("rw_pid") == str(row["product_id"]):
+                if st.session_state.get(f"{key_prefix}_rw_phase") == "running_dryrun" and \
+                   st.session_state.get(f"{key_prefix}_rw_pid") == str(row["product_id"]):
 
                     with st.spinner("🤖 AI執筆中（DRY-RUN）..."):
                         try:
@@ -585,35 +352,35 @@ def main():
                             _nv_logger.addHandler(_capture_handler)
                             try:
                                 success = run_rewrite(
-                                    product_id=st.session_state["rw_pid"],
-                                    reviewer_id=st.session_state["rw_reviewer"],
-                                    mood=st.session_state["rw_mood"],
+                                    product_id=st.session_state[f"{key_prefix}_rw_pid"],
+                                    reviewer_id=st.session_state[f"{key_prefix}_rw_reviewer"],
+                                    mood=st.session_state[f"{key_prefix}_rw_mood"],
                                     execute=False,
                                 )
                             finally:
                                 _nv_logger.removeHandler(_capture_handler)
 
-                            st.session_state["rw_log"] = log_buffer.getvalue()
-                            st.session_state["rw_dryrun_success"] = success
-                            st.session_state["rw_phase"] = "dryrun_done"
+                            st.session_state[f"{key_prefix}_rw_log"] = log_buffer.getvalue()
+                            st.session_state[f"{key_prefix}_rw_dryrun_success"] = success
+                            st.session_state[f"{key_prefix}_rw_phase"] = "dryrun_done"
                         except Exception as e:
                             st.error(f"❌ DRY-RUN 実行中にエラーが発生しました: {e}")
-                            st.session_state["rw_phase"] = None
+                            st.session_state[f"{key_prefix}_rw_phase"] = None
 
                 # ── DRY-RUN 結果表示 ──
-                if st.session_state.get("rw_phase") == "dryrun_done" and \
-                   st.session_state.get("rw_pid") == str(row["product_id"]):
+                if st.session_state.get(f"{key_prefix}_rw_phase") == "dryrun_done" and \
+                   st.session_state.get(f"{key_prefix}_rw_pid") == str(row["product_id"]):
 
-                    if st.session_state.get("rw_dryrun_success"):
+                    if st.session_state.get(f"{key_prefix}_rw_dryrun_success"):
                         st.success("✅ DRY-RUN 完了！")
                         # キャプチャしたログを表示
-                        captured_log = st.session_state.get("rw_log", "")
+                        captured_log = st.session_state.get(f"{key_prefix}_rw_log", "")
                         if captured_log:
                             with st.expander("📋 実行ログ（クリックで展開）", expanded=True):
                                 st.text(captured_log)
                         st.markdown("---")
                         st.warning("⚠️ **本番環境の WordPress 記事 と データベース が実際に書き換わります。** ログに問題がなければ以下のボタンで実行してください。")
-                        
+
                         if st.button("🚀 この内容で本番環境に上書き保存する！", type="primary"):
                             with st.spinner("本番環境への書き込みを実行しています..."):
                                 try:
@@ -621,23 +388,23 @@ def main():
                                     import logging
                                     from novelove_core import logger as _nv_logger_exec
                                     from nexus_rewrite import run_rewrite as exec_run_rewrite
-                                    
+
                                     log_buffer_exec = io.StringIO()
                                     _capture_handler_exec = logging.StreamHandler(log_buffer_exec)
                                     _capture_handler_exec.setLevel(logging.INFO)
                                     _capture_handler_exec.setFormatter(logging.Formatter('%(message)s'))
                                     _nv_logger_exec.addHandler(_capture_handler_exec)
-                                    
+
                                     try:
                                         exec_success = exec_run_rewrite(
-                                            product_id=st.session_state["rw_pid"],
-                                            reviewer_id=st.session_state["rw_reviewer"],
-                                            mood=st.session_state["rw_mood"],
+                                            product_id=st.session_state[f"{key_prefix}_rw_pid"],
+                                            reviewer_id=st.session_state[f"{key_prefix}_rw_reviewer"],
+                                            mood=st.session_state[f"{key_prefix}_rw_mood"],
                                             execute=True,
                                         )
                                     finally:
                                         _nv_logger_exec.removeHandler(_capture_handler_exec)
-                                        
+
                                     if exec_success:
                                         st.success("🎉 **本番実行が完了しました！WordPressが正常に更新されました！**")
                                         st.balloons()
@@ -649,24 +416,329 @@ def main():
                                 except Exception as e:
                                     st.error(f"❌ 深刻なエラーが発生しました: {e}")
 
-                        if st.button("🔄 別の設定で再度 DRY-RUN", key="btn_reset_dryrun"):
-                            st.session_state["rw_phase"] = None
+                        if st.button("🔄 別の設定で再度 DRY-RUN", key=f"{key_prefix}_btn_reset_dryrun"):
+                            st.session_state[f"{key_prefix}_rw_phase"] = None
                             st.rerun()
                     else:
                         st.error("❌ DRY-RUN が失敗しました。ログを確認してください。")
-                        captured_log = st.session_state.get("rw_log", "")
+                        captured_log = st.session_state.get(f"{key_prefix}_rw_log", "")
                         if captured_log:
                             with st.expander("📋 実行ログ", expanded=True):
                                 st.text(captured_log)
-                        if st.button("🔄 やり直す", key="btn_retry"):
-                            st.session_state["rw_phase"] = None
+                        if st.button("🔄 やり直す", key=f"{key_prefix}_btn_retry"):
+                            st.session_state[f"{key_prefix}_rw_phase"] = None
                             st.rerun()
             else:
                 st.caption(f"⚠️ この記事はステータスが `{row.get('status', '-')}` のためリライトできません（published のみ対象）")
         else:
             st.warning("該当する作品IDが見つかりませんでした。")
 
+
+def main():
+    st.set_page_config(
+        page_title="Nexus Dashboard",
+        page_icon="🌌",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+
+    # ─── Vercel/Linear風 ダーク・グラスモーフィズム CSS ───
+    st.markdown(
+        """
+        <style>
+        /* デフォルトUIの非表示化 */
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+
+        /* 背景とフォント（全体） */
+        .stApp {
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+
+        /* ヘッダー・コックピットデザイン */
+        .premium-header {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 24px 32px; 
+            border-radius: 16px; 
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        
+        .premium-header h1 {
+            background: linear-gradient(to right, #ec4899, #8b5cf6, #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0; 
+            font-size: 2.2em;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+        
+        .premium-header p {
+            color: #94a3b8; 
+            margin: 8px 0 0 0;
+            font-size: 1em;
+        }
+
+        /* -------------------------------------
+           メトリクス（上部ステータス）のデザイン変更
+        ------------------------------------- */
+        [data-testid="stMetricValue"] {
+            font-size: 2rem !important;
+            color: #f8fafc !important;
+            font-weight: 700 !important;
+        }
+        [data-testid="stMetricLabel"] {
+            font-size: 1rem !important;
+            color: #94a3b8 !important;
+        }
+        [data-testid="metric-container"] {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+        }
+
+        /* タブのスタイル調整 */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 24px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            height: 50px;
+            white-space: pre-wrap;
+            background-color: transparent;
+            border-radius: 4px 4px 0px 0px;
+            gap: 1px;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            color: #94a3b8;
+        }
+        .stTabs [aria-selected="true"] {
+            color: #f8fafc !important;
+            border-bottom-color: #ec4899 !important;
+        }
+
+        /* データフレーム（表）の背景と枠線調整 */
+        [data-testid="stDataFrame"] {
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+        }
+
+        </style>
+        <div class="premium-header">
+            <h1>🌌 Nexus Dashboard</h1>
+            <p>Novelove 記事データ統合ビューワー（Read-Only）</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ─── データ読み込み ───
+    with st.spinner("データを読み込んでいます..."):
+        df = load_all_data()
+
+    if df.empty:
+        st.error("データが読み込めませんでした。DBファイルのパスを確認してください。")
+        st.info(f"検索先: {', '.join(DB_SOURCES.values())}")
+        return
+
+    total = len(df)
+
     # =====================================================================
+    # 左サイドバー：フィルターパネル
+    # =====================================================================
+    with st.sidebar:
+        st.markdown("### 🔍 フィルター & 検索")
+        
+        # キーワード検索
+        keyword = st.text_input("タイトル・作品IDで検索", placeholder="例: 騎士団長")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ステータスフィルター
+        all_statuses = sorted(df["status"].dropna().unique().tolist()) if "status" in df.columns else []
+        selected_statuses = st.pills(
+            "ステータス (無選択で全表示)",
+            options=all_statuses,
+            default=[],
+            format_func=status_badge,
+            selection_mode="multi",
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # DBフィルター
+        db_options = sorted(df["_source_db"].dropna().unique().tolist()) if "_source_db" in df.columns else list(DB_SOURCES.keys())
+        selected_dbs = st.pills(
+            "プラットフォーム (無選択で全表示)",
+            options=db_options,
+            default=[],
+            selection_mode="multi",
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ジャンルフィルター
+        all_genres = sorted(df["genre"].dropna().unique().tolist()) if "genre" in df.columns else []
+        selected_genres = st.pills(
+            "ジャンル (無選択で全表示)",
+            options=all_genres,
+            default=[],
+            selection_mode="multi",
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # 記事種別フィルター
+        if "post_type" in df.columns:
+            all_types = sorted(df["post_type"].dropna().unique().tolist())
+            type_labels = {"regular": "通常記事", "ranking": "ランキング"}
+            selected_types = st.pills(
+                "記事種別 (無選択で全表示)",
+                options=all_types,
+                default=[],
+                format_func=lambda x: type_labels.get(x, x),
+                selection_mode="multi",
+            )
+        else:
+            selected_types = []
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # スコアフィルター
+        if "desc_score" in df.columns:
+            min_score = int(df["desc_score"].min())
+            max_score = int(df["desc_score"].max())
+            if min_score < max_score:
+                score_range = st.slider(
+                    "AIスコア範囲",
+                    min_value=min_score,
+                    max_value=max_score,
+                    value=(min_score, max_score),
+                )
+            else:
+                score_range = (min_score, max_score)
+        else:
+            score_range = (0, 99)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # セール中のみ
+        only_sale = st.checkbox("🔥 セール中のみ")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 データを再読み込み", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
+    # =====================================================================
+    # フィルタリング処理
+    # =====================================================================
+    filtered = df.copy()
+
+    if keyword:
+        mask = (
+            filtered["title"].str.contains(keyword, case=False, na=False)
+            | filtered["product_id"].str.contains(keyword, case=False, na=False)
+        )
+        filtered = filtered[mask]
+
+    if selected_statuses and "status" in filtered.columns:
+        filtered = filtered[filtered["status"].isin(selected_statuses)]
+
+    if selected_dbs:
+        filtered = filtered[filtered["_source_db"].isin(selected_dbs)]
+
+    if selected_genres and "genre" in filtered.columns:
+        filtered = filtered[filtered["genre"].isin(selected_genres)]
+
+    if selected_types and "post_type" in filtered.columns:
+        filtered = filtered[filtered["post_type"].isin(selected_types)]
+
+    if "desc_score" in filtered.columns:
+        filtered = filtered[
+            (filtered["desc_score"] >= score_range[0]) &
+            (filtered["desc_score"] <= score_range[1])
+        ]
+
+    if only_sale and "sale_discount_rate" in filtered.columns:
+        filtered = filtered[filtered["sale_discount_rate"] > 0]
+
+    # =====================================================================
+    # サマリーカード (トップメトリクス領域)
+    # =====================================================================
+    pub_count  = len(filtered[filtered["status"] == "published"]) if "status" in filtered.columns else 0
+    pend_count = len(filtered[filtered["status"] == "pending"])   if "status" in filtered.columns else 0
+    excl_count = len(filtered[filtered["status"] == "excluded"])  if "status" in filtered.columns else 0
+    sale_count = len(filtered[filtered["sale_discount_rate"] > 0]) if "sale_discount_rate" in filtered.columns else 0
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("📦 総件数", f"{total:,}")
+    col2.metric("🔍 絞り込み後", f"{len(filtered):,}")
+    col3.metric("🟢 公開済み", f"{pub_count:,}")
+    col4.metric("🟡 在庫中", f"{pend_count:,}")
+    col5.metric("🔥 セール中", f"{sale_count:,}")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # =====================================================================
+    # TABS: メインエリアの分割 (リスト一覧 と 詳細・リライト)
+    # =====================================================================
+    tab_list, tab_detail = st.tabs(["📋 リスト一覧", "🔎 リライト＆詳細ビュー"])
+
+    with tab_list:
+        if filtered.empty:
+            st.info("条件に一致するデータがありません。")
+        else:
+            # 表示用に整形
+            display_df = format_display_df(filtered)
+
+            # 表示するカラムを選定（存在するもののみ）
+            show_cols_priority = [
+                "サムネイル", "ステータス", "記事種別", "DB", "タイトル", "📝", "ノベラブ", "販売元", "発売日",
+                "ジャンル", "担当", "スコア", "タグ", "セール", "公開日", "取得日", "エラー",
+            ]
+            show_cols = [c for c in show_cols_priority if c in display_df.columns]
+
+            st.info("💡 **一覧表の【一番左端にあるチェックボックス】をクリック**すると、この行のデータが記憶され、隣の「🔎 リライト＆詳細ビュー」タブで詳しく確認できます。")
+
+            event = st.dataframe(
+                display_df[show_cols],
+                use_container_width=True,
+                height=600,
+                selection_mode="single-row",
+                on_select="rerun",
+                column_config={
+                    "サムネイル": st.column_config.ImageColumn("🖼", width="small"),
+                    "ステータス": st.column_config.TextColumn("状態", width="small"),
+                    "記事種別":  st.column_config.TextColumn("種別", width="small"),
+                    "DB":       st.column_config.TextColumn("DB", width="small"),
+                    "タイトル": st.column_config.TextColumn(width="large"),
+                    "📝":       st.column_config.TextColumn("あらすじ", width="small"),
+                    "ノベラブ": st.column_config.LinkColumn("ノベラブ", display_text="📝 開く", width="small"),
+                    "販売元":   st.column_config.LinkColumn("販売元", display_text="🛒 開く", width="small"),
+                    "発売日":   st.column_config.TextColumn(width="small"),
+                    "ジャンル": st.column_config.TextColumn(width="small"),
+                    "担当":     st.column_config.TextColumn(width="small"),
+                    "スコア":   st.column_config.ProgressColumn("スコア", min_value=0, max_value=5, format="%d", width="small"),
+                    "タグ":     st.column_config.TextColumn(width="medium"),
+                    "セール":   st.column_config.TextColumn(width="small"),
+                    "公開日":   st.column_config.TextColumn(width="small"),
+                    "取得日":   st.column_config.TextColumn(width="small"),
+                    "エラー":   st.column_config.TextColumn(width="medium"),
+                },
+            )
+
+    with tab_detail:
+
+        render_detail_panel(selected_pid_str, df, key_prefix="list")
+        # =====================================================================
     # GSC 死に記事アラートパネル
     # =====================================================================
     if any(c in df.columns for c in ["gsc_indexed", "gsc_impressions", "gsc_clicks"]):
@@ -725,16 +797,31 @@ def main():
                          .replace("published_at", "公開日")
                         for c in show_dead_cols
                     ]
-                    st.dataframe(
+                    event_gsc = st.dataframe(
                         dead_display,
                         use_container_width=True,
                         height=min(300, 35 * len(level_df) + 38),
+                        selection_mode="single-row",
+                        on_select="rerun",
+                        key=f"df_gsc_{level_name[:3]}",
                         column_config={
                             "記事URL": st.column_config.LinkColumn(
                                 "記事URL", display_text="📝 開く", width="small"
                             ),
                         },
                     )
+                    selected_gsc_pid = ""
+                    if hasattr(event_gsc, 'selection') and isinstance(event_gsc.selection, dict) and event_gsc.selection.get("rows"):
+                        try:
+                            sel_idx = event_gsc.selection["rows"][0]
+                            selected_gsc_pid = str(level_df.iloc[sel_idx]["product_id"])
+                        except Exception:
+                            pass
+                    
+                    if selected_gsc_pid:
+                        st.markdown("---")
+                        st.markdown(f"#### 🔎 {level_name[:3]} 選択作品の詳細・リライト")
+                        render_detail_panel(selected_gsc_pid, df, key_prefix=f"gsc_{level_name[:3]}")
 
     # =====================================================================
     # フッター

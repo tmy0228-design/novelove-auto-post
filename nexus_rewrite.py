@@ -33,6 +33,7 @@ import argparse
 import sqlite3
 import requests
 import subprocess
+import paramiko
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -279,32 +280,53 @@ def _wp_update_tags(wp_post_id, tag_ids):
 
 
 def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
-    """WP-CLI でSEOタイトルとメタディスクリプションを更新する。"""
-    php_path = "/opt/kusanagi/php/bin/php"
-    wp_path  = "/opt/kusanagi/bin/wp"
-    doc_root = "--path=/home/kusanagi/myblog/DocumentRoot"
+    """
+    ダッシュボード (ローカルPC) から SSH でサーバーに接続し、
+    WP-CLI を実行してSEOメタを更新し、WordPressの更新フックを発火させます。
+    （フック発火により、記事単体のキャッシュ削除 ＆ GoogleへのPing通知が自動実行されます）
+    """
+    try:
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        import os
+        ssh_pass = os.environ.get("SSH_PASS", "#Dama0228")
+        ssh.connect('novelove.jp', username='root', password=ssh_pass, timeout=15)
+        
+        # シェルコマンドでシングルクォートをエスケープ
+        def escape_sh(s):
+            return s.replace("'", "'\\''")
+            
+        doc_root = "/home/kusanagi/myblog/DocumentRoot"
+        
+        if seo_title:
+            safe_seo = escape_sh(seo_title)
+            cmd_seo = f"cd {doc_root} && wp post meta update {wp_post_id} the_page_seo_title '{safe_seo}' --allow-root"
+            ssh.exec_command(cmd_seo)
 
-    if seo_title:
-        try:
-            subprocess.run(
-                [php_path, wp_path, "post", "meta", "update",
-                 str(wp_post_id), "the_page_seo_title", seo_title,
-                 doc_root, "--allow-root"],
-                capture_output=True, timeout=30,
-            )
-        except Exception as e:
-            logger.warning(f"  [WP-CLI] SEOタイトル更新失敗: {e}")
+        if excerpt:
+            safe_excerpt = escape_sh(excerpt)
+            cmd_ex = f"cd {doc_root} && wp post meta update {wp_post_id} the_page_meta_description '{safe_excerpt}' --allow-root"
+            ssh.exec_command(cmd_ex)
+            
+        # === 最重要: 更新フックの発火 ===
+        # これを実行することで Cocoon/KUSANAGI のキャッシュパージ ＆ RankMath(Google等) へのPing通知が走る
+        cmd_update = f"cd {doc_root} && wp post update {wp_post_id} --allow-root"
+        stdin, stdout, stderr = ssh.exec_command(cmd_update)
+        # コマンドの完了を待機
+        exit_status = stdout.channel.recv_exit_status()
+        
+        ssh.close()
+        
+        if exit_status == 0:
+            logger.info("  [SSH] WP-CLI メタ更新＋キャッシュクリア＋Ping通知 成功！")
+            return True
+        else:
+            logger.warning(f"  [SSH] WP-CLI アップデートコマンド失敗: {stderr.read().decode('utf-8')}")
+            return False
 
-    if excerpt:
-        try:
-            subprocess.run(
-                [php_path, wp_path, "post", "meta", "update",
-                 str(wp_post_id), "the_page_meta_description", excerpt,
-                 doc_root, "--allow-root"],
-                capture_output=True, timeout=30,
-            )
-        except Exception as e:
-            logger.warning(f"  [WP-CLI] メタディスクリプション更新失敗: {e}")
+    except Exception as e:
+        logger.error(f"  [SSH] サーバー接続・コマンド実行エラー: {e}")
+        return False
 
 
 # =====================================================================
