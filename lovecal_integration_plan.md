@@ -1,61 +1,47 @@
 # らぶカル(Lovecal) 実装・統合に関する技術仕様書
 
-本ドキュメントは、NoveloveシステムにおいてDMM新サービス「らぶカル（Lovecal）」の記事自動投稿（フルテキスト長文のスクレイピング含む）を実装するための、他AI・他開発者向けの引き継ぎ用詳細設計書です。
+本ドキュメントは、NoveloveシステムにおいてDMM新サービス「らぶカル（Lovecal）」の記事自動投稿（フルテキスト取得含む）を実装するための、他AI・エンジニア向けの引き継ぎ用詳細設計書です。
+※本設計は、現在の `novelove.db`、`nexus_dashboard.py` の構造を前提としています。
 
 ## 1. 概要と可否判定
 - **可否**: 実装可能です。
-- **背景**: APIのみであらすじを取得すると約100文字で切り捨てられるため、現在FANZA等で行っているのと同様に**「APIでURL取得 → 該当URLからあらすじのフルテキストをスクレイピング」**という2段構えのフローをとります。
+- **データフロー**: DMM APIで基底データ（URL・画像・アフィリンク）を取得 → URLに再アクセスして抽出したフルテキストあらすじでDB更新。
 
-## 2. APIの仕様（アイテム一覧の取得）
-らぶカルのコンテンツはFANZA同人等と同じ「DMM Affiliate ItemList API」で取得可能です。
+## 2. システム全体の変更箇所マッピング
 
-- **Endpoint**: `https://api.dmm.com/affiliate/v3/ItemList`
-- **Request Parameters**:
-  - `site`: `"FANZA"`
-  - `keyword`: 引数指定（任意）
-  - ※注意：らぶカル固有の `floor` コードが存在しないか未定義の場合があるため、既存の `doujin` からキーワード `らぶカル` 等で絞るか、またはAPIの戻り値の `floor_name` が `らぶカル（TL）` または `らぶカル（BL）` であるものを抽出してください。
+らぶカルを追加するには、現在のシステム構造上以下の **4つのファイル** に対する改修が必要です。
 
-## 3. スクレイピング仕様（フルテキストあらすじの取得）
+### ① `novelove_fetcher.py`（基幹取得ロジック）
+- **`FETCH_TARGETS` の追加**
+  既存のFANZA同人の配列にらぶカル用のDictを追加。
+- **R-18 年齢確認 Cookieの設定（超重要）**
+  `_make_fanza_session` またはスクレイピング時のリクエストヘッダに `cookies={"age_check_done": "1"}` を常時送信するよう仕様変更してください。
+  ※画像取得エラーを防ぐため、Cookie付与ドメインに `".lovecul.dmm.co.jp"` を必ず追加すること。
+- **DOM抽出条件のフォールバック**
+  `_parse_dmm_desc` にて、「`<div class="mg-b20 lh4">` が無ければ、`<p class="summary__txt">` を探す」という分岐を追加。
 
-APIから抽出した `URL` （例: `https://lovecul.dmm.co.jp/tl/-/detail/=/cid=...`）にアクセスし、あらすじ本文をスクレイピングする際の仕様です。
+### ② `auto_post.py`（WPへの投稿・タグ付けロジック）
+- **カテゴリの振り分け調整**
+  新しく付与されるラベル（例：`"らぶカル_BL"`）を検知し、WordPressのカテゴリID（BLもしくはTL）に正しく割り振られるように `if "らぶカル" in label:` の条件分岐を追記。
 
-### 必須: 年齢確認(R-18)の突破
-らぶカルは単独サブドメイン（`lovecul.dmm.co.jp`）で動いており、初回アクセス時は年齢確認ページへリダイレクトされます。これを回避するために、HTMLリクエスト時に以下のCookieを必ず付与してください。
-```python
-cookies = {"age_check_done": "1"}
-headers = {"User-Agent": "Mozilla/5.0 ..."} # 適切なUAが必要
-r = requests.get(page_url, headers=headers, cookies=cookies)
-```
+### ③ `nexus_dashboard.py`（管理UI）
+- **ダッシュボード上の表示名・絞り込み対応**
+  現在、Dashboard内の「DBソース判定」において `label == "FANZA"` といったハードコーディングがある場合（`df["_source_db"]`の生成部など）、らぶカルが未知のサイトとしてエラー・非表示にならないよう、ソース名に `らぶカル` を許容・分類するフィルタリング調整を追加。
 
-### パース（抽出）ロジック
-従来のFANZA同人は `<div class="mg-b20 lh4">` 等にあらすじがありましたが、らぶカルは構造が異なります。BeautifulSoupを使用し、以下のセレクタを対象に抽出してください。
-- **セレクタ**: `<p class="summary__txt">`
-- **処理例**:
+### ④ `.env`（環境変数）
+- 追加の対応は不要です（既存の `DMM_API_ID` と `DMM_AFFILIATE_API_ID` をそのまま流用可能なため）。
+
+## 3. スクラッチ実装時のサンプルコード（BeautifulSoup部）
+
+新規追加する `_parse_lovecal_desc()` または分岐処理のサンプルです。
 ```python
 soup = BeautifulSoup(r.content, "html.parser")
 desc_p = soup.find("p", class_="summary__txt")
 if desc_p:
     full_description = desc_p.get_text(separator="\n").strip()
+    return full_description
 ```
-これにより、約600〜1000文字の完全な長文あらすじが取得可能です。
+※必ずスクレイピング間の `time.sleep(2)` を順守すること。
 
-## 4. プログラム修正箇所（実装手順）
-
-### 1. `novelove_fetcher.py`
-- **`FETCH_TARGETS`への追加**:
-  既存のFANZA同人の配列の末尾に、らぶカル用のDictを追加してください。
-  ```python
-  {"site": "FANZA", "service": "doujin", "floor": "digital_doujin", "genre": "doujin_bl", "label": "らぶカル_BL", "keyword": "らぶカル"},
-  {"site": "FANZA", "service": "doujin", "floor": "digital_doujin", "genre": "doujin_tl", "label": "らぶカル_TL", "keyword": "らぶカル"},
-  ```
-  *(※APIの仕様変更等によりfloor等が変わる可能性があるため、テストレスポンスを見ながら調整してください)*
-- **スクレイピング関数の改修**:
-  詳細ページへリクエストを送る関数（例：`fetch_fanza_doujin_items` または共通リクエスト部）にて、上記 `cookies={"age_check_done": "1"}` を常時送信するよう仕様変更してください。
-- **DOM抽出条件の追加**:
-  あらすじを抽出する箇所で「`<div class="mg-b20 lh4">` が無ければ、`<p class="summary__txt">` を探す」というフォールバック（分岐）を追加してください。
-
-### 2. `auto_post.py`
-- 新しくフェッチされたラベル名（`label="らぶカル_BL"` 等）を検知し、WordPress側のカテゴリ（BL／TL）やタグに正しく割り振られるように条件分岐（if-elif群）を微調整してください。 
-
-## 5. 注意事項
-- **アクセス負荷**: スクレイピング実行の際は、必ず1リクエストごとに `time.sleep(2)` 等の間隔を空け、サーバーへ過度な負荷（運営妨害等）とならないよう配慮してください。
+---
+以上が、Noveloveの現在のDB構造・サイト間連携を考慮した、らぶカル追加時の完全な変更スコープです。
