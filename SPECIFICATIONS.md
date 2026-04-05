@@ -361,6 +361,10 @@ DLsite（同人・商業）、DMM（商業）、FANZA（商業・同人）、Dig
 - **メタキー**: `the_page_seo_title` / `the_page_meta_description` (Cocoon/Swell)
 - **更新手法**: REST API の不安定さを避けるため、投稿成功直後にサーバー上で `wp post meta update` を実行し、メタ情報を物理的に確定させます。
 
+### 8-5. SEOアーキテクチャとプラグイン構成
+- **メタタグ (Title/Description)**: すべて「Cocoonテーマ標準機能」を使用し、DBの `wp_postmeta` に `the_page_seo_title` / `the_page_meta_description` として直接書き込んでいます。（※All in One SEO等の重いSEOプラグインは使用していません）
+- **高速インデックス（Googleへの通知等）**: プラグイン `fast-indexing-api` (Instant Indexing for Google / RankMath系) を利用しています。これにより、WordPress側で `save_post` フック（`wp post update` コマンドなど）が発火した瞬間に、自動的にGoogleのIndexing APIやIndexNowへ更新通知のPingが送信される仕組みになっています。
+
 ---
 
 ## 🛠 9. 過去記事のメンテナンスとデプロイ手順
