@@ -194,7 +194,7 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
             f"\n自分の専門外だからこそ気付く「新鮮な視点」を活かして紹介記事を書くこと。専門的になりすぎず、自分らしい言葉で正直に感想を伝えること。"
         )
 
-    voice_hint = ""
+    voice_hint = "\n※当サイトは漫画・小説専門です。「聴く」「イヤホン」などの音声表現は避け、「読む・見る」体験として紹介してください。"
     if target["genre"] == "doujin_voice":
         voice_hint = "\n【ボイス作品紹介のコツ】声優の演技・音質・耳への心地よさに言及すること。「耳が溶ける」「ヘッドホン必須」「通勤中に聴けない」などのリアクションを使ってもOK。"
 
@@ -1431,6 +1431,7 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 ・文体: {reviewer["tone"]}
 ・挨拶: {reviewer["greeting"]}
 【執筆ルール】HTML形式で出力してください。
+※当サイトは漫画・小説専門です。「聴く」「イヤホン」などの音声表現は避け、「読む・見る」体験として紹介してください。
 1. 冒頭キャラコメント
 {mc_open}（{reviewer["name"]}の口調による挨拶と期待感。60〜80字以内）{mc_close}
 2. ランキングTOP5（各作品につき紹介文＋推しポイント吹き出し）
@@ -1467,6 +1468,7 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 {guest_open}（セリフ）{guest_close}
 4. 2人の性格の違いと関係性に基づいた自然なテンポで会話を進めること。
 5. raw HTMLのみを出力。```やコードブロックは使わないこと。
+6. ※当サイトは漫画・小説専門です。「聴く」「イヤホン」などの音声表現は避け、「読む・見る」体験として紹介してください。
 【記事の構成】
 - 冒頭：2人のオープニングトーク（お互いに挨拶し、今週のランキングへの期待を語る。合計4〜6往復。）
 - 第5位〜第2位：各作品ごとに、あらすじ説明（MC主導）→ゲストのリアクション→推しポイントの掘り下げ（最低3往復）
