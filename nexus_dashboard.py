@@ -130,9 +130,19 @@ def load_all_data() -> pd.DataFrame:
             combined[col] = pd.to_datetime(combined[col], errors="coerce")
 
     # --- 期待値スコアの計算 (v13.1.0) ---
-    if "desc_score" in combined.columns:
-        combined["期待値"] = combined["desc_score"]
-    else:
+    # 期待値は、AIスコア(desc_score)とは独立して、発売日やキーワード等から計算される独自のローカル値
+    try:
+        from novelove_core import calculate_local_priority
+        def calc_pri(row):
+            return calculate_local_priority(
+                title=row.get("title", ""),
+                desc=row.get("description", ""),
+                tags=row.get("ai_tags", ""),
+                original_tags=row.get("original_tags", ""),
+                release_date_raw=row.get("release_date", "")
+            )
+        combined["期待値"] = combined.apply(lambda r: calc_pri(r.to_dict()), axis=1)
+    except Exception as e:
         combined["期待値"] = 0
 
     return combined
@@ -188,13 +198,7 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
     if "affiliate_url" in display.columns and "product_url" in display.columns:
         display["販売元"] = display["affiliate_url"].fillna(display["product_url"])
 
-    # スコアと期待値の明確な分離（ユーザー混乱防止）
-    # published の場合は desc_score は AI品質スコア(1〜5点)
-    # それ以外は desc_score は 期待値（0〜60点強）
-    if "desc_score" in display.columns and "status" in display.columns:
-        display["期待値"] = display.apply(lambda r: r["desc_score"] if str(r["status"]) != "published" else "-", axis=1)
-        display["スコア"] = display.apply(lambda r: r["desc_score"] if str(r["status"]) == "published" else "-", axis=1)
-    elif "desc_score" in display.columns:
+    if "desc_score" in display.columns:
         display["スコア"] = display["desc_score"]
 
     # タグを短く整形（カンマ区切りを改行なしで短縮表示）
