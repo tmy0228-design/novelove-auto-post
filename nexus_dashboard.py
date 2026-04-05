@@ -62,6 +62,7 @@ COLUMNS_TO_LOAD = [
     "description",
     "prev_description",
     "rewrite_count",
+    "original_tags",
     # === GSC (S5) ===
     "gsc_indexed",
     "gsc_impressions",
@@ -127,6 +128,12 @@ def load_all_data() -> pd.DataFrame:
     for col in ["inserted_at", "published_at", "last_revived_at", "gsc_last_checked"]:
         if col in combined.columns:
             combined[col] = pd.to_datetime(combined[col], errors="coerce")
+
+    # --- 期待値スコアの計算 (v13.1.0) ---
+    if "desc_score" in combined.columns:
+        combined["期待値"] = combined["desc_score"]
+    else:
+        combined["期待値"] = 0
 
     return combined
 
@@ -200,6 +207,10 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
             lambda v: "updated" if (pd.notna(v) and int(v) == 1) else "-"
         )
 
+    # あらすじ文字数
+    if "description" in display.columns:
+        display["文字数"] = display["description"].apply(lambda d: len(str(d).strip()) if pd.notna(d) and d != "None" else 0)
+
     # 表示カラムを整理
     rename_map = {
         "product_id":  "作品ID",
@@ -264,15 +275,9 @@ def _ssh_ping_google(product_id: str) -> tuple[bool, str]:
 # =====================================================================
 # 詳細ビュー＆リライト操作パネル (共通)
 # =====================================================================
-def render_detail_panel(selected_pid_str, df, key_prefix="list"):
-    detail_pid = st.text_input(
-            "📝 作品ID（手動入力も可）", 
-            value=selected_pid_str, 
-            key=f"{key_prefix}_detail_pid_input"
-        )
-
+def render_detail_panel(detail_pid, df, key_prefix="list"):
     if detail_pid:
-        match = df[df["product_id"].str.lower() == detail_pid.lower()]
+        match = df[df["product_id"].astype(str).str.lower() == str(detail_pid).lower()]
         if not match.empty:
             row = match.iloc[0]
 
@@ -281,7 +286,7 @@ def render_detail_panel(selected_pid_str, df, key_prefix="list"):
             with c1:
                 img_url = safe_str(row.get("image_url"), "")
                 if img_url:
-                    st.image(img_url, width=200, caption=safe_str(row.get("title"), ""))
+                    st.image(img_url, use_container_width=True, caption=safe_str(row.get("title"), ""))
             with c2:
                 st.markdown(f"**タイトル**: {safe_str(row.get('title'))}")
                 st.markdown(f"**作品ID**: `{safe_str(row.get('product_id'))}`")
@@ -309,7 +314,7 @@ def render_detail_panel(selected_pid_str, df, key_prefix="list"):
                 st.markdown("**📖 保存されているあらすじ**")
                 desc_text = str(row.get("description", ""))
                 if desc_text and desc_text.strip() and desc_text != "nan":
-                    st.text_area("あらすじ", value=desc_text, height=350, disabled=True, label_visibility="collapsed")
+                    st.text_area("あらすじ", value=desc_text, height=350, disabled=True, label_visibility="collapsed", key=f"{key_prefix}_desc_area_{detail_pid}")
                 else:
                     st.caption("あらすじデータがありません。")
 
@@ -933,10 +938,10 @@ def main():
 
                         if selected_gsc_pid:
                             # st.info(f"DEBUG GSC Pid: {selected_gsc_pid}")
-                            st.session_state["global_rewrite_pid_input"] = selected_gsc_pid
-                            st.markdown("---")
-                            st.markdown(f"#### 🔎 {level_name[:3]} 選択作品の詳細・リライト")
-                            render_detail_panel(selected_gsc_pid, df, key_prefix=f"gsc_{level_name[:3]}")
+                            if st.session_state.get(f"_last_gsc_{level_name[:3]}_pid") != selected_gsc_pid:
+                                st.session_state["global_rewrite_pid_input"] = selected_gsc_pid
+                                st.session_state[f"_last_gsc_{level_name[:3]}_pid"] = selected_gsc_pid
+                                st.rerun()
 
 
 
@@ -949,7 +954,7 @@ def main():
 
             # 表示するカラム（日付は並べて配置）
             show_cols_priority = [
-                "ステータス", "記事種別", "DB", "タイトル", "📝",
+                "ステータス", "期待値", "文字数", "記事種別", "DB", "タイトル", "📝",
                 "ジャンル", "担当", "スコア", "タグ", "セール", 
                 "発売日", "公開日", "📅 最終リライト", "取得日", "エラー",
             ]
@@ -967,6 +972,8 @@ def main():
 
             # 列幅と順番を再整理（潰れないように minWidth を明示定設定）
             gb_main.configure_column("ステータス", width=120, minWidth=120, sortable=True)
+            gb_main.configure_column("期待値",   width=80,  minWidth=80,  sortable=True)
+            gb_main.configure_column("文字数",   width=80,  minWidth=80,  sortable=True)
             gb_main.configure_column("記事種別", width=100, minWidth=100, sortable=True)
             gb_main.configure_column("DB",       width=80,  minWidth=80,  sortable=True)
             gb_main.configure_column("タイトル", width=400, minWidth=300, sortable=True)
@@ -1010,8 +1017,10 @@ def main():
                         pid = str(selected_main[0].get("_product_id", ""))
                     
                     if pid:
-                        st.session_state["_selected_pid_from_list"] = pid
-                        st.session_state["global_rewrite_pid_input"] = pid
+                        if st.session_state.get("_selected_pid_from_list") != pid:
+                            st.session_state["_selected_pid_from_list"] = pid
+                            st.session_state["global_rewrite_pid_input"] = pid
+                            st.rerun()
                 except Exception as e:
                     st.error(f"Selection Exception: {e}")
 
