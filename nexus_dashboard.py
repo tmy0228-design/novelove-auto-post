@@ -188,8 +188,13 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
     if "affiliate_url" in display.columns and "product_url" in display.columns:
         display["販売元"] = display["affiliate_url"].fillna(display["product_url"])
 
-    # スコアをバー表示用に整形
-    if "desc_score" in display.columns:
+    # スコアと期待値の明確な分離（ユーザー混乱防止）
+    # published の場合は desc_score は AI品質スコア(1〜5点)
+    # それ以外は desc_score は 期待値（0〜60点強）
+    if "desc_score" in display.columns and "status" in display.columns:
+        display["期待値"] = display.apply(lambda r: r["desc_score"] if str(r["status"]) != "published" else "-", axis=1)
+        display["スコア"] = display.apply(lambda r: r["desc_score"] if str(r["status"]) == "published" else "-", axis=1)
+    elif "desc_score" in display.columns:
         display["スコア"] = display["desc_score"]
 
     # タグを短く整形（カンマ区切りを改行なしで短縮表示）
