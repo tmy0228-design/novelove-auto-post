@@ -372,6 +372,7 @@ def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
                    wp_tags  = ?,
                    desc_score = ?,
                    rewrite_count = COALESCE(rewrite_count, 0) + 1,
+                   last_rewritten_at = datetime('now', 'localtime'),
                    is_desc_updated = 0
                WHERE product_id = ?""",
             (rev_name, ai_tags_str, wp_tags_str, ai_score, product_id),
