@@ -7,10 +7,10 @@
 > 本システムの最大の目的は**「DLsite/DMM(FANZA)/DigiKetの新作・予約作品を『最速』で紹介すること」**です。口コミやレビューがない発売前の段階で、少ない情報からいかに魅力的な紹介記事を自動生成するかが肝となります。将来のAIはこの前提を忘れた提案（レビュー取得等）をしてはいけません。
 
 Novelove（ノベラブ）のコンテンツ生成および自動投稿を行うエンジン一式です。
-BL・TL の女性向け作品（漫画・小説・同人）を全自動でレビュー記事化して WordPress に投稿します。
+BL・TL の女性向け作品（漫画・小説・同人）を全自動で紹介記事化して WordPress に投稿します。
 
 ## 🚀 システム概要
-- **目的**: FANZA, DLsite, DMMブックス, DigiKet の新着・ランキングを取得し、DeepSeek AIでレビュー記事を生成して WordPress に自動投稿する。
+- **目的**: FANZA, DLsite, DMMブックス, DigiKet の新着・ランキングを取得し、DeepSeek AIで紹介記事を生成して WordPress に自動投稿する。
 - **主要言語**: Python 3.x
 - **データベース**: SQLite (`novelove.db`, `novelove_dlsite.db`, `novelove_digiket.db`)
 
