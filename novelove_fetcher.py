@@ -36,7 +36,7 @@ else:
 from novelove_core import (
     logger, HEADERS,
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
-    _clean_description,
+    _clean_description, calculate_local_priority,
     get_db_path, db_connect,
     trigger_emergency_stop, notify_discord,
 )
@@ -732,7 +732,7 @@ def fetch_and_stock_all():
             pid = item.get("content_id")
             last_error = ""
             final_status = "excluded"
-            final_score = 0
+            final_score = calculate_local_priority(item.get("title", ""), desc, original_tags=item.get("_original_tags", ""), release_date_raw=item.get("date", ""))
             ai_tags = []
             if desc == "__EXCLUDED_TYPE__":
                 last_error = "excluded_type"
@@ -983,7 +983,7 @@ def fetch_digiket_items():
                     
                     last_error = ""
                     final_status = "excluded"
-                    final_score = 0
+                    final_score = calculate_local_priority(title, description)
                     ai_tags_str = ""
 
                     if not description or len(description) <= 50:

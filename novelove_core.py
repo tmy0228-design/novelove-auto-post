@@ -173,6 +173,51 @@ def db_connect(path):
     conn.execute("PRAGMA busy_timeout=30000;")
     return conn
 
+def calculate_local_priority(title: str, desc: str, tags: str = "", original_tags: str = "", release_date_raw: str = "") -> int:
+    """
+    APIコストゼロで、面白そうな記事の期待値を算出する（仮スコア計算）。
+    ダッシュボード等の「期待値スコア(desc_score)」専用。
+    """
+    score = 0
+    title_str = title or ""
+    desc_str = desc or ""
+    tags_str = tags or ""
+    original_tags_str = original_tags or ""
+    release_date_str = release_date_raw or ""
+    
+    full_text = f"{title_str} {desc_str} {tags_str} {original_tags_str}"
+    
+    # 1. 最速紹介（当日発売）ボーナス
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_slash = datetime.now().strftime("%Y/%m/%d")
+    if today_str in release_date_str or today_slash in release_date_str:
+        score += 50
+
+    # 2. 文字数情報量（100〜600がスイートスポット）
+    desc_len = len(desc_str.strip())
+    if desc_len < 100:
+        score += 0
+    elif 100 <= desc_len < 200:
+        score += 5
+    elif 200 <= desc_len <= 600:
+        score += 10
+    else:
+        score += 8
+
+    # 3. パワーワード加点（需要高タグ）
+    power_words = ["溺愛", "ヤンデレ", "スパダリ", "オメガバース", "執着", "独占欲", "幼なじみ", "NTR", "身分差", "再会", "契約結婚", "一途", "初恋"]
+    for pw in power_words:
+        if pw in full_text:
+            score += 2
+
+    # 4. ノイズワード減点
+    noise_words = ["セール", "まとめ買い", "大幅値下げ", "体験版", "値下げ", "半額", "期間限定"]
+    for nw in noise_words:
+        if nw in full_text:
+            score -= 5
+            
+    return score
+
 def init_db():
     for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
         conn = db_connect(db_path)
@@ -226,6 +271,8 @@ def init_db():
             ("gsc_impressions",   "INTEGER DEFAULT 0"),    # 直近30日間の表示回数
             ("gsc_clicks",        "INTEGER DEFAULT 0"),    # 直近30日間のクリック数
             ("gsc_last_checked",  "TIMESTAMP DEFAULT NULL"),  # GSC最終チェック日時
+            # === リライト日時追跡 (S6) ===
+            ("last_rewritten_at", "TIMESTAMP DEFAULT NULL"),  # 最終リライト実行日時
         ]:
             try:
                 c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
