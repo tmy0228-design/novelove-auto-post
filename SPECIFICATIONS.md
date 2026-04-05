@@ -365,6 +365,12 @@ DLsite（同人・商業）、DMM（商業）、FANZA（商業・同人）、Dig
 - **メタタグ (Title/Description)**: すべて「Cocoonテーマ標準機能」を使用し、DBの `wp_postmeta` に `the_page_seo_title` / `the_page_meta_description` として直接書き込んでいます。（※All in One SEO等の重いSEOプラグインは使用していません）
 - **高速インデックス（Googleへの通知等）**: プラグイン `fast-indexing-api` (Instant Indexing for Google / RankMath系) を利用しています。これにより、WordPress側で `save_post` フック（`wp post update` コマンドなど）が発火した瞬間に、自動的にGoogleのIndexing APIやIndexNowへ更新通知のPingが送信される仕組みになっています。
 
+その他の稼働中プラグイン（システム設計と密接に関わるため代替・競合プラグインの提案は禁止されます）:
+- `featured-image-from-url (FIFU)`: 外部ストレージの画像URLをアイキャッチに設定するため必須。
+- `yet-another-related-posts-plugin (YARPP)`: 記事下部の関連記事サムネイルの描画用。
+- `ewww-image-optimizer`: 画像の軽量化・WebP変換用。
+- `contact-form-7` / `akismet` / `wp-file-manager`: 基本機能およびセキュリティ。
+
 ---
 
 ## 🛠 9. 過去記事のメンテナンスとデプロイ手順
