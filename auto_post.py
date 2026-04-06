@@ -663,8 +663,8 @@ def _get_thumbnail_url(image_url: str) -> str:
     # DLsite: modpub/_img_main.jpg -> resize/_img_main_300x300.webp (18KB, 確認済み)
     if "img.dlsite.jp/modpub/" in image_url and "_img_main.jpg" in image_url:
         return image_url.replace("/modpub/", "/resize/").replace("_img_main.jpg", "_img_main_300x300.webp")
-    # DMM: pl.jpg -> ps.jpg (16KB, eBook/Doujin 等で有効)
-    if "dmm.co" in image_url and image_url.endswith("pl.jpg"):
+    # DMM ebook-assets: pl.jpg -> ps.jpg (16KB, 確認済み。doujin等はNOW PRINTINGになるため除外)
+    if "ebook-assets.dmm" in image_url and image_url.endswith("pl.jpg"):
         return image_url[:-6] + "ps.jpg"
     # DigiKet: _1.jpg / _2.jpg -> _a_200x150.jpg (10KB, 確認済み)
     if "digiket.net" in image_url:
