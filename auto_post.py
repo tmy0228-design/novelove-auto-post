@@ -651,6 +651,28 @@ def _inject_score3_osusume(content: str, tags: list) -> str:
     logger.info(f"  [スコア3 補完] AI:{ai_count}点 + タグ補完:{len(supplement_items)}点 = 合計{ai_count + len(supplement_items)}点")
     return content
 
+# === A+C方式: サムネURL生成ヘルパー ===
+def _get_thumbnail_url(image_url: str) -> str:
+    """
+    大きい画像URLから、FIFUに設定する軽量サムネURLを生成する。
+    確実に存在が確認済みのサイズのみ変換する（404リスク回避）。
+    変換できないものはそのまま返す（例: FANZA doujin-assets）。
+    """
+    if not image_url:
+        return image_url
+    # DLsite: modpub/_img_main.jpg -> resize/_img_main_300x300.webp (18KB, 確認済み)
+    if "img.dlsite.jp/modpub/" in image_url and "_img_main.jpg" in image_url:
+        return image_url.replace("/modpub/", "/resize/").replace("_img_main.jpg", "_img_main_300x300.webp")
+    # DMM ebook-assets: pl.jpg -> ps.jpg (16KB, 確認済み)
+    if "ebook-assets.dmm" in image_url and image_url.endswith("pl.jpg"):
+        return image_url[:-6] + "ps.jpg"
+    # DigiKet: _1.jpg / _2.jpg -> _a_200x150.jpg (10KB, 確認済み)
+    if "digiket.net" in image_url:
+        import re as _re
+        return _re.sub(r'_\d+\.jpg$', '_a_200x150.jpg', image_url)
+    # FANZA doujin-assets 等: 変換しない（NOW PRINTINGリダイレクト対策）
+    return image_url
+
 # === WordPress投稿 ===
 def get_or_create_term(name, taxonomy):
     auth = (WP_USER, WP_APP_PASSWORD)
@@ -664,14 +686,18 @@ def get_or_create_term(name, taxonomy):
     except Exception:
         return None
 
-def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None):
+def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None):
     """
     WordPress REST API で投稿。FIFUプラグイン経由で外部リンクをアイキャッチに設定。
+    image_url: 記事本文に埋め込む大きい画像URL
+    thumb_url: FIFUアイキャッチに設定する軽量サムネURL（省略時はimage_urlをそのまま使用）
     """
     auth = (WP_USER, WP_APP_PASSWORD)
+    # FIFUには軽量サムネを使用（A+C方式）
+    fifu_url = thumb_url if thumb_url else image_url
     # FIFUプラグイン用メタとCocoon SEOメタ
     meta = {
-        "fifu_image_url": image_url,
+        "fifu_image_url": fifu_url,
         "fifu_image_alt": title,
     }
     if seo_title: meta["the_page_seo_title"] = seo_title
@@ -1079,6 +1105,8 @@ def _execute_posting_flow(row, cursor, conn):
     img_url = row["image_url"] or ""
     if img_url and "img.digiket.net" in img_url and "_2.jpg" in img_url:
         img_url = img_url.replace("_2.jpg", "_1.jpg")
+    # A+C方式: FIFUには軽量サムネ、記事本文には大きいURLを使う
+    thumb_url = _get_thumbnail_url(img_url)
 
     target = {
         "product_id":    pid,
@@ -1089,6 +1117,7 @@ def _execute_posting_flow(row, cursor, conn):
         "description":   desc_str,
         "affiliate_url": row["affiliate_url"],
         "image_url":     img_url,
+        "thumb_url":     thumb_url,
         "release_date":  row["release_date"],
         "ai_tags":       row["ai_tags"],
         "desc_score":    eval_score,  # スコアを渡す
@@ -1130,7 +1159,8 @@ def _execute_posting_flow(row, cursor, conn):
     link = post_to_wordpress(
         wp_title, content, row["genre"], img_url,
         excerpt=excerpt, seo_title=seo_title, slug=pid, is_r18=is_r18,
-        site_label=site_label, ai_tags=final_ai_tags, reviewer=rev_name
+        site_label=site_label, ai_tags=final_ai_tags, reviewer=rev_name,
+        thumb_url=thumb_url
     )
     
     if link:
