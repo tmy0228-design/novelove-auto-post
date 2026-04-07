@@ -198,7 +198,7 @@ def _is_thin_content(title, item=None, pages=None):
 
 RETRY_STATUS_CODES = {429, 500, 502, 503, 504}  # 一時エラーとみなすHTTPステータス
 
-def _fetch_with_retry(url, session=None, headers=None, timeout=15, max_retries=3, label=""):
+def _fetch_with_retry(url, session=None, headers=None, params=None, timeout=15, max_retries=3, label=""):
     """
     一時エラー（502/429/503等）を自動リトライするシンプルなラッパー。
     全リトライ失敗時は None を返す（呼び出し元が failed 扱いにする）。
@@ -207,7 +207,7 @@ def _fetch_with_retry(url, session=None, headers=None, timeout=15, max_retries=3
     _requester = session if session else requests
     for attempt in range(1, max_retries + 1):
         try:
-            r = _requester.get(url, headers=headers or HEADERS, timeout=timeout)
+            r = _requester.get(url, headers=headers or HEADERS, params=params, timeout=timeout)
             if r.status_code in RETRY_STATUS_CODES:
                 wait = 2 ** attempt  # 指数バックオフ: 2s → 4s → 8s
                 logger.warning(f"  [リトライ {attempt}/{max_retries}] {label or url[:60]} status={r.status_code} → {wait}秒待機して再試行")
@@ -709,7 +709,7 @@ def fetch_and_stock_all():
             try:
                 r = _fetch_with_retry(
                     "https://api.dmm.com/affiliate/v3/ItemList",
-                    headers=HEADERS, timeout=15, label=f"DMM API/{target['label']}"
+                    headers=HEADERS, params=params, timeout=15, label=f"DMM API/{target['label']}"
                 )
                 if r is None:
                     logger.warning(f"  [スキップ] {site}/{target['label']}: DMM APIへの接続が失敗しました（次回フェッチで再試行）")
