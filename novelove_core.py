@@ -18,8 +18,16 @@ import logging
 from logging.handlers import RotatingFileHandler
 import requests
 import datetime
+from dotenv import load_dotenv
 
 from novelove_soul import REVIEWERS
+
+# === .env 読み込み（全モジュール共通、ここで1回だけ行う） ===
+_env_path = "/home/kusanagi/scripts/.env"
+if os.path.exists(_env_path):
+    load_dotenv(_env_path)
+else:
+    load_dotenv()
 
 # === システム設定定数 ===
 SCRIPT_DIR      = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +40,16 @@ RANK_LOCK_FILE  = os.path.join(SCRIPT_DIR, "ranking.lock")
 INDEX_FILE      = os.path.join(SCRIPT_DIR, "genre_index.txt")
 EMERGENCY_LOCK_FILE = os.path.join(SCRIPT_DIR, "emergency_stop.lock")
 WP_SITE_URL     = "https://novelove.jp"
+
+# === 環境変数（一元管理） ===
+DEEPSEEK_API_KEY      = os.environ.get("DEEPSEEK_API_KEY", "")
+WP_USER               = os.environ.get("WP_USER", "")
+WP_APP_PASSWORD       = os.environ.get("WP_APP_PASSWORD", "")
+DMM_API_ID            = os.environ.get("DMM_API_ID", "")
+DMM_AFFILIATE_API_ID  = os.environ.get("DMM_AFFILIATE_API_ID", "")
+DMM_AFFILIATE_LINK_ID = os.environ.get("DMM_AFFILIATE_LINK_ID", "")
+DLSITE_AFFILIATE_ID   = os.environ.get("DLSITE_AFFILIATE_ID", "novelove")
+DIGIKET_AFFILIATE_ID  = os.environ.get("DIGIKET_AFFILIATE_ID", "novelove")
 
 # === 共通ヘッダー・UA ===
 HEADERS = {"User-Agent": "Mozilla/5.0"}
