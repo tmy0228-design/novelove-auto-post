@@ -777,7 +777,7 @@ def fetch_and_stock_all():
             image_url = item.get("imageURL", {}).get("large", "")
             if site == "DLsite":
                 floor = target.get("floor", "girls")
-                aid = os.environ.get('DLSITE_AFFILIATE_ID', 'novelove')
+                aid = DLSITE_AFFILIATE_ID
                 aff_url = f"https://dlaf.jp/{floor}/dlaf/=/t/n/link/work/aid/{aid}/id/{pid}.html"
             else:
                 base_url = item.get("URL", "")
