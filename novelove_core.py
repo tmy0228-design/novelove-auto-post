@@ -50,6 +50,8 @@ DMM_AFFILIATE_API_ID  = os.environ.get("DMM_AFFILIATE_API_ID", "")
 DMM_AFFILIATE_LINK_ID = os.environ.get("DMM_AFFILIATE_LINK_ID", "")
 DLSITE_AFFILIATE_ID   = os.environ.get("DLSITE_AFFILIATE_ID", "novelove")
 DIGIKET_AFFILIATE_ID  = os.environ.get("DIGIKET_AFFILIATE_ID", "novelove")
+# ※ セキュリティ上、デフォルト値なし。未設定時は呼び出し元がエラー終了する。
+SSH_PASS              = os.environ.get("SSH_PASS", "")
 
 # === 共通ヘッダー・UA ===
 HEADERS = {"User-Agent": "Mozilla/5.0"}
@@ -185,10 +187,23 @@ def get_db_path(site_raw):
     if "DigiKet" in site_str: return DB_FILE_DIGIKET
     return DB_FILE_FANZA
 
-def db_connect(path):
-    conn = sqlite3.connect(path, timeout=30)
+def db_connect(path, read_only=False):
+    """
+    SQLite 接続を取得する共通関数。
+    - WALモード: 読み取りと書き込みの並行処理を許可し、ロック頻度を大幅に削減。
+    - timeout=60: cron同士の衝突時に60秒まで待機し、クラッシュせず再試行する。
+    - busy_timeout=60000: OSレベルのロック待機を60秒に設定（timeout と二重で保護）。
+    - isolation_level="IMMEDIATE": BEGIN IMMEDIATE で書き込みロックを即時予約し、
+      複数のライタープロセスが同時に走る際のデッドロックを防止する。
+    - read_only=True: ダッシュボード閲覧専用。書き込みロックを取得しないため
+      バッチ処理への影響がゼロ（uri=True で ?mode=ro を指定）。
+    """
+    if read_only:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+    else:
+        conn = sqlite3.connect(path, timeout=60, isolation_level="IMMEDIATE")
     conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA busy_timeout=30000;")
+    conn.execute("PRAGMA busy_timeout=60000;")
     return conn
 
 def calculate_local_priority(title: str, desc: str, tags: str = "", original_tags: str = "", release_date_raw: str = "") -> int:
