@@ -254,7 +254,9 @@ def _ssh_ping_google(product_id: str) -> tuple[bool, str]:
     try:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh_pass = os.environ.get("SSH_PASS", "#Dama0228")
+        ssh_pass = os.environ.get("SSH_PASS", "")
+        if not ssh_pass:
+            return False, "セキュリティエラー: SSH_PASS が環境変数に設定されていません。サーバーの .env を確認してください。"
         ssh.connect('novelove.jp', username='root', password=ssh_pass, timeout=15)
         doc_root = "/home/kusanagi/myblog/DocumentRoot"
         
@@ -701,6 +703,43 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # ─── 緊急停止ステータス表示（常時チェック）───
+    try:
+        from novelove_core import is_emergency_stop, EMERGENCY_LOCK_FILE
+        if is_emergency_stop():
+            st.markdown(
+                """
+                <div style="
+                    background: rgba(239,68,68,0.15);
+                    border: 2px solid #ef4444;
+                    border-radius: 12px;
+                    padding: 20px 24px;
+                    margin-bottom: 16px;
+                ">
+                    <h3 style="color:#ef4444; margin:0 0 8px 0;">🚨 緊急停止が発動中です</h3>
+                    <p style="color:#fca5a5; margin:0;">
+                        システムが異常を検知し、自動投稿を停止しています。<br>
+                        原因を確認の上、問題が解消されたら以下のボタンで解除してください。
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            _confirm = st.checkbox(
+                "✅ 問題を確認しました。緊急停止を解除します。",
+                key="_emergency_confirm",
+            )
+            if _confirm:
+                if st.button("🔓 緊急停止を解除する", type="primary", key="_emergency_release_btn"):
+                    try:
+                        os.remove(EMERGENCY_LOCK_FILE)
+                        st.success("✅ 緊急停止を解除しました。自動投稿が再開されます。")
+                        st.rerun()
+                    except Exception as _e:
+                        st.error(f"❌ 解除に失敗しました: {_e}")
+    except Exception:
+        pass  # novelove_core が読めない場合は無視
+
     # ─── データ読み込み ───
     with st.spinner("データを読み込んでいます..."):
         df = load_all_data()
@@ -711,6 +750,7 @@ def main():
         return
 
     total = len(df)
+
 
     # =====================================================================
     # 左サイドバー：フィルターパネル
