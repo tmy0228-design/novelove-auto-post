@@ -24,32 +24,20 @@ import re
 import html
 from bs4 import BeautifulSoup
 from datetime import datetime
-from dotenv import load_dotenv
 
-# --- 環境変数の読み込み ---
-env_path = "/home/kusanagi/scripts/.env"
-if os.path.exists(env_path):
-    load_dotenv(env_path)
-else:
-    load_dotenv()
-
+# 環境変数・.envの読み込みは novelove_core.py で一元管理
 from novelove_core import (
     logger, HEADERS,
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
     _clean_description, calculate_local_priority,
     get_db_path, db_connect,
     trigger_emergency_stop, notify_discord,
+    DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
+    DLSITE_AFFILIATE_ID, DIGIKET_AFFILIATE_ID,
 )
 
 # スクレイピング構造変化の検知閾値（連続N回で緊急停止）
 SCRAPE_FAIL_THRESHOLD = 5
-
-# === 環境変数 ===
-DMM_API_ID            = os.environ.get("DMM_API_ID", "")
-DMM_AFFILIATE_API_ID  = os.environ.get("DMM_AFFILIATE_API_ID", "")
-DMM_AFFILIATE_LINK_ID = os.environ.get("DMM_AFFILIATE_LINK_ID", "")
-DLSITE_AFFILIATE_ID   = os.environ.get("DLSITE_AFFILIATE_ID", "novelove")
-DIGIKET_AFFILIATE_ID  = os.environ.get("DIGIKET_AFFILIATE_ID", "novelove")
 
 # === 取得対象ジャンル定義 ===
 FETCH_TARGETS = [
