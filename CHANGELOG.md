@@ -1,5 +1,20 @@
 # Changelog
 
+## [v13.4.0] - 2026-04-07
+### Refactor (環境依存ハードコードの排除)
+- **`novelove_core.py`**: WP-CLI環境依存パス（`WP_PHP_PATH`, `WP_CLI_PATH`, `WP_DOC_ROOT`）を環境変数一元管理セクションに追加。デフォルト値として現在のKUSANAGIパスを保持するため既存動作に影響なし。
+- **`auto_post.py`**: `php_path`, `wp_path`, `doc_root` を `os.environ.get()` で取得するよう変更。サーバー移転時は `.env` を更新するだけで対応可能。
+- **`nexus_rewrite.py`** / **`nexus_dashboard.py`**: SSH経由WP-CLI実行時の `doc_root` も同様に環境変数化。
+
+### Fixed (一時エラーによる即・除外の防止)
+- **`novelove_fetcher.py`**: `_fetch_with_retry()` ヘルパー関数を追加。502/429/503/504等の一時エラーを最大3回・指数バックオフ（2→4→8秒）で自動リトライ。
+  - DMM API・DigiKet API・DLsiteスクレイピングの3箇所に適用。
+  - DMM API失敗時の「ダミーexcluded行をDBに挿入」処理を廃止。全リトライ失敗時は `continue` するだけにし、次回フェッチで自動的に再試行できる設計に変更。
+
+### Refactor (アフィリエイトURL生成の一元管理)
+- **`novelove_core.py`**: `generate_affiliate_url(site, product_url, **kwargs)` 関数を追加。FANZA/DMM.com/DLsite/DigiKet 全サイトのアフィリエイトURL生成ロジックを一箇所に集約。ASP側の仕様変更時はこの関数のみを修正すれば全サイトに反映される。
+- **`novelove_fetcher.py`**: FANZA/DMM・DLsite・DigiKetの3箇所のアフィリエイトURL直書きを `generate_affiliate_url()` 呼び出しに置き換え。
+
 ## [v13.3.0] - 2026-04-07
 ### Security (SSHパスワードのハードコード排除)
 - **`nexus_rewrite.py` / `nexus_dashboard.py`**: SSH接続の `os.environ.get("SSH_PASS", "直書きパスワード")` のフォールバック値を完全に削除。
