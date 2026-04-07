@@ -254,10 +254,10 @@ def _ssh_ping_google(product_id: str) -> tuple[bool, str]:
     try:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh_pass = os.environ.get("SSH_PASS", "")
-        if not ssh_pass:
+        from novelove_core import SSH_PASS
+        if not SSH_PASS:
             return False, "セキュリティエラー: SSH_PASS が環境変数に設定されていません。サーバーの .env を確認してください。"
-        ssh.connect('novelove.jp', username='root', password=ssh_pass, timeout=15)
+        ssh.connect('novelove.jp', username='root', password=SSH_PASS, timeout=15)
         doc_root = "/home/kusanagi/myblog/DocumentRoot"
         
         # 1. スラッグ(product_id)から投稿IDを取得
