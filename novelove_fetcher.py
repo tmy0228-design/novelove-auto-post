@@ -34,6 +34,7 @@ from novelove_core import (
     trigger_emergency_stop, notify_discord,
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
     DLSITE_AFFILIATE_ID, DIGIKET_AFFILIATE_ID,
+    generate_affiliate_url,
 )
 
 # スクレイピング構造変化の検知閾値（連続N回で緊急停止）
@@ -193,6 +194,36 @@ def _is_thin_content(title, item=None, pages=None):
     return True  # キーワードあり + ページ数が少ない（or 不明）→ 除外対象
 
 
+# === HTTP リトライヘルパー ===
+
+RETRY_STATUS_CODES = {429, 500, 502, 503, 504}  # 一時エラーとみなすHTTPステータス
+
+def _fetch_with_retry(url, session=None, headers=None, timeout=15, max_retries=3, label=""):
+    """
+    一時エラー（502/429/503等）を自動リトライするシンプルなラッパー。
+    全リトライ失敗時は None を返す（呼び出し元が failed 扱いにする）。
+    session を指定しない場合は requests モジュールを直接使用する。
+    """
+    _requester = session if session else requests
+    for attempt in range(1, max_retries + 1):
+        try:
+            r = _requester.get(url, headers=headers or HEADERS, timeout=timeout)
+            if r.status_code in RETRY_STATUS_CODES:
+                wait = 2 ** attempt  # 指数バックオフ: 2s → 4s → 8s
+                logger.warning(f"  [リトライ {attempt}/{max_retries}] {label or url[:60]} status={r.status_code} → {wait}秒待機して再試行")
+                time.sleep(wait)
+                continue
+            return r
+        except Exception as e:
+            if attempt < max_retries:
+                wait = 2 ** attempt
+                logger.warning(f"  [リトライ {attempt}/{max_retries}] {label or url[:60]} エラー: {e} → {wait}秒待機して再試行")
+                time.sleep(wait)
+            else:
+                logger.error(f"  [リトライ失敗] {label or url[:60]} 全{max_retries}回失敗: {e}")
+    return None
+
+
 # === セッション / 画像チェック ===
 
 def _make_fanza_session():
@@ -228,8 +259,8 @@ def _check_image_ok(image_url):
 
 def scrape_dlsite_description(url):
     try:
-        r = requests.get(url, headers=HEADERS, timeout=15)
-        if r.status_code != 200: return "", "", False
+        r = _fetch_with_retry(url, headers=HEADERS, timeout=15, label="DLsite詳細")
+        if r is None or r.status_code != 200: return "", "", False
         text = r.text
         soup_pre = BeautifulSoup(text, 'html.parser')
         wg_links = [a.get("href", "") for a in soup_pre.select(".work_genre a")]
@@ -672,16 +703,16 @@ def fetch_and_stock_all():
                 params["article"] = target["article"]
                 params["article_id"] = target["article_id"]
             try:
-                r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
+                r = _fetch_with_retry(
+                    "https://api.dmm.com/affiliate/v3/ItemList",
+                    headers=HEADERS, timeout=15, label=f"DMM API/{target['label']}"
+                )
+                if r is None:
+                    logger.warning(f"  [スキップ] {site}/{target['label']}: DMM APIへの接続が失敗しました（次回フェッチで再試行）")
+                    continue
                 api_items = r.json().get("result", {}).get("items", [])
             except Exception as e:
                 logger.error(f"API エラー ({site}/{target['label']}): {e}")
-                conn = db_connect(db_path)
-                c = conn.cursor()
-                c.execute("INSERT OR IGNORE INTO novelove_posts (product_id, title, genre, status, last_error, inserted_at) VALUES (?,?,?,?,?,?)",
-                          (f"FAIL_{int(time.time())}", f"ERROR: {site}/{target['label']}", target['genre'], 'excluded', 'fetch_failed', datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                conn.commit()
-                conn.close()
                 continue
         if not api_items:
             logger.info(f"  -> 新着なし")
@@ -776,18 +807,10 @@ def fetch_and_stock_all():
             # アフィリエイトURL生成
             image_url = item.get("imageURL", {}).get("large", "")
             if site == "DLsite":
-                floor = target.get("floor", "girls")
-                aid = DLSITE_AFFILIATE_ID
-                aff_url = f"https://dlaf.jp/{floor}/dlaf/=/t/n/link/work/aid/{aid}/id/{pid}.html"
+                aff_url = generate_affiliate_url("DLsite", "", pid=pid, floor=target.get("floor", "girls"))
             else:
                 base_url = item.get("URL", "")
-                encoded_url = urllib.parse.quote(base_url, safe="")
-                af_id = DMM_AFFILIATE_LINK_ID or "novelove-001"
-                ch_params = "&ch=toolbar&ch_id=text"
-                if site == "FANZA":
-                    aff_url = f"https://al.fanza.co.jp/?lurl={encoded_url}&af_id={af_id}{ch_params}"
-                else:
-                    aff_url = f"https://al.dmm.com/?lurl={encoded_url}&af_id={af_id}{ch_params}"
+                aff_url = generate_affiliate_url(site, base_url)
             is_r18 = 1 if _is_r18_item(item, site=site) else 0
             author = _extract_author(item)
             rdate = item.get("date", "")
@@ -862,7 +885,10 @@ def fetch_digiket_items():
         api_url = f"https://api.digiket.com/xml/api/getxml.php?target={target_id}&sort=new"
         try:
             logger.info(f"  - 取得先: {label}")
-            r = requests.get(api_url, timeout=20)
+            r = _fetch_with_retry(api_url, timeout=20, label=f"DigiKet API/{label}")
+            if r is None:
+                logger.warning(f"  [スキップ] {label}: DigiKet APIへの接続が失敗しました（次回フェッチで再試行）")
+                continue
             content = r.content
             try:
                 decoded_text = content.decode('utf-8')
@@ -967,10 +993,7 @@ def fetch_digiket_items():
                     if not image_url and og_image_full:
                         image_url = og_image_full
 
-                    affiliate_url = product_url
-                    if DIGIKET_AFFILIATE_ID:
-                        if not affiliate_url.endswith("/"): affiliate_url += "/"
-                        affiliate_url += f"AFID={DIGIKET_AFFILIATE_ID}/"
+                    affiliate_url = generate_affiliate_url("DigiKet", product_url)
                     is_r18 = 1 if _is_r18_item({"title": title}, site="DigiKet") else 0
                     
                     last_error = ""
