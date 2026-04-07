@@ -964,15 +964,24 @@ def _run_main_logic():
     if not posted:
         # 在庫統計レポート
         inventory_list = []
-        for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-            if not os.path.exists(db_p): continue
-            _c = db_connect(db_p)
-            _cnt = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending'").fetchone()[0]
-            _site = str(db_p).split('_')[-1].replace('.db','') if '_' in str(db_p) else "FANZA"
-            if _site == "novelove.db": _site = "FANZA"
-            inventory_list.append(f"{_site.capitalize()} {_cnt}件")
+        if os.path.exists(DB_FILE_FANZA):
+            _c = db_connect(DB_FILE_FANZA)
+            c_fanza = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site NOT LIKE '%ebook%' AND site NOT LIKE '%digital_doujin_bl%' AND site NOT LIKE '%digital_doujin_tl%'").fetchone()[0]
+            c_lovecal = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND (site LIKE '%digital_doujin_bl%' OR site LIKE '%digital_doujin_tl%')").fetchone()[0]
+            c_dmm = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE '%ebook%'").fetchone()[0]
+            inventory_list.extend([f"FANZA {c_fanza}", f"DMM {c_dmm}", f"らぶカル {c_lovecal}"])
             _c.close()
-        inventory_str = " / ".join(inventory_list)
+        if os.path.exists(DB_FILE_DLSITE):
+            _c = db_connect(DB_FILE_DLSITE)
+            c_dl = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending'").fetchone()[0]
+            inventory_list.append(f"DLsite {c_dl}")
+            _c.close()
+        if os.path.exists(DB_FILE_DIGIKET):
+            _c = db_connect(DB_FILE_DIGIKET)
+            c_dk = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending'").fetchone()[0]
+            inventory_list.append(f"DigiKet {c_dk}")
+            _c.close()
+        inventory_str = " / ".join(inventory_list) + " 件"
 
         attempts_str = "\n".join(tried_details) if tried_details else "（なし：全在庫切れ）"
         
@@ -1188,15 +1197,24 @@ def _execute_posting_flow(row, cursor, conn):
             _conn.close()
 
         inventory_list = []
-        for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-            if not os.path.exists(db_p): continue
-            _c = db_connect(db_p)
-            _cnt = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending'").fetchone()[0]
-            _site = str(db_p).split('_')[-1].replace('.db','') if '_' in str(db_p) else "FANZA"
-            if _site == "novelove.db": _site = "FANZA"
-            inventory_list.append(f"{_site.capitalize()} {_cnt}件")
+        if os.path.exists(DB_FILE_FANZA):
+            _c = db_connect(DB_FILE_FANZA)
+            c_fanza = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site NOT LIKE '%ebook%' AND site NOT LIKE '%digital_doujin_bl%' AND site NOT LIKE '%digital_doujin_tl%'").fetchone()[0]
+            c_lovecal = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND (site LIKE '%digital_doujin_bl%' OR site LIKE '%digital_doujin_tl%')").fetchone()[0]
+            c_dmm = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE '%ebook%'").fetchone()[0]
+            inventory_list.extend([f"FANZA {c_fanza}", f"DMM {c_dmm}", f"らぶカル {c_lovecal}"])
             _c.close()
-        inventory_str = " / ".join(inventory_list)
+        if os.path.exists(DB_FILE_DLSITE):
+            _c = db_connect(DB_FILE_DLSITE)
+            c_dl = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending'").fetchone()[0]
+            inventory_list.append(f"DLsite {c_dl}")
+            _c.close()
+        if os.path.exists(DB_FILE_DIGIKET):
+            _c = db_connect(DB_FILE_DIGIKET)
+            c_dk = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending'").fetchone()[0]
+            inventory_list.append(f"DigiKet {c_dk}")
+            _c.close()
+        inventory_str = " / ".join(inventory_list) + " 件"
 
         notify_discord(
             f"✅ **[{site_label}] [{_genre_label(row['genre'])}] 投稿成功！**\n"
