@@ -1059,7 +1059,8 @@ def _execute_posting_flow(row, cursor, conn):
     site_label = site_raw.split(":")[0] if isinstance(site_raw, str) and ":" in site_raw else str(site_raw)
     
     # 🌟 NEW: らぶカルの場合はサイトタグを独立させる
-    if "lovecul.dmm.co.jp" in str(row.get("product_url", "")):
+    # sqlite3.Row には .get() がなくエラーになるため、辞書に変換するか keys() でチェックする
+    if "product_url" in row.keys() and "lovecul.dmm.co.jp" in str(row["product_url"]):
         site_label = "らぶカル"
     
     logger.info(f"--- [投稿実行] {site_label} | {title[:40]} ---")
