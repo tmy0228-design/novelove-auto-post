@@ -188,8 +188,8 @@ def calculate_local_priority(title: str, desc: str, tags: str = "", original_tag
     full_text = f"{title_str} {desc_str} {tags_str} {original_tags_str}"
     
     # 1. 最速紹介（当日発売）ボーナス
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    today_slash = datetime.now().strftime("%Y/%m/%d")
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    today_slash = datetime.datetime.now().strftime("%Y/%m/%d")
     if today_str in release_date_str or today_slash in release_date_str:
         score += 50
 
