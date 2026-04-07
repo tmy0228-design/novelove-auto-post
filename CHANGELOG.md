@@ -1,5 +1,18 @@
 # Changelog
 
+## [v13.2.3] - 2026-04-07
+### Fixed (A+C画像戦略のWP-CLI上書きバグ修正)
+- **`post_to_wordpress()` の FIFU 画像設定修正 (`auto_post.py`)**:
+  - WP-CLIの `fifu_dev_set_image` に `image_url`（大きい画像URL）を渡していたため、REST APIで正しく設定した軽量サムネURL (`fifu_url`) が**上書きされ、A+C戦略が無効化**されていたバグを修正。
+  - 修正後は `fifu_url`（`_get_thumbnail_url()` で生成した軽量版）を渡すように変更。
+- **既存記事427件のFIFU画像URLを一括修正（WordPress DB直接更新）**:
+  - DLsite: 233件（`/modpub/..._img_main.jpg` → `/resize/..._img_main_300x300.webp`）
+  - DMM: 131件（`...pl.jpg` → `...ps.jpg`）
+  - DigiKet: 48件（`..._1.jpg` → `..._a_200x150.jpg`）
+  - FANZA同人: 12件（変換不要のためスキップ）
+  - **未修正: 0件（全件修正完了）**
+
+
 ## [v13.2.0] - 2026-04-06
 ### Added & Changed (画像配信の超軽量化・A+C戦略)
 - **A+C戦略（サムネ大画像分離）の導入 (`auto_post.py`)**:
