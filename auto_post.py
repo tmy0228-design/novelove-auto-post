@@ -55,17 +55,9 @@ from logging.handlers import RotatingFileHandler
 import re
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
-from dotenv import load_dotenv
 import argparse
 import html
 import unicodedata
-
-# --- 環境変数の読み込み ---
-env_path = "/home/kusanagi/scripts/.env"
-if os.path.exists(env_path):
-    load_dotenv(env_path)
-else:
-    load_dotenv()
 
 # --- Discord通知機能 ---
 # --- ライター性格設定・執筆ルール（novelove_soul.py に分離管理）---
@@ -79,7 +71,10 @@ from novelove_core import (
     get_db_path, db_connect, init_db, get_genre_index, save_genre_index,
     WP_SITE_URL, HEADERS,
     MAIN_LOCK_FILE, RANK_LOCK_FILE,
-    EMERGENCY_LOCK_FILE, is_emergency_stop, trigger_emergency_stop
+    EMERGENCY_LOCK_FILE, is_emergency_stop, trigger_emergency_stop,
+    DEEPSEEK_API_KEY, WP_USER, WP_APP_PASSWORD,
+    DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
+    DLSITE_AFFILIATE_ID, DIGIKET_AFFILIATE_ID,
 )
 
 # === 取得ロジックは novelove_fetcher.py に分離 ===
@@ -95,15 +90,7 @@ from novelove_fetcher import (
     _check_image_ok,
 )
 
-# === 設定欄 ===
-DEEPSEEK_API_KEY      = os.environ.get("DEEPSEEK_API_KEY", "")
-WP_USER               = os.environ.get("WP_USER", "")
-WP_APP_PASSWORD       = os.environ.get("WP_APP_PASSWORD", "")
-DMM_API_ID            = os.environ.get("DMM_API_ID", "")
-DMM_AFFILIATE_API_ID  = os.environ.get("DMM_AFFILIATE_API_ID", "")
-DMM_AFFILIATE_LINK_ID = os.environ.get("DMM_AFFILIATE_LINK_ID", "")
-DLSITE_AFFILIATE_ID  = os.environ.get("DLSITE_AFFILIATE_ID", "novelove")
-DIGIKET_AFFILIATE_ID  = os.environ.get("DIGIKET_AFFILIATE_ID", "novelove")
+# === 設定欄（環境変数は novelove_core.py で一元管理・import済み） ===
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL   = "deepseek-chat"
 
