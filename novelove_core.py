@@ -52,6 +52,10 @@ DLSITE_AFFILIATE_ID   = os.environ.get("DLSITE_AFFILIATE_ID", "novelove")
 DIGIKET_AFFILIATE_ID  = os.environ.get("DIGIKET_AFFILIATE_ID", "novelove")
 # ※ セキュリティ上、デフォルト値なし。未設定時は呼び出し元がエラー終了する。
 SSH_PASS              = os.environ.get("SSH_PASS", "")
+# === WP-CLI / サーバー環境依存パス（移転時はここの環境変数を更新するだけでOK）===
+WP_PHP_PATH = os.environ.get("WP_PHP_PATH", "/opt/kusanagi/php/bin/php")
+WP_CLI_PATH = os.environ.get("WP_CLI_PATH", "/opt/kusanagi/bin/wp")
+WP_DOC_ROOT = os.environ.get("WP_DOC_ROOT", "/home/kusanagi/myblog/DocumentRoot")
 
 # === 共通ヘッダー・UA ===
 HEADERS = {"User-Agent": "Mozilla/5.0"}
@@ -180,7 +184,49 @@ def get_affiliate_button_html(url, label="作品の詳細を見る"):
         f'{label}</a></div>'
     )
 
-# === データベース管理 ===
+# === アフィリエイトURL生成（一元管理）===
+# ASP側の仕様変更はここ一箇所を修正するだけで全サイトに反映される。
+def generate_affiliate_url(site: str, product_url: str, **kwargs) -> str:
+    """
+    サイト別にアフィリエイトURLを生成して返す共通関数。
+    
+    Args:
+        site:        "FANZA" | "DMM.com" | "DLsite" | "DigiKet"
+        product_url: 商品ページURL（FANZA/DMM/DigiKet）または空文字（DLsite）
+        **kwargs:
+            pid   (str): 商品ID（DLsite必須）
+            floor (str): フロア名（DLsite必須: "bl", "girls", "bl-pro"等）
+    Returns:
+        str: アフィリエイトURL（生成失敗時はproduct_urlをそのまま返す）
+    """
+    import urllib.parse
+    try:
+        if site == "DLsite":
+            pid   = kwargs.get("pid", "")
+            floor = kwargs.get("floor", "girls")
+            aid   = DLSITE_AFFILIATE_ID
+            return f"https://dlaf.jp/{floor}/dlaf/=/t/n/link/work/aid/{aid}/id/{pid}.html"
+
+        if site == "DigiKet":
+            url = product_url
+            if DIGIKET_AFFILIATE_ID:
+                if not url.endswith("/"): url += "/"
+                url += f"AFID={DIGIKET_AFFILIATE_ID}/"
+            return url
+
+        # FANZA / DMM.com
+        af_id      = DMM_AFFILIATE_LINK_ID or "novelove-001"
+        ch_params  = "&ch=toolbar&ch_id=text"
+        encoded    = urllib.parse.quote(product_url, safe="")
+        if site == "FANZA":
+            return f"https://al.fanza.co.jp/?lurl={encoded}&af_id={af_id}{ch_params}"
+        # DMM.com
+        return f"https://al.dmm.com/?lurl={encoded}&af_id={af_id}{ch_params}"
+
+    except Exception:
+        return product_url  # フォールバック: 元のURLをそのまま返す
+
+
 def get_db_path(site_raw):
     site_str = str(site_raw)
     if "DLsite" in site_str: return DB_FILE_DLSITE
