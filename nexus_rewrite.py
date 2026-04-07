@@ -287,7 +287,7 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
         def escape_sh(s):
             return s.replace("'", "'\\''")
             
-        doc_root = "/home/kusanagi/myblog/DocumentRoot"
+        doc_root = os.environ.get("WP_DOC_ROOT", "/home/kusanagi/myblog/DocumentRoot")
         
         if seo_title:
             safe_seo = escape_sh(seo_title)
