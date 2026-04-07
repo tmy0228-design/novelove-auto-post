@@ -740,7 +740,7 @@ def fetch_and_stock_all():
             elif not desc:
                 last_error = "no_description"
                 failed_titles.append(item.get("title", "不明"))
-                notify_discord(f"⚠️ [{site}] スクレイピング失敗: {item.get('title','')[:40]}\nURL: {p_url}", username="スクレイピング監視")
+                notify_discord(f"⚠️ [{site}] スクレイピング失敗: {item.get('title','')[:40]}\nURL: {item.get('URL', '')}", username="スクレイピング監視")
             elif _is_noise_content(item.get("title", ""), desc):
                 last_error = "excluded_foreign"
             elif site == "FANZA" and target.get("genre") == "doujin_tl":
@@ -1011,11 +1011,11 @@ def fetch_digiket_items():
                     site_str = f"DigiKet:r18={is_r18}"
                     c.execute("""INSERT INTO novelove_posts
                         (product_id, title, author, genre, site, status, release_date, description,
-                        affiliate_url, image_url, product_url, desc_score, last_error, ai_tags, wp_post_id,
+                        affiliate_url, image_url, product_url, post_type, desc_score, last_error, ai_tags, wp_post_url,
                         original_tags, is_exclusive)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (pid, title, author, genre, site_str, final_status, date_str, description,
-                         affiliate_url, image_url, product_url, final_score, last_error, ai_tags_str, None,
+                         affiliate_url, image_url, product_url, "regular", final_score, last_error, ai_tags_str, "",
                          _dk_tags_str, 1 if _dk_is_excl else 0))
                     new_count += 1
                     logger.info(f"    - 追加: {title[:30]} [{final_status}] genre:{genre}")
