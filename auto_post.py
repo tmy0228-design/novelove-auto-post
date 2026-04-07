@@ -942,9 +942,9 @@ def _run_main_logic():
         conn = db_connect(db_path)
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
-        # v11.4.7: SELECT * を廃止し、カラム名を明示的に指定
+        # v11.4.7: SELECT * を廃止し、カラム名を明示的に指定 (v13.2.3: original_tags, is_exclusive 追加)
         row = c.execute(
-            "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer FROM novelove_posts WHERE status='pending' AND genre=? ORDER BY inserted_at DESC LIMIT 1",
+            "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive FROM novelove_posts WHERE status='pending' AND genre=? ORDER BY inserted_at DESC LIMIT 1",
             (genre,)
         ).fetchone()
         if row:
@@ -1235,7 +1235,6 @@ def _execute_posting_flow(row, cursor, conn):
         logger.warning(f"⚠️ WP投稿失敗: {pid} (status='excluded' に変更)")
         return False, "wp_post_failed"
 
-# === ランキング記事 ===
 # === ランキング記事 ===
 def fetch_ranking_dmm_fanza(site, genre):
     """v11.2.0: 漫画(comic)と小説(novel)を統合して取得"""
@@ -1769,7 +1768,7 @@ def main():
         logger.info("🚨 緊急停止中のためスキップ。解除: rm emergency_stop.lock")
         return
 
-    logger.info("Novelove エンジン v13.0.0 起動")
+    logger.info("Novelove エンジン v13.2.3 起動")
     init_db()
     # メインロックチェック
     if os.path.exists(MAIN_LOCK_FILE):
