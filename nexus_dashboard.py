@@ -176,7 +176,7 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
     if "status" in display.columns:
         display["ステータス"] = display["status"].apply(status_badge)
 
-    # 日付を個別に生成（詳細パネル用に保持）
+    # 日付を個別に生成（詳細パネル用に保持）— YYYY/MM/DD 形式に統一
     for col, label in [
         ("published_at",     "公開日"),
         ("inserted_at",      "取得日"),
@@ -184,8 +184,7 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
         ("last_rewritten_at","📅 最終リライト"),
     ]:
         if col in display.columns:
-            safe_dates = display[col].astype(str).str[:10]
-            display[label] = pd.to_datetime(safe_dates, errors="coerce").dt.strftime("%Y/%m/%d").fillna("-")
+            display[label] = pd.to_datetime(display[col], errors="coerce").dt.strftime("%Y/%m/%d").fillna("-")
 
     # 記事種別（post_type）を日本語化
     if "post_type" in display.columns:
@@ -332,6 +331,10 @@ def render_detail_panel(detail_pid, df, key_prefix="list"):
                 wp_url = safe_str(row.get("wp_post_url"), "")
                 if wp_url:
                     st.markdown(f"**WP記事**: [{wp_url}]({wp_url})")
+                # 販売サイトURL
+                prod_url = safe_str(row.get("product_url"), "")
+                if prod_url:
+                    st.markdown(f"**🛒 販売ページ**: [{prod_url[:60]}...]({prod_url})")
                 if pd.notna(row.get("sale_discount_rate")) and int(row.get("sale_discount_rate", 0)) > 0:
                     st.success(f"🔥 現在 {int(row['sale_discount_rate'])}% セール中！")
             
@@ -940,11 +943,19 @@ def main():
                     "サーバーで `python nexus_gsc.py` を実行してください。"
                 )
             else:
-                # ── リライト直後（14日以内）の記事は猶予期間として死に記事から除外 ──
+                # ── 公開から30日未満の記事は判定対象外にする ──
                 import datetime
                 now = pd.Timestamp.now()
+                cutoff_30d = now - pd.Timedelta(days=30)
                 cutoff_14d = now - pd.Timedelta(days=14)
-                
+
+                # 公開30日以上の記事のみを母集団にする
+                if "published_at" in gsc_checked.columns:
+                    gsc_checked = gsc_checked[
+                        pd.to_datetime(gsc_checked["published_at"], errors='coerce') <= cutoff_30d
+                    ]
+
+                # ── リライト直後（14日以内）の記事は猶予期間として死に記事から除外 ──
                 is_recent_rewrite = (
                     gsc_checked["last_rewritten_at"].notna() & 
                     (pd.to_datetime(gsc_checked["last_rewritten_at"], errors='coerce') > cutoff_14d)
@@ -989,6 +1000,11 @@ def main():
                             "last_rewritten_at",
                         ] if c in level_df.columns]
                         dead_display = level_df[show_dead_cols].copy()
+
+                        # 日付を YYYY/MM/DD 形式に統一（AgGridのロケール依存を回避）
+                        for _dcol in ["gsc_last_checked", "published_at", "last_rewritten_at"]:
+                            if _dcol in dead_display.columns:
+                                dead_display[_dcol] = pd.to_datetime(dead_display[_dcol], errors="coerce").dt.strftime("%Y/%m/%d").fillna("-")
 
                         # 0/1 を ❌/✅ に変換
                         if "gsc_indexed" in dead_display.columns:
