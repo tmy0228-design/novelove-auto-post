@@ -27,28 +27,17 @@ import sqlite3
 import difflib
 import requests
 from datetime import datetime
-from dotenv import load_dotenv
 
-# --- 環境変数の読み込み ---
-env_path = "/home/kusanagi/scripts/.env"
-if os.path.exists(env_path):
-    load_dotenv(env_path)
-else:
-    load_dotenv()
-
+# 環境変数・.envの読み込みは novelove_core.py で一元管理
 from novelove_core import (
     logger,
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
     db_connect, notify_discord,
     WP_SITE_URL, HEADERS,
+    WP_USER, WP_APP_PASSWORD,
+    DMM_API_ID, DMM_AFFILIATE_API_ID,
 )
 from novelove_fetcher import scrape_description
-
-# === 環境変数 ===
-WP_USER          = os.environ.get("WP_USER", "")
-WP_APP_PASSWORD  = os.environ.get("WP_APP_PASSWORD", "")
-DMM_API_ID       = os.environ.get("DMM_API_ID", "")
-DMM_AFFILIATE_API_ID = os.environ.get("DMM_AFFILIATE_API_ID", "")
 
 # === 定数 ===
 SALE_TAG_NAME     = "期間限定セール"
