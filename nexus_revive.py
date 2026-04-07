@@ -22,7 +22,6 @@ Novelove Nexus — 自動セール検知 & 売れ筋タグ管理エンジン v1.
 
 import os
 import re
-import json
 import sqlite3
 import difflib
 import requests

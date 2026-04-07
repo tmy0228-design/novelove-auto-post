@@ -32,7 +32,6 @@ import sys
 import argparse
 import sqlite3
 import requests
-import subprocess
 import paramiko
 from datetime import datetime
 
@@ -41,7 +40,7 @@ from datetime import datetime
 from novelove_core import (
     logger,
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
-    db_connect, notify_discord, get_db_path,
+    db_connect, notify_discord,
     WP_SITE_URL, SCRIPT_DIR,
     WP_USER, WP_APP_PASSWORD, SSH_PASS,
 )

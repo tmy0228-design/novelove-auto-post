@@ -16,9 +16,7 @@ novelove_fetcher.py — Novelove 新着取得・スクレイピング・フィ�
 
 import requests
 import json
-import os
 import urllib.parse
-import sqlite3
 import time
 import re
 import html
@@ -32,8 +30,7 @@ from novelove_core import (
     _clean_description, calculate_local_priority,
     get_db_path, db_connect,
     trigger_emergency_stop, notify_discord,
-    DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
-    DLSITE_AFFILIATE_ID, DIGIKET_AFFILIATE_ID,
+    DMM_API_ID, DMM_AFFILIATE_API_ID,
     generate_affiliate_url,
 )
 

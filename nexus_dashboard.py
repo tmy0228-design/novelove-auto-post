@@ -15,11 +15,10 @@ nexus_dashboard.py — Nexus Dashboard (Phase 2 / Step 1)
 """
 
 import os
-import re
 import sqlite3
 import pandas as pd
 import streamlit as st
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, ColumnsAutoSizeMode, JsCode
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, ColumnsAutoSizeMode
 try:
     import paramiko
     _PARAMIKO_AVAILABLE = True
@@ -909,7 +908,7 @@ def main():
     # =====================================================================
     pub_count  = len(filtered[filtered["status"] == "published"]) if "status" in filtered.columns else 0
     pend_count = len(filtered[filtered["status"] == "pending"])   if "status" in filtered.columns else 0
-    excl_count = len(filtered[filtered["status"] == "excluded"])  if "status" in filtered.columns else 0
+
     sale_count = len(filtered[filtered["sale_discount_rate"] > 0]) if "sale_discount_rate" in filtered.columns else 0
 
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -944,7 +943,7 @@ def main():
                 )
             else:
                 # ── 公開から30日未満の記事は判定対象外にする ──
-                import datetime
+
                 now = pd.Timestamp.now()
                 cutoff_30d = now - pd.Timedelta(days=30)
                 cutoff_14d = now - pd.Timedelta(days=14)

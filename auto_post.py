@@ -45,33 +45,28 @@ import random
 import difflib
 import subprocess
 import requests
-import json
 import os
 import urllib.parse
 import sqlite3
 import time
-import logging
-from logging.handlers import RotatingFileHandler
 import re
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 import argparse
-import html
-import unicodedata
 
 # --- Discord通知機能 ---
 # --- ライター性格設定・執筆ルール（novelove_soul.py に分離管理）---
 from novelove_soul import REVIEWERS, MOOD_PATTERNS, FACT_GUARD, NG_PHRASES, get_relationship
 
 from novelove_core import (
-    logger, ERROR_LABELS, notify_discord, _clean_description,
+    logger, ERROR_LABELS, notify_discord,
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
-    AFFILIATE_BUTTON_STYLE, get_affiliate_button_html,
+    get_affiliate_button_html,
     _get_reviewer_for_genre, _genre_label,
     get_db_path, db_connect, init_db, get_genre_index, save_genre_index,
-    WP_SITE_URL, HEADERS,
+    WP_SITE_URL,
     MAIN_LOCK_FILE, RANK_LOCK_FILE,
-    EMERGENCY_LOCK_FILE, is_emergency_stop, trigger_emergency_stop,
+    is_emergency_stop, trigger_emergency_stop,
     DEEPSEEK_API_KEY, WP_USER, WP_APP_PASSWORD,
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
     DLSITE_AFFILIATE_ID, DIGIKET_AFFILIATE_ID,
@@ -149,7 +144,6 @@ def _evaluate_article_potential(title, description, original_tags=""):
 def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False, mood="", ai_score=4, original_tags="", is_exclusive=False):
     safe_title = mask_input(target["title"], mask_level)
     safe_desc  = mask_input(target["description"], mask_level)
-    label      = _genre_label(target["genre"], safe_title)
     chat_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
     chat_close = '</div></div>'
 
@@ -733,12 +727,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         if reviewer and reviewer in tag_names: allowed_ranking_tags.append(reviewer)
         tag_names = allowed_ranking_tags
 
-    # 特定キーワードによる誤爆防止（TL/BL補正）
-    tl_kws = {"TL", "ティーンズラブ", "乙女", "花嫁", "娘", "お嬢", "令嬢", "女性向け"}
-    bl_kws = {"BL", "ボーイズラブ"}
-    target_text_for_tag = title + genre
-    has_tl = any(k in target_text_for_tag for k in tl_kws)
-    has_bl = any(k in title for k in bl_kws)
+
     
     # 完全に廃止された単体タグ・不要な複合タグの徹底排除 (v10.6.0)
     exclude_list = ("BL", "TL", "コミック", "小説", "漫画", "BLコミック", "TLコミック", "BL同人", "TL同人", "商業BL", "同人BL", "商業TL", "同人TL", "商業BL小説", "商業TL小説")
