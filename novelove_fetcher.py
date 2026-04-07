@@ -605,7 +605,8 @@ def _fetch_dlsite_items(target):
                       "繁體中文版", "English", "韓国語版", "中国語", "音楽", "サウンドトラック", "音声作品"]
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers, timeout=20)
+        r = _fetch_with_retry(url, headers=headers, timeout=20, label=f"DLsite新着({work_type})")
+        if r is None: return items
         soup = BeautifulSoup(r.text, "html.parser")
         works = soup.select(".n_worklist_item")
         for work in works[:10]:
@@ -623,7 +624,10 @@ def _fetch_dlsite_items(target):
             if not pid: continue
             image_url = ""
             try:
-                dr = requests.get(detail_url, headers=headers, timeout=10)
+                dr = _fetch_with_retry(detail_url, headers=headers, timeout=10, label="DLsite詳細(形式判定)")
+                if dr is None:
+                    logger.info(f"  [DLsite] 詳細ページ取得失敗のためスキップ: {title_text[:30]}")
+                    continue
                 dsoup = BeautifulSoup(dr.text, "html.parser")
                 dr_wg_links = [a.get("href", "") for a in dsoup.select(".work_genre a")]
                 if is_novel:
@@ -927,7 +931,8 @@ def fetch_digiket_items():
                     desc_full, og_image_full, d_pages, d_format, d_date = scrape_digiket_description(product_url)
                     # DigiKet キータグ・専売判定
                     try:
-                        _dk_r = requests.get(product_url, headers=HEADERS, timeout=10)
+                        _dk_r = _fetch_with_retry(product_url, headers=HEADERS, timeout=10, label="DigiKet詳細(キータグ取得)")
+                        if _dk_r is None: raise Exception("DigiKet詳細取得失敗")
                         _dk_r.encoding = _dk_r.apparent_encoding or "utf-8"
                         _dk_text = _dk_r.text
                         _key_m = re.search(r"キー\s*[：:]\s*(.+)", _dk_text)
