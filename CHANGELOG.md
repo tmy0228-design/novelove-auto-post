@@ -12,6 +12,18 @@
   - FANZA同人: 12件（変換不要のためスキップ）
   - **未修正: 0件（全件修正完了）**
 
+### Fixed (コードベース監査で発見されたバグ4件)
+- **`novelove_core.py` L191: `datetime.now()` → `datetime.datetime.now()`**:
+  - `import datetime` でモジュールをインポートしているため `datetime.now()` は `AttributeError` になる。`calculate_local_priority()` 関数が呼び出されるたびに例外で停止していた。
+- **`auto_post.py` L947: SELECT文に `original_tags, is_exclusive` カラム追加**:
+  - 投稿フロー中の記事取得クエリにこれらのカラムが欠落しており、公式タグがAI審査に渡されず、専売タグ判定も動作していなかった。
+- **`novelove_fetcher.py` L743: `p_url` のスコープ問題修正**:
+  - Discord通知に表示されるURLが、実際に失敗したアイテムではなく前のループの最終値だった。`item.get('URL', '')` で直接取得するように変更。
+- **`novelove_fetcher.py` L1014: DigiKet INSERT文のカラム名統一**:
+  - `wp_post_id`（存在しないカラム）→ `wp_post_url`（正式カラム）に修正。`post_type` カラムも追加し、FANZA/DLsite側のINSERT文と構造を完全統一。
+- **`auto_post.py` L1238: 重複コメント行削除**。
+- **`auto_post.py` L1772: 起動ログのバージョン番号を `v13.0.0` → `v13.2.3` に更新**。
+
 
 ## [v13.2.0] - 2026-04-06
 ### Added & Changed (画像配信の超軽量化・A+C戦略)
