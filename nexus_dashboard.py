@@ -258,7 +258,7 @@ def _ssh_ping_google(product_id: str) -> tuple[bool, str]:
         if not SSH_PASS:
             return False, "セキュリティエラー: SSH_PASS が環境変数に設定されていません。サーバーの .env を確認してください。"
         ssh.connect('novelove.jp', username='root', password=SSH_PASS, timeout=15)
-        doc_root = "/home/kusanagi/myblog/DocumentRoot"
+        doc_root = os.environ.get("WP_DOC_ROOT", "/home/kusanagi/myblog/DocumentRoot")
         
         # 1. スラッグ(product_id)から投稿IDを取得
         cmd_resolve = f"cd {doc_root} && wp post list --name='{product_id}' --field=ID --allow-root"
