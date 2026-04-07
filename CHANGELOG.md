@@ -39,6 +39,11 @@
 - **仕様書修正 (`SPECIFICATIONS.md`)**:
   - DigiKetの「`_2.jpg` → `_1.jpg` 自動置換」の古い記載を現状に合わせて修正。
 
+### Refactored (環境変数の一元管理)
+- **環境変数を `novelove_core.py` に集約**:
+  - `load_dotenv()` と全環境変数（`DEEPSEEK_API_KEY`, `WP_USER`, `WP_APP_PASSWORD`, `DMM_API_ID`, `DMM_AFFILIATE_API_ID`, `DMM_AFFILIATE_LINK_ID`, `DLSITE_AFFILIATE_ID`, `DIGIKET_AFFILIATE_ID`）を `novelove_core.py` で一元管理。
+  - `auto_post.py`, `novelove_fetcher.py`, `nexus_revive.py` からローカルの `os.environ.get` 定義と `load_dotenv` を全て削除し、`from novelove_core import ...` に統一。
+  - 環境変数名を一箇所で変更すれば全モジュールに反映される保守性の高い構造に。
 
 ## [v13.2.0] - 2026-04-06
 ### Added & Changed (画像配信の超軽量化・A+C戦略)
