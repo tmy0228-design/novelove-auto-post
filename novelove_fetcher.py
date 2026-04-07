@@ -734,6 +734,8 @@ def fetch_and_stock_all():
             final_status = "excluded"
             final_score = 0
             ai_tags = []
+            item_title = item.get("title", "")
+            item_original_tags = item.get("_original_tags", "")
             if desc == "__EXCLUDED_TYPE__":
                 last_error = "excluded_type"
                 desc = ""
@@ -756,6 +758,7 @@ def fetch_and_stock_all():
                     else:
                         # v11.4.0: AI審査を廃止、スクリプトフィルタ通過で即pending
                         final_status = "pending"
+                        final_score = calculate_local_priority(item_title, desc, original_tags=item_original_tags, release_date_raw=item.get("date", ""))
             else:
                 image_url_tmp = item.get("imageURL", {}).get("large", "")
                 if not _check_image_ok(image_url_tmp):
@@ -763,6 +766,7 @@ def fetch_and_stock_all():
                 else:
                     # v11.4.0: AI審査を廃止、スクリプトフィルタ通過で即pending
                     final_status = "pending"
+                    final_score = calculate_local_priority(item_title, desc, original_tags=item_original_tags, release_date_raw=item.get("date", ""))
 
             # 構造変化検知: 画像なし or あらすじなし が連続したらスクレイピング異常
             if last_error in ("no_description", "no_image", "no_desc_or_image"):
@@ -964,7 +968,7 @@ def fetch_digiket_items():
                     package_tag = item.find("package")
                     image_url = package_tag.text.strip() if package_tag else ""
                     if image_url.startswith("//"): image_url = "https:" + image_url
-                    _img_re = r'src=["\"](https?://[^"\"]+?\.(?:jpg|jpeg|png|gif|webp)(?:\?.*)?)["\"]'
+                    # _img_re は関数冒頭で定義済み
                     if not image_url:
                         img_match = re.search(_img_re, content_encoded, re.I)
                         image_url = img_match.group(1) if img_match else ""
@@ -998,6 +1002,7 @@ def fetch_digiket_items():
                     else:
                         # v11.4.0: AI審査を廃止、スクリプトフィルタ通過で即pending
                         final_status = "pending"
+                        final_score = calculate_local_priority(title, description, original_tags=_dk_tags_str, release_date_raw=date_str)
 
                     # 構造変化検知: 画像なし or あらすじなし が連続したらスクレイピング異常
                     if last_error in ("no_desc_or_image", "no_image"):
