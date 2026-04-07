@@ -115,15 +115,6 @@ DEEPSEEK_MODEL   = "deepseek-chat"
 # キャラクター設定 (novelove_soul.py で管理・import済み)
 
 
-# === 内部リンク取得 ===
-def _check_wp_post_exists(url):
-    try:
-        r = requests.head(url, timeout=10, allow_redirects=True)
-        if r.status_code == 200: return True
-        r = requests.get(url, timeout=10, allow_redirects=True)
-        return r.status_code == 200
-    except Exception:
-        return False
 
 def _evaluate_article_potential(title, description, original_tags=""):
     """
@@ -161,7 +152,6 @@ def _evaluate_article_potential(title, description, original_tags=""):
     if err != "ok" or not content:
         return 0
 
-    import re
     match = re.search(r"[1-5]", content)
     if match:
         return int(match.group())
@@ -195,8 +185,6 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
         )
 
     voice_hint = "\n※当サイトは漫画・小説専門です。「聴く」「イヤホン」などの音声表現は避け、「読む・見る」体験として紹介してください。"
-    if target["genre"] == "doujin_voice":
-        voice_hint = "\n【ボイス作品紹介のコツ】声優の演技・音質・耳への心地よさに言及すること。「耳が溶ける」「ヘッドホン必須」「通勤中に聴けない」などのリアクションを使ってもOK。"
 
     mood_note = f"\n今回の感情モード: {mood}" if mood else ""
     _tag_rule_nl = "\n"
@@ -593,7 +581,6 @@ def _inject_score3_osusume(content: str, tags: list) -> str:
     スコア3記事の「こんな人におすすめ」をAI出力 + タグ補完のハイブリッドで完成させる。
     AIが書いたli要素を数え、不足分だけタグから補完して最大3点にする。
     """
-    import re
     # AIが「こんな人におすすめ」セクションに書いたli要素を数える
     osusume_match = re.search(
         r'<h2>こんな人におすすめ</h2>\s*<ul[^>]*>(.+?)</ul>',
@@ -640,10 +627,10 @@ def _inject_score3_osusume(content: str, tags: list) -> str:
             f'<ul style="list-style-type: none; padding-left: 0;">\n'
             f'{items_html}\n</ul>\n'
         )
-        # 末尾の吹き出し直前に挿入（speech-bubble-leftの前）
-        sb_match = re.search(r'<div class="speech-bubble-left">', content)
-        if sb_match:
-            insert_pos = sb_match.start()
+        # 末尾の吹き出し直前に挿入（speech-bubble-leftの最後の出現位置）
+        sb_positions = [m.start() for m in re.finditer(r'<div class="speech-bubble-left">', content)]
+        if sb_positions:
+            insert_pos = sb_positions[-1]  # 最後の吹き出し（総評）の前に挿入
             content = content[:insert_pos] + osusume_html + content[insert_pos:]
         else:
             content += osusume_html
@@ -668,8 +655,7 @@ def _get_thumbnail_url(image_url: str) -> str:
         return image_url[:-6] + "ps.jpg"
     # DigiKet: _1.jpg / _2.jpg -> _a_200x150.jpg (10KB, 確認済み)
     if "digiket.net" in image_url:
-        import re as _re
-        return _re.sub(r'_\d+\.jpg$', '_a_200x150.jpg', image_url)
+        return re.sub(r'_\d+\.jpg$', '_a_200x150.jpg', image_url)
     # FANZA doujin-assets 等: 変換しない（NOW PRINTINGリダイレクト対策）
     return image_url
 
