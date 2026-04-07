@@ -24,6 +24,21 @@
 - **`auto_post.py` L1238: 重複コメント行削除**。
 - **`auto_post.py` L1772: 起動ログのバージョン番号を `v13.0.0` → `v13.2.3` に更新**。
 
+### Fixed (深層監査v3: デッドコード削除・在庫優先度・記事構成修正)
+- **`calculate_local_priority()` の組み込み (`novelove_fetcher.py`)**:
+  - `fetch_and_stock_all()` と `fetch_digiket_items()` で `desc_score` が常に0固定だったのを修正。`pending` 判定成功時に `calculate_local_priority()` を呼び出してスコアを計算するように変更。在庫クリーンアップ時の `ORDER BY desc_score DESC` がようやく有効化。
+- **`_inject_score3_osusume()` の吹き出し挿入位置修正 (`auto_post.py`)**:
+  - `re.search`（最初の出現）→ `re.finditer` + `[-1]`（最後の出現）に変更。AIが「おすすめ」セクションを出力しなかった場合、冒頭ではなく末尾（総評吹き出しの直前）に挿入されるように修正。
+- **デッドコード削除 (`auto_post.py`)**:
+  - `_check_wp_post_exists()`: 全ファイルで一度も呼ばれていない関数を削除。
+  - `doujin_voice` ジャンル分岐: `FETCH_TARGETS` に存在しない到達不能コードを削除。
+- **`import re` の関数内重複削除 (`auto_post.py`)**:
+  - 冒頭で既にインポート済みのため、`_evaluate_article_potential()`, `_inject_score3_osusume()`, `_get_thumbnail_url()` 内のローカルインポートを削除。
+- **`_img_re` の二重定義解消 (`novelove_fetcher.py`)**:
+  - `fetch_digiket_items()` のループ内で毎回再定義されていた正規表現を、関数冒頭の定義のみ使用するように変更。
+- **仕様書修正 (`SPECIFICATIONS.md`)**:
+  - DigiKetの「`_2.jpg` → `_1.jpg` 自動置換」の古い記載を現状に合わせて修正。
+
 
 ## [v13.2.0] - 2026-04-06
 ### Added & Changed (画像配信の超軽量化・A+C戦略)
