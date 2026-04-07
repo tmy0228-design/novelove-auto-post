@@ -43,7 +43,7 @@ from novelove_core import (
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
     db_connect, notify_discord, get_db_path,
     WP_SITE_URL, SCRIPT_DIR,
-    WP_USER, WP_APP_PASSWORD,
+    WP_USER, WP_APP_PASSWORD, SSH_PASS,
 )
 # auto_post.py から執筆エンジンのみを借用
 from auto_post import generate_article, get_or_create_term, _evaluate_article_potential
@@ -278,11 +278,10 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
     try:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh_pass = os.environ.get("SSH_PASS", "")
-        if not ssh_pass:
+        if not SSH_PASS:
             logger.error("  [SSH] セキュリティエラー: SSH_PASS が環境変数に設定されていません。.env を確認してください。")
             return False
-        ssh.connect('novelove.jp', username='root', password=ssh_pass, timeout=15)
+        ssh.connect('novelove.jp', username='root', password=SSH_PASS, timeout=15)
         
         # シェルコマンドでシングルクォートをエスケープ
         def escape_sh(s):
