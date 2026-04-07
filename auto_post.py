@@ -791,10 +791,10 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
             wp_path = "/opt/kusanagi/bin/wp"
             doc_root = "--path=/home/kusanagi/myblog/DocumentRoot"
             
-            # 1. アイキャッチ画像の設定 (v11.4.6: タイムアウト耐性強化 & ロールバック)
-            if image_url:
+            # 1. アイキャッチ画像の設定 (v13.2.3: A+C方式 — 軽量サムネURLを使用)
+            if fifu_url:
                 try:
-                    subprocess.run([php_path, wp_path, "eval", f'fifu_dev_set_image({wp_post_id}, "{image_url}");', doc_root, "--allow-root"], capture_output=True, text=True, timeout=60, check=True)
+                    subprocess.run([php_path, wp_path, "eval", f'fifu_dev_set_image({wp_post_id}, "{fifu_url}");', doc_root, "--allow-root"], capture_output=True, text=True, timeout=60, check=True)
                 except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
                     std_err_msg = e.stderr if hasattr(e, "stderr") else str(e)
                     logger.error(f"  [WP-CLI] 画像設定失敗 (タイムアウトまたはエラー): {std_err_msg}")
