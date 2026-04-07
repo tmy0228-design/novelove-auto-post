@@ -75,6 +75,7 @@ from novelove_core import (
     DEEPSEEK_API_KEY, WP_USER, WP_APP_PASSWORD,
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
     DLSITE_AFFILIATE_ID, DIGIKET_AFFILIATE_ID,
+    WP_PHP_PATH, WP_CLI_PATH, WP_DOC_ROOT,
 )
 
 # === 取得ロジックは novelove_fetcher.py に分離 ===
@@ -760,10 +761,10 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         link = data.get("link")
         if wp_post_id:
             # WP-CLIを使用してメタデータを確実に更新する (v11.1.2)
-            # 環境依存パスは .env から取得。移転時は環境変数を更新するだけでOK。
-            php_path = os.environ.get("WP_PHP_PATH", "/opt/kusanagi/php/bin/php")
-            wp_path  = os.environ.get("WP_CLI_PATH", "/opt/kusanagi/bin/wp")
-            doc_root = f"--path={os.environ.get('WP_DOC_ROOT', '/home/kusanagi/myblog/DocumentRoot')}"
+            # 環境依存パスは novelove_core.py で一元管理。移転時は .env を更新するだけでOK。
+            php_path = WP_PHP_PATH
+            wp_path  = WP_CLI_PATH
+            doc_root = f"--path={WP_DOC_ROOT}"
             
             # 1. アイキャッチ画像の設定 (v13.2.3: A+C方式 — 軽量サムネURLを使用)
             if fifu_url:
