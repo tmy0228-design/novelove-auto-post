@@ -35,28 +35,18 @@ import requests
 import subprocess
 import paramiko
 from datetime import datetime
-from dotenv import load_dotenv
-
-# --- 環境変数の読み込み ---
-env_path = "/home/kusanagi/scripts/.env"
-if os.path.exists(env_path):
-    load_dotenv(env_path)
-else:
-    load_dotenv()
 
 # --- 共通モジュール ---
+# 環境変数・.envの読み込みは novelove_core.py で一元管理
 from novelove_core import (
     logger,
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
     db_connect, notify_discord, get_db_path,
     WP_SITE_URL, SCRIPT_DIR,
+    WP_USER, WP_APP_PASSWORD,
 )
 # auto_post.py から執筆エンジンのみを借用
 from auto_post import generate_article, get_or_create_term, _evaluate_article_potential
-
-# === 環境変数 ===
-WP_USER         = os.environ.get("WP_USER", "")
-WP_APP_PASSWORD = os.environ.get("WP_APP_PASSWORD", "")
 
 # === 定数 ===
 LOCK_FILE         = os.path.join(SCRIPT_DIR, ".rewrite.lock")
@@ -288,8 +278,10 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
     try:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        import os
-        ssh_pass = os.environ.get("SSH_PASS", "#Dama0228")
+        ssh_pass = os.environ.get("SSH_PASS", "")
+        if not ssh_pass:
+            logger.error("  [SSH] セキュリティエラー: SSH_PASS が環境変数に設定されていません。.env を確認してください。")
+            return False
         ssh.connect('novelove.jp', username='root', password=ssh_pass, timeout=15)
         
         # シェルコマンドでシングルクォートをエスケープ
