@@ -1,5 +1,24 @@
 # Changelog
 
+## [v13.3.0] - 2026-04-07
+### Security (SSHパスワードのハードコード排除)
+- **`nexus_rewrite.py` / `nexus_dashboard.py`**: SSH接続の `os.environ.get("SSH_PASS", "直書きパスワード")` のフォールバック値を完全に削除。
+  - 環境変数 `SSH_PASS` が未設定の場合、即座にエラーログを出力して処理を安全に中断するロジックに変更。
+  - コードが流出した場合でもサーバーへの不正アクセスが不可能になった。
+- **`novelove_core.py`**: `SSH_PASS` を環境変数の一元管理セクションに追加（デフォルト値なし）。
+- **`nexus_rewrite.py`**: `load_dotenv` / `WP_USER` / `WP_APP_PASSWORD` の二重定義を削除し、`novelove_core` からのimportに統一。
+
+### Fixed (SQLiteデッドロック対策強化)
+- **`novelove_core.py` `db_connect()`**: タイムアウトを30秒→60秒に延長し、`isolation_level="IMMEDIATE"` を追加。
+  - 複数のcronバッチが同時に書き込もうとした際の「中途半端なロック衝突」を防止。
+  - `read_only=True` オプションを追加。ダッシュボード閲覧時はバッチ処理への影響がゼロになる。
+
+### Added (緊急停止UIの解除機能)
+- **`nexus_dashboard.py`**: ダッシュボードのヘッダー直下に緊急停止ステータスをリアルタイム判定するUIを追加。
+  - `emergency_stop.lock` が存在する間のみ、赤い警告バナー（🚨）を表示。
+  - 確認チェックボックスにチェック後、「🔓 緊急停止を解除する」ボタンでワンクリック復旧可能。
+  - SSH接続不要。外出先のスマホからダッシュボードにアクセスして即座に対応できる。
+
 ## [v13.2.3] - 2026-04-07
 ### Fixed (A+C画像戦略のWP-CLI上書きバグ修正)
 - **`post_to_wordpress()` の FIFU 画像設定修正 (`auto_post.py`)**:
