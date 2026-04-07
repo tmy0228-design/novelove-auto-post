@@ -760,9 +760,10 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         link = data.get("link")
         if wp_post_id:
             # WP-CLIを使用してメタデータを確実に更新する (v11.1.2)
-            php_path = "/opt/kusanagi/php/bin/php"
-            wp_path = "/opt/kusanagi/bin/wp"
-            doc_root = "--path=/home/kusanagi/myblog/DocumentRoot"
+            # 環境依存パスは .env から取得。移転時は環境変数を更新するだけでOK。
+            php_path = os.environ.get("WP_PHP_PATH", "/opt/kusanagi/php/bin/php")
+            wp_path  = os.environ.get("WP_CLI_PATH", "/opt/kusanagi/bin/wp")
+            doc_root = f"--path={os.environ.get('WP_DOC_ROOT', '/home/kusanagi/myblog/DocumentRoot')}"
             
             # 1. アイキャッチ画像の設定 (v13.2.3: A+C方式 — 軽量サムネURLを使用)
             if fifu_url:
