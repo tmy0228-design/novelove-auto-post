@@ -1,5 +1,14 @@
 # Changelog
 
+## [v13.6.1] - 2026-04-07
+### Added (らぶカルタグの独立化 & SEO情報付与)
+- **`auto_post.py`**:
+  - `_execute_posting_flow` の投稿実行時、`product_url` に `lovecul.dmm.co.jp` を含む場合、サイトタグを「FANZA」ではなく「らぶカル」として独立付与するロジックを追加。
+- **WordPress**:
+  - WP REST API 経由で「らぶカル」タグを新規作成（ID: 137）。SEO用Descriptionも同時に設定済み。
+- **`SPECIFICATIONS.md`**:
+  - サイトタグ一覧に「らぶカル」を追加。
+
 ## [v13.6.0] - 2026-04-07
 ### Added (らぶカル/LoveCal 完全統合)
 - **`novelove_fetcher.py`**:
