@@ -485,11 +485,12 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             icon = "📖"
             if "ボイス" in format_name: icon = "🎧"
             elif "コミック" in format_name or "漫画" in format_name: icon = "🎨"
-            elif "同人" in format_name: icon = "📚"
+            # サイト名・フォーマット名の整形（らぶカル表記へのフォールバック）
+            site_display = "らぶカル" if site_display == "Lovecal" else site_display
             badge_html = f'\n<p style="text-align:center; margin-bottom:20px;">\n<span style="background:#fefefe; border:1px solid #ddd; padding:6px 16px; border-radius:25px; font-weight:bold; color:#444; box-shadow:0 2px 4px rgba(0,0,0,0.05); display:inline-block;">{icon} {site_display} {format_name}</span>\n</p>'
             text_link = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:5px; margin-bottom:15px;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{target["title"]}』の試し読み・お得なセール状況をチェック！</a></p>\n'
             button_html = get_affiliate_button_html(target["affiliate_url"], "無料で試し読みする")
-            if "FANZA" in site_display:
+            if "FANZA" in site_display or "らぶカル" in site_display:
                 credit_html = (
                     f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'
                     f'<a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/r18_135_17.gif" width="135" height="17" alt="WEB SERVICE BY FANZA" style="border:none;"></a>\n'
@@ -526,6 +527,8 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
                     ai_tags_from_ai.append("FANZA独占")
                 elif "DigiKet" in _site_raw and "DigiKet限定" not in ai_tags_from_ai:
                     ai_tags_from_ai.append("DigiKet限定")
+                elif "Lovecal" in _site_raw and "らぶカル独占" not in ai_tags_from_ai:
+                    ai_tags_from_ai.append("らぶカル独占")
             
             tags_for_seo = ai_tags_from_ai
             tag_str = "・".join(tags_for_seo[:2]) if tags_for_seo else ""
@@ -711,7 +714,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     site_name = None
 
     if site_label:
-        normalized_labels = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet"}
+        normalized_labels = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "らぶカル"}
         site_name = normalized_labels.get(site_label, site_label)
         if site_name and site_name not in tag_names: tag_names.append(site_name)
 
@@ -1056,12 +1059,12 @@ def _execute_posting_flow(row, cursor, conn):
     pid = row["product_id"]
     title = row["title"]
     site_raw = row["site"]
-    site_label = site_raw.split(":")[0] if isinstance(site_raw, str) and ":" in site_raw else str(site_raw)
-    
-    # 🌟 NEW: らぶカルの場合はサイトタグを独立させる
-    # sqlite3.Row には .get() がなくエラーになるため、辞書に変換するか keys() でチェックする
+    # 🌟 NEW: らぶカルの場合はサイト自体を「Lovecal」として完全に分離独立させる
+    # URLに lovecul.dmm.co.jp が含まれる作品は本来FANZAとして保存されているが、ここでLovecalに強制置換
     if "product_url" in row.keys() and "lovecul.dmm.co.jp" in str(row["product_url"]):
-        site_label = "らぶカル"
+        site_raw = str(site_raw).replace("FANZA", "Lovecal")
+        
+    site_label = site_raw.split(":")[0] if isinstance(site_raw, str) and ":" in site_raw else str(site_raw)
     
     logger.info(f"--- [投稿実行] {site_label} | {title[:40]} ---")
     
@@ -1102,7 +1105,7 @@ def _execute_posting_flow(row, cursor, conn):
         "title":         row["title"],
         "author":        row["author"] or "",
         "genre":         row["genre"],
-        "site":          row["site"],
+        "site":          site_raw,
         "description":   desc_str,
         "affiliate_url": row["affiliate_url"],
         "image_url":     img_url,
