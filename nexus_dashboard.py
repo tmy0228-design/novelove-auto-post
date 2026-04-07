@@ -104,9 +104,15 @@ def load_all_data() -> pd.DataFrame:
             query = f"SELECT {', '.join(cols_to_query)} FROM novelove_posts"
             df = pd.read_sql_query(query, conn)
             
-            # novelove.db(FANZA/DMM統合DB)の場合は、siteカラムの中身を見て表示を切り替える
+            # novelove.db(FANZA/DMM統合DB)の場合は、siteカラムやproduct_urlを見て表示を切り替える
             if label == "FANZA" and "site" in df.columns:
-                df["_source_db"] = df["site"].apply(lambda x: "DMM" if x and "DMM" in str(x) else "FANZA")
+                def get_fanza_source(row):
+                    if "lovecul.dmm.co.jp" in str(row.get("product_url", "")):
+                        return "らぶカル"
+                    if "DMM" in str(row.get("site", "")):
+                        return "DMM"
+                    return "FANZA"
+                df["_source_db"] = df.apply(get_fanza_source, axis=1)
             else:
                 df["_source_db"] = label
             

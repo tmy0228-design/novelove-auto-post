@@ -299,7 +299,7 @@ AI が出力する HTML 記事は、以下のインライン CSS を含む強固
 ### 6-2. サイト別・抽出判定ロジック
 | サイト | 商業/同人の判定 | 小説(Novel)の判定 |
 | :--- | :--- | :--- |
-| **DMM/FANZA** | `service` が `ebook` なら **商業** | API の `floor_code` が `comic` → 漫画 / `novel` → 小説。同人（`digital_doujin`）は `iteminfo.genre` のジャンル ID 115 が含まれれば小説、それ以外は同人漫画と確定。タイトルキーワードは**一切参照しない**。|
+| **DMM/FANZA** | `service` が `ebook` なら **商業** | API の `floor_code` が `comic` → 漫画 / `novel` → 小説。同人（`digital_doujin` および `digital_doujin_bl/tl` 等のらぶカルフロア）は `iteminfo.genre` のジャンル ID 115 が含まれれば小説、それ以外は同人漫画と確定。タイトルキーワードは**一切参照しない**。|
 | **DLsite** | URLに `/bl-pro/` 等があれば **商業** | 詳細ページの公式バッジ `work_type` が `NRE` なら **小説**、`MNG` なら **漫画** と確定。ターゲット設定より公式属性を優先し、タイトルキーワードは**参照しない**。 |
 | **DigiKet** | `genre` が `comic_` 系なら **商業** | カテゴリ名に「小説」を含む場合に判定 |
 

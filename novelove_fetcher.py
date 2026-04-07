@@ -45,6 +45,9 @@ FETCH_TARGETS = [
     # FANZA 同人
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_bl", "label": "FANZA同人_BL", "keyword": "ボーイズラブ"},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_tl", "label": "FANZA同人_TL", "keyword": "乙女向け"},
+    # らぶカル（FANZA同人 BL/TL 専用フロア）
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "doujin_bl", "label": "らぶカル_BL", "keyword": None},
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "doujin_tl", "label": "らぶカル_TL", "keyword": None},
     # FANZA 商業R18（新規追加）
     {"site": "FANZA",   "service": "ebook",  "floor": "bl",             "genre": "comic_bl",  "label": "FANZA商業_BL", "keyword": None},
     {"site": "FANZA",   "service": "ebook",  "floor": "tl",             "genre": "comic_tl",  "label": "FANZA商業_TL", "keyword": None},
@@ -228,7 +231,7 @@ def _fetch_with_retry(url, session=None, headers=None, params=None, timeout=15, 
 
 def _make_fanza_session():
     session = requests.Session()
-    for domain in [".dmm.co.jp", ".book.dmm.co.jp", "book.dmm.co.jp", ".dmm.co.jp"]:
+    for domain in [".dmm.co.jp", ".book.dmm.co.jp", "book.dmm.co.jp", ".dmm.co.jp", ".lovecul.dmm.co.jp"]:
         session.cookies.set("age_check_done", "1", domain=domain)
         session.cookies.set("ckcy", "1", domain=domain)
     return session
@@ -734,6 +737,11 @@ def fetch_and_stock_all():
             p_url = item.get("URL") or item.get("url") or ""
             if not p_url: continue
             title_str = item.get("title", "")
+            # ボイス・ASMR作品の除外（らぶカル等のBL/TLフロアに混在するため）
+            _img_large = item.get("imageURL", {}).get("large", "")
+            if "/voice/" in _img_large:
+                logger.info(f"  [ボイス作品除外] 画像URLにvoiceパスを検出: {title_str[:40]}")
+                continue
             if _is_thin_content(title_str, item):
                 logger.info(f"  [薄いコンテンツ除外] {title_str[:40]}")
                 continue
@@ -835,8 +843,8 @@ def fetch_and_stock_all():
                 )
                 if is_novel_official:
                     save_genre = save_genre.replace("comic_", "novel_").replace("doujin_", "novel_")
-                elif is_comic_official or fc == "digital_doujin":
-                    if fc == "digital_doujin":
+                elif is_comic_official or fc.startswith("digital_doujin"):
+                    if fc.startswith("digital_doujin"):
                         save_genre = save_genre.replace("novel_", "doujin_").replace("comic_", "doujin_")
                     else:
                         save_genre = save_genre.replace("novel_", "comic_").replace("doujin_", "comic_")

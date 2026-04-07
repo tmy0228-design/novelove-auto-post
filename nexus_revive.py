@@ -207,6 +207,8 @@ def fetch_fanza_sale_product_ids():
     # BL/TL × 同人/商業 の全フロアを巡回
     floors = [
         {"site": "FANZA", "service": "doujin", "floor": "digital_doujin"},
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_bl"},  # らぶカルBL
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_tl"},  # らぶカルTL
         {"site": "FANZA", "service": "ebook",  "floor": "bl"},
         {"site": "FANZA", "service": "ebook",  "floor": "tl"},
         {"site": "DMM.com", "service": "ebook", "floor": "comic"},

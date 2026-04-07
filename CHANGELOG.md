@@ -1,7 +1,20 @@
 # Changelog
 
-## [v13.4.0] - 2026-04-07
-### Refactor (環境依存ハードコードの排除)
+## [v13.6.0] - 2026-04-07
+### Added (らぶカル/LoveCal 完全統合)
+- **`novelove_fetcher.py`**:
+  - `FETCH_TARGETS` にFANZAの同人新フロア `digital_doujin_bl`, `digital_doujin_tl`（らぶカル）を追加。
+  - `_make_fanza_session` のCookieに `.lovecul.dmm.co.jp` を追加し、年齢確認ブロックを回避可能に。
+  - ボイス/ASMR作品（画像URLに `/voice/` を含む）の除外フィルターを追加。
+  - `floor_code` 判定条件を `== "digital_doujin"` から `startswith("digital_doujin")` へ緩和し、新フロアを自動仕分け。
+- **`nexus_revive.py`**:
+  - セール情報検知の対象に `digital_doujin_bl`, `digital_doujin_tl` を追加し、検知漏れバグを未然に修正。
+- **`nexus_dashboard.py`**:
+  - ダッシュボードのDBステータス表示において、URLが `lovecul.dmm.co.jp` の場合はソース名を「らぶカル」として視覚的に分かりやすく識別する機能を追加。
+- **`SPECIFICATIONS.md`**:
+  - FANZA同人の判定ルールに「らぶカルフロア」の基準を追記。
+
+### [v13.4.0] - 2026-04-07
 - **`novelove_core.py`**: WP-CLI環境依存パス（`WP_PHP_PATH`, `WP_CLI_PATH`, `WP_DOC_ROOT`）を環境変数一元管理セクションに追加。デフォルト値として現在のKUSANAGIパスを保持するため既存動作に影響なし。
 - **`auto_post.py`**: `php_path`, `wp_path`, `doc_root` を `os.environ.get()` で取得するよう変更。サーバー移転時は `.env` を更新するだけで対応可能。
 - **`nexus_rewrite.py`** / **`nexus_dashboard.py`**: SSH経由WP-CLI実行時の `doc_root` も同様に環境変数化。
