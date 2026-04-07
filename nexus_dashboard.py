@@ -220,6 +220,14 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
     if "description" in display.columns:
         display["文字数"] = display["description"].apply(lambda d: len(str(d).strip()) if pd.notna(d) and d != "None" else 0)
 
+    # GSCインデックス状況
+    if "gsc_indexed" in display.columns:
+        def format_gsc(val):
+            if pd.isna(val):
+                return "-"
+            return "✅" if int(val) == 1 else "❌"
+        display["📶 GSC"] = display["gsc_indexed"].apply(format_gsc)
+
     # 表示カラムを整理
     rename_map = {
         "product_id":  "作品ID",
@@ -831,6 +839,15 @@ def main():
 
         st.markdown("<br>", unsafe_allow_html=True)
 
+        # GSCフィルター
+        if "gsc_indexed" in df.columns:
+            gsc_options = ["全て", "✅ 登録済のみ", "❌ 未登録のみ"]
+            selected_gsc_filter = st.radio("📶 GSCインデックス", options=gsc_options, horizontal=True)
+        else:
+            selected_gsc_filter = "全て"
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
         # セール中のみ
         only_sale = st.checkbox("🔥 セール中のみ")
 
@@ -868,6 +885,12 @@ def main():
             (filtered["desc_score"] >= score_range[0]) &
             (filtered["desc_score"] <= score_range[1])
         ]
+
+    if selected_gsc_filter != "全て" and "gsc_indexed" in filtered.columns:
+        if "登録済" in selected_gsc_filter:
+            filtered = filtered[filtered["gsc_indexed"] == 1]
+        elif "未登録" in selected_gsc_filter:
+            filtered = filtered[filtered["gsc_indexed"] == 0]
 
     if only_sale and "sale_discount_rate" in filtered.columns:
         filtered = filtered[filtered["sale_discount_rate"] > 0]
@@ -911,16 +934,31 @@ def main():
                     "サーバーで `python nexus_gsc.py` を実行してください。"
                 )
             else:
+                # ── リライト直後（14日以内）の記事は猶予期間として死に記事から除外 ──
+                import datetime
+                now = pd.Timestamp.now()
+                cutoff_14d = now - pd.Timedelta(days=14)
+                
+                is_recent_rewrite = (
+                    gsc_checked["last_rewritten_at"].notna() & 
+                    (pd.to_datetime(gsc_checked["last_rewritten_at"], errors='coerce') > cutoff_14d)
+                )
+                gsc_target = gsc_checked[~is_recent_rewrite]
+                
+                recent_count = is_recent_rewrite.sum()
+                if recent_count > 0:
+                    st.caption(f"ℹ️ リライトから14日以内の記事（{recent_count}件）は再評価待ちのためアラートから除外しています。")
+
                 # 死に記事 3レベルに分類
-                lv1 = gsc_checked[gsc_checked["gsc_indexed"] == 0]
-                lv2 = gsc_checked[
-                    (gsc_checked["gsc_indexed"] == 1) &
-                    (gsc_checked["gsc_impressions"] == 0)
+                lv1 = gsc_target[gsc_target["gsc_indexed"] == 0]
+                lv2 = gsc_target[
+                    (gsc_target["gsc_indexed"] == 1) &
+                    (gsc_target["gsc_impressions"] == 0)
                 ]
-                lv3 = gsc_checked[
-                    (gsc_checked["gsc_indexed"] == 1) &
-                    (gsc_checked["gsc_impressions"] > 0) &
-                    (gsc_checked["gsc_clicks"] == 0)
+                lv3 = gsc_target[
+                    (gsc_target["gsc_indexed"] == 1) &
+                    (gsc_target["gsc_impressions"] > 0) &
+                    (gsc_target["gsc_clicks"] == 0)
                 ]
 
                 # サマリーカード
@@ -940,14 +978,20 @@ def main():
                         continue
                     with st.expander(f"{level_name} — {len(level_df)}件", expanded=(color_emoji == "🔴")):
                         show_dead_cols = [c for c in [
-                            "product_id", "title", "gsc_impressions", "gsc_clicks",
+                            "product_id", "title", "gsc_indexed", "gsc_impressions", "gsc_clicks",
                             "gsc_last_checked", "published_at",
                             "last_rewritten_at",
                         ] if c in level_df.columns]
                         dead_display = level_df[show_dead_cols].copy()
+
+                        # 0/1 を ❌/✅ に変換
+                        if "gsc_indexed" in dead_display.columns:
+                            dead_display["gsc_indexed"] = dead_display["gsc_indexed"].apply(lambda v: "✅" if pd.notna(v) and int(v) == 1 else "❌")
+
                         dead_display.columns = [
                             c.replace("product_id", "作品ID")
                              .replace("title", "タイトル")
+                             .replace("gsc_indexed", "📶 GSC")
                              .replace("gsc_impressions", "表示回数")
                              .replace("gsc_clicks", "クリック数")
                              .replace("gsc_last_checked", "GSC最終確認")
@@ -1003,7 +1047,7 @@ def main():
 
             # 表示するカラム（日付は並べて配置）
             show_cols_priority = [
-                "ステータス", "期待値", "文字数", "記事種別", "DB", "タイトル", "📝",
+                "ステータス", "📶 GSC", "期待値", "文字数", "記事種別", "DB", "タイトル", "📝",
                 "ジャンル", "担当", "スコア", "タグ", "セール", 
                 "発売日", "公開日", "📅 最終リライト", "取得日", "エラー",
             ]
@@ -1021,6 +1065,7 @@ def main():
 
             # 列幅と順番を再整理（潰れないように minWidth を明示定設定）
             gb_main.configure_column("ステータス", width=120, minWidth=120, sortable=True)
+            gb_main.configure_column("📶 GSC",    width=80,  minWidth=80,  sortable=True)
             gb_main.configure_column("期待値",   width=80,  minWidth=80,  sortable=True)
             gb_main.configure_column("文字数",   width=80,  minWidth=80,  sortable=True)
             gb_main.configure_column("記事種別", width=100, minWidth=100, sortable=True)

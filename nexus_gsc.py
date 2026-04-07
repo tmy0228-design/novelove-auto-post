@@ -44,7 +44,13 @@ GSC_SERVICE_ACCOUNT_JSON = os.environ.get("GSC_SERVICE_ACCOUNT_JSON", "")
 GSC_SITE_URL             = os.environ.get("GSC_SITE_URL", "")
 
 # === 死に記事判定の閾値 ===
-DEAD_ARTICLE_DAYS      = 30   # 公開後この日数を超えたら対象
+DEAD_ARTICLE_DAYS      = 30   # 公開後この日数を超えたら死に記事アラート対象
+
+# === GSC インデックス確認: 安全装置 ===
+INSPECT_DAYS_MIN       = 14   # 公開後最低この日数以上の記事を確認対象にする
+INSPECT_RECHECK_DAYS   = 7    # 同一記事を再チェックするまでの最少日数
+INSPECT_DAILY_LIMIT    = 1000 # 1日の上限。超えたら安全のため打ち切り
+
 DEAD_LEVEL1_UNINDEXED  = True  # レベル1: 未インデックス
 DEAD_LEVEL2_ZERO_IMPR  = True  # レベル2: インデックス済み・表示0
 DEAD_LEVEL3_ZERO_CLICK = True  # レベル3: 表示あり・クリック0
@@ -167,25 +173,31 @@ def run_gsc():
         return
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    threshold_date = (datetime.now() - timedelta(days=DEAD_ARTICLE_DAYS)).strftime("%Y-%m-%d")
+    threshold_date      = (datetime.now() - timedelta(days=DEAD_ARTICLE_DAYS)).strftime("%Y-%m-%d")
+    inspect_since_date  = (datetime.now() - timedelta(days=INSPECT_DAYS_MIN)).strftime("%Y-%m-%d")
+    recheck_cutoff      = (datetime.now() - timedelta(days=INSPECT_RECHECK_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
 
     dead_lv1 = []  # 未インデックス
     dead_lv2 = []  # 表示0
     dead_lv3 = []  # クリック0
+    inspect_count = 0  # 今日の Inspection API 呼び出し数
 
     for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
         if not os.path.exists(db_path):
             continue
+        if inspect_count >= INSPECT_DAILY_LIMIT:
+            logger.warning(f"  [GSC] 日次上限 {INSPECT_DAILY_LIMIT}件に達したため残りの DB はスキップ")
+            break
         try:
             conn = db_connect(db_path)
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                """SELECT product_id, wp_post_url, published_at
+                """SELECT product_id, wp_post_url, published_at, gsc_last_checked
                    FROM novelove_posts
                    WHERE status='published'
                      AND wp_post_url != '' AND wp_post_url IS NOT NULL
                      AND published_at <= ?""",
-                (threshold_date,)
+                (inspect_since_date,)
             ).fetchall()
             conn.close()
         except Exception as e:
@@ -193,12 +205,22 @@ def run_gsc():
             continue
 
         for row in rows:
+            if inspect_count >= INSPECT_DAILY_LIMIT:
+                logger.warning(f"  [GSC] 日次上限に達したため記事ループを退出")
+                break
+
             pid = row["product_id"]
             url = row["wp_post_url"]
+            last_checked = row["gsc_last_checked"]
 
-            url_slash = url if url.endswith('/') else url + '/'
+            # ━━ 7日以内に確認済みの記事は再チェックをスキップ ━━
+            if last_checked and last_checked >= recheck_cutoff:
+                logger.debug(f"  [GSC] {pid} — {INSPECT_RECHECK_DAYS}日以内に済みのためスキップ (last_checked={last_checked[:10]})")
+                continue
+
+            url_slash    = url if url.endswith('/') else url + '/'
             url_no_slash = url.rstrip('/')
-            gsc_info    = url_data.get(url_slash) or url_data.get(url_no_slash)
+            gsc_info     = url_data.get(url_slash) or url_data.get(url_no_slash)
 
             impressions = gsc_info["impressions"] if gsc_info else 0
             clicks      = gsc_info["clicks"]      if gsc_info else 0
@@ -206,6 +228,7 @@ def run_gsc():
             # インデックス確認（表示が0のURL のみ Inspection API 呼び出し）
             if gsc_info is None or impressions == 0:
                 indexed = check_indexed(service, url)
+                inspect_count += 1
             else:
                 indexed = True  # 表示があればインデックス済みとみなす
 
@@ -232,13 +255,17 @@ def run_gsc():
                 logger.error(f"  [DB] GSC 更新失敗 ({pid}): {e}")
                 continue
 
-            # 死に記事判定
-            if DEAD_LEVEL1_UNINDEXED and not indexed:
-                dead_lv1.append({"pid": pid, "url": url})
-            elif DEAD_LEVEL2_ZERO_IMPR and indexed and impressions == 0:
-                dead_lv2.append({"pid": pid, "url": url})
-            elif DEAD_LEVEL3_ZERO_CLICK and indexed and impressions > 0 and clicks == 0:
-                dead_lv3.append({"pid": pid, "url": url})
+            # 死に記事判定（公開30日以上の記事のみアラート対象）
+            published_at_str = row["published_at"] if row["published_at"] else ""
+            is_old_enough = published_at_str <= threshold_date
+
+            if is_old_enough:
+                if DEAD_LEVEL1_UNINDEXED and not indexed:
+                    dead_lv1.append({"pid": pid, "url": url})
+                elif DEAD_LEVEL2_ZERO_IMPR and indexed and impressions == 0:
+                    dead_lv2.append({"pid": pid, "url": url})
+                elif DEAD_LEVEL3_ZERO_CLICK and indexed and impressions > 0 and clicks == 0:
+                    dead_lv3.append({"pid": pid, "url": url})
 
     # --- Discord 通知 ---
     _send_discord_summary(dead_lv1, dead_lv2, dead_lv3)
