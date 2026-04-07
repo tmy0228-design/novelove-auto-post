@@ -1,4 +1,4 @@
-# Novelove システム技術マスタードキュメント (v13.2.2)
+# Novelove システム技術マスタードキュメント (v13.2.3)
 
 本ドキュメントは、Novelove（ノベラブ）自動投稿エンジンの全仕様を網羅した「最上位の設計書」です。他の AI や開発者が、ソースコードを読まずともシステムの全貌を完璧に把握し、保守・拡張ができるように記述されています。
 ※ サーバー構成や運用ルール、AIアシスタント向けの引き継ぎ情報については `CLAUDE.md` を併せて参照してください。
@@ -169,6 +169,23 @@ KUSANAGIのページキャッシュ（bcache）は、サイトの安定運用期
 > - **Cocoon Lazy Load除外設定の罠**: Cocoon設定 → 高速化 → Lazy Load設定 → 「遅延読み込みから除外」に `fifu-featured` を入れると、**28枚全てのFIFU画像**から `loading="lazy"` が除去される。結果、ブラウザが全画像を一斉ダウンロードし、スコアが 83→63 に大幅悪化する。**絶対に使用しないこと。**
 > - **`post_thumbnail_html` フィルターの無効性**: Cocoonの Lazy Load は最終HTMLに対して出力バッファ（ob_start）で `loading="lazy"` を付与するため、WordPress標準の `post_thumbnail_html` フィルターで除去しても、Cocoonが後から再付与する。そのため ob_start を「Cocoonより外側（優先度 -999）」で登録し、Cocoonの処理後に修正する方式が必要。
 > - **MUプラグインによる介入は非推奨**: `wp-content/mu-plugins/` に独自プラグインを作成してLCP最適化を試みたが、Cocoonのob_startとの優先度制御が困難であり、効果が安定しなかった。`functions.php` への直接記述が最も確実。
+
+#### A+C画像戦略（FIFU軽量サムネ分離 - v13.2.3）
+外部画像（DMM/DLsite/DigiKet）のページ重量を最小化するため、**アイキャッチ画像（FIFU）と記事本文内画像で異なるURLを使い分ける**設計です。
+
+- **アイキャッチ（FIFU）**: `_get_thumbnail_url()` で生成した**軽量サムネURL**を使用。一覧ページや関連記事カードで大量にロードされるため、ファイルサイズの最小化が最優先。
+    - DLsite: `/modpub/..._img_main.jpg`（約200KB）→ `/resize/..._img_main_300x300.webp`（約18KB）
+    - DMM ebook: `...pl.jpg`（約150KB）→ `...ps.jpg`（約16KB）
+    - DigiKet: `..._1.jpg`（約100KB）→ `..._a_200x150.jpg`（約10KB）
+    - FANZA同人（doujin-assets）: 軽量版が存在しないため変換せずそのまま使用。
+- **記事本文内画像**: オリジナルの**大きい画像URL**をそのまま `<img>` タグで埋め込み。記事を開いたユーザーには高品質な画像を表示。
+- **実装箇所**:
+    - `_get_thumbnail_url()` (auto_post.py): URL変換ロジック。
+    - `post_to_wordpress()` (auto_post.py): REST APIの `fifu_image_url` メタおよびWP-CLIの `fifu_dev_set_image` の両方に `fifu_url`（軽量版）を渡す。
+
+> [!CAUTION]
+> **WP-CLIの `fifu_dev_set_image` には必ず `fifu_url`（軽量サムネ）を渡すこと。**
+> 過去にこの引数に `image_url`（大きい画像）を渡していたため、REST API側で正しく設定した軽量URLがWP-CLIによって上書きされ、A+C戦略が無効化されていた（v13.2.3で修正済み）。
 
 ---
 
