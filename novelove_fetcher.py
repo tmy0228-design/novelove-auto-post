@@ -464,6 +464,13 @@ def scrape_description(product_url, site="FANZA", genre=""):
         )
         r.encoding = r.apparent_encoding
         text = r.text
+        
+        # バッジ判定のキャッシュ（後でfetch_fanza_items側から参照）
+        global _fanza_excl_cache
+        if '_fanza_excl_cache' not in globals():
+            _fanza_excl_cache = {}
+        _fanza_excl_cache[product_url] = bool(re.search(r'c_icon_exclusive|-exclusive|senbai', text, re.I))
+
         soup = BeautifulSoup(text, "html.parser")
         is_comic = False
         has_format_tag = False
@@ -812,7 +819,11 @@ def fetch_and_stock_all():
                 _genre_names = [g.get("name", "") if isinstance(g, dict) else str(g) for g in _item_genres]
                 _fanza_tags = [g for g in _genre_names if g and g not in _fanza_noise]
                 item["_original_tags"] = ",".join(_fanza_tags[:10])
-                item["_is_exclusive"] = 1 if "独占販売" in _genre_names else 0
+                
+                # API判定とHTMLソースからのバッジ判定（キャッシュ）を統合
+                is_excl_api = 1 if "独占販売" in _genre_names else 0
+                is_excl_html = 1 if globals().get('_fanza_excl_cache', {}).get(item.get("URL", ""), False) else 0
+                item["_is_exclusive"] = 1 if (is_excl_api or is_excl_html) else 0
             # アフィリエイトURL生成
             image_url = item.get("imageURL", {}).get("large", "")
             if site == "DLsite":
@@ -947,7 +958,7 @@ def fetch_digiket_items():
                             _key_str = re.sub(r"<[^>]+>", " ", _key_str)
                             _dk_keys = [k.strip() for k in re.split(r"[、,\s]+", _key_str) if k.strip()]
                             _dk_keys = [k for k in _dk_keys if k not in {"フルカラー", "モノクロ"}]
-                        _dk_is_excl = any(kw in _dk_text for kw in ("デジケット限定", "DiGiket専売", "DigiKet限定", "限定配信"))
+                        _dk_is_excl = bool(re.search(r"digiket(?:限定|専売)|デジケット(?:限定|専売)|限定配信|専売", _dk_text, re.IGNORECASE))
                         _dk_tags_str = ",".join(_dk_keys[:10])
                     except Exception:
                         _dk_tags_str = ""
