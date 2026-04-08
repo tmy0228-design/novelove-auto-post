@@ -1192,9 +1192,9 @@ def _execute_posting_flow(row, cursor, conn):
         inventory_list = []
         if os.path.exists(DB_FILE_FANZA):
             _c = db_connect(DB_FILE_FANZA)
-            c_fanza = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site NOT LIKE '%ebook%' AND site NOT LIKE '%digital_doujin_bl%' AND site NOT LIKE '%digital_doujin_tl%'").fetchone()[0]
-            c_lovecal = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND (site LIKE '%digital_doujin_bl%' OR site LIKE '%digital_doujin_tl%')").fetchone()[0]
-            c_dmm = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE '%ebook%'").fetchone()[0]
+            c_lovecal = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND product_url LIKE '%lovecul.dmm.co.jp%'").fetchone()[0]
+            c_dmm     = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE '%ebook%' AND product_url NOT LIKE '%lovecul.dmm.co.jp%'").fetchone()[0]
+            c_fanza   = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site NOT LIKE '%ebook%' AND product_url NOT LIKE '%lovecul.dmm.co.jp%'").fetchone()[0]
             inventory_list.extend([f"FANZA {c_fanza}", f"DMM {c_dmm}", f"らぶカル {c_lovecal}"])
             _c.close()
         if os.path.exists(DB_FILE_DLSITE):
