@@ -1369,7 +1369,7 @@ def fetch_ranking_digiket(genre):
                     itm_id = _m.group(1)
                     if itm_id in seen_ids: continue
                     seen_ids.add(itm_id)
-                    desc, img, _, _, _ = scrape_digiket_description(link)
+                    desc, img, _, _, _, _ = scrape_digiket_description(link)
                     aff_url = link
                     if DIGIKET_AFFILIATE_ID:
                         if not aff_url.endswith("/"): aff_url += "/"
@@ -1389,7 +1389,7 @@ def fetch_ranking_digiket(genre):
                 title = entry.find("title").text
                 link = entry.find("link").text
                 # 詳細を取得
-                desc, img, _, _, _ = scrape_digiket_description(link)
+                desc, img, _, _, _, _ = scrape_digiket_description(link)
                 # 漫画・小説のみ (DigiKetはカテゴリ名に文字列が含まれる)
                 if not any(x in str(entry) for x in ["コミック", "小説", "マンガ", "ノベル"]):
                     continue
@@ -1424,7 +1424,7 @@ def fetch_ranking_digiket(genre):
             link = href
             if not link.startswith("http"): link = "https://www.digiket.com" + link
             # 種別確認
-            desc, img, _, _, _ = scrape_digiket_description(link)
+            desc, img, _, _, _, _ = scrape_digiket_description(link)
             if not any(x in (title + desc) for x in ["コミック", "小説", "マンガ", "ノベル"]): continue
             aff_url = link
             if DIGIKET_AFFILIATE_ID:
