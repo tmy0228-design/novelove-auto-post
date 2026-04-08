@@ -469,7 +469,7 @@ def scrape_description(product_url, site="FANZA", genre=""):
         global _fanza_excl_cache
         if '_fanza_excl_cache' not in globals():
             _fanza_excl_cache = {}
-        _fanza_excl_cache[product_url] = bool(re.search(r'c_icon_exclusive|-exclusive|senbai', text, re.I))
+        _fanza_excl_cache[product_url] = bool(re.search(r'c_icon_exclusive', text))
 
         soup = BeautifulSoup(text, "html.parser")
         is_comic = False
@@ -958,7 +958,7 @@ def fetch_digiket_items():
                             _key_str = re.sub(r"<[^>]+>", " ", _key_str)
                             _dk_keys = [k.strip() for k in re.split(r"[、,\s]+", _key_str) if k.strip()]
                             _dk_keys = [k for k in _dk_keys if k not in {"フルカラー", "モノクロ"}]
-                        _dk_is_excl = bool(re.search(r"digiket(?:限定|専売)|デジケット(?:限定|専売)|限定配信|専売", _dk_text, re.IGNORECASE))
+                        _dk_is_excl = bool(re.search(r"digiket(?:限定|専売)|デジケット(?:限定|専売)|限定配信", _dk_text, re.IGNORECASE))
                         _dk_tags_str = ",".join(_dk_keys[:10])
                     except Exception:
                         _dk_tags_str = ""
