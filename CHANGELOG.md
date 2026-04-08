@@ -1,5 +1,18 @@
 # Changelog
 
+## [v13.7.2] - 2026-04-09
+### Fixed (DigiKet 専売判定の致命的バグ修正)
+- **DigiKet `is_exclusive` 戻り値の受け漏れ (`novelove_fetcher.py`)**:
+  - `fetch_digiket_items()` 内で `scrape_digiket_description()` を呼び出す際、関数が返す6値のうち5値のみで受け取っており、6番目の `is_exclusive` が常に破棄されていた**致命的バグ**を修正。
+  - これにより、DigiKet限定作品の `is_exclusive` フラグがDB上で常に0（非専売）となり、`DigiKet限定` タグが一切付与されない状態が**v12.7.0（初実装）から約2週間**続いていた。
+  - 修正: 6値で正しく受け取り、`scrape_digiket_description()` のDOM判定結果（`digiket.gif` バッジ / `<a>DiGiket限定</a>`）を直接使用するように変更。
+- **冗長な正規表現フォールバックの廃止 (`novelove_fetcher.py`)**:
+  - 代替として実装されていた `_dk_text` 全文からの正規表現判定（`digiket(?:限定|専売)`）を廃止。全ページ共通のサイドバーメニュー「DiGiket限定作品」にマッチしてしまう設計上の欠陥があった。
+- **`auto_post.py` のタグ名を仕様書準拠に修正**:
+  - 「FANZA専売」→「FANZA独占」に修正（SPECIFICATIONS.md §2-3 準拠）。v13.5.1事故の再発防止。
+- **SPECIFICATIONS.md の大幅強化**:
+  - 正式タグ名テーブル（全5サイト）、各サイトの判定方法、v13.5.1事故の教訓、DigiKet戻り値バグの詳細を追記。
+
 ## [v13.7.1] - 2026-04-08
 ### Fixed (専売・独占タグ判定の全サイト100%精度化)
 - **DigiKet (`novelove_fetcher.py`)**:

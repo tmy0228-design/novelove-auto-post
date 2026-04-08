@@ -979,9 +979,10 @@ def fetch_digiket_items():
                     genre = _classify_digiket_genre(genre_tags, target_id)
                     if genre is None: continue
 
-                    # v11.3.1/v11.3.2: 詳細スクレイピングでページ数と公式カテゴリを取得
-                    desc_full, og_image_full, d_pages, d_format, d_date = scrape_digiket_description(product_url)
-                    # DigiKet キータグ・専売判定
+                    # v11.3.1/v11.3.2/v13.5.1: 詳細スクレイピングでページ数・公式カテゴリ・専売判定を取得
+                    # ★v13.5.1修正: 6番目の戻り値(is_exclusive)を正しく受け取る（以前は5値で受けて捨てていた致命的バグ）
+                    desc_full, og_image_full, d_pages, d_format, d_date, _dk_is_excl_from_scrape = scrape_digiket_description(product_url)
+                    # DigiKet キータグ取得（専売判定はscrape_digiket_descriptionの結果を信頼源とする）
                     try:
                         _dk_r = _fetch_with_retry(product_url, headers=HEADERS, timeout=10, label="DigiKet詳細(キータグ取得)")
                         if _dk_r is None: raise Exception("DigiKet詳細取得失敗")
@@ -994,11 +995,11 @@ def fetch_digiket_items():
                             _key_str = re.sub(r"<[^>]+>", " ", _key_str)
                             _dk_keys = [k.strip() for k in re.split(r"[、,\s]+", _key_str) if k.strip()]
                             _dk_keys = [k for k in _dk_keys if k not in {"フルカラー", "モノクロ"}]
-                        _dk_is_excl = bool(re.search(r"digiket(?:限定|専売)|デジケット(?:限定|専売)|限定配信", _dk_text, re.IGNORECASE))
                         _dk_tags_str = ",".join(_dk_keys[:10])
                     except Exception:
                         _dk_tags_str = ""
-                        _dk_is_excl = False
+                    # 専売判定: scrape_digiket_descriptionのDOM判定結果（digiket.gif / <a>DiGiket限定</a>）を使用
+                    _dk_is_excl = _dk_is_excl_from_scrape
                     time.sleep(1.0)
 
                     if d_format == "comic":
