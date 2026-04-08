@@ -1,5 +1,11 @@
 # Changelog
 
+## [v13.7.3] - 2026-04-09
+### Fixed (DigiKetランキング取得のunpackエラー修正)
+- **`auto_post.py`**:
+  - DigiKetランキング記事生成時に `scrape_digiket_description()` を呼び出す3箇所が、v13.7.2で6値返却に変更された関数を5変数で受けたままだったため `too many values to unpack (expected 5)` エラーが発生していた。
+  - L1372, L1392, L1427 の3箇所すべてを6変数（`desc, img, _, _, _, _`）で受け取るように修正。
+
 ## [v13.7.2] - 2026-04-09
 ### Fixed (DigiKet 専売判定の致命的バグ修正)
 - **DigiKet `is_exclusive` 戻り値の受け漏れ (`novelove_fetcher.py`)**:
