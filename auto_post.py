@@ -1137,11 +1137,11 @@ def _execute_posting_flow(row, cursor, conn):
     final_ai_tags = ai_tags_from_ai
 
     # v13.5.1: 専売タグの付与（DBの is_exclusive フラグに基づく厳密なDOM判定結果）
-    is_exclusive = row.get("is_exclusive", 0) == 1
+    is_exclusive = (row["is_exclusive"] if "is_exclusive" in row.keys() else 0) == 1
     if is_exclusive:
         _normalized = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet"}
         _sn = _normalized.get(site_label, site_label)
-        excl_tag = {"DLsite": "DLsite専売", "FANZA": "FANZA独占", "DigiKet": "DigiKet限定"}.get(_sn, "")
+        excl_tag = {"DLsite": "DLsite専売", "FANZA": "FANZA専売", "DMM": "FANZA専売", "DigiKet": "DigiKet限定"}.get(_sn, "")
         if not excl_tag and "らぶカル" in str(site_label):
             excl_tag = "らぶカル独占"
         if excl_tag and excl_tag not in final_ai_tags:

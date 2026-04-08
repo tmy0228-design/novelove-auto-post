@@ -522,7 +522,7 @@ def scrape_description(product_url, site="FANZA", genre=""):
                     break
         if has_format_tag and not is_comic and not is_novel_target:
             logger.warning(f"[FANZA] マンガ以外の形式のため除外: {product_url}")
-            return "__EXCLUDED_TYPE__"
+            return "__EXCLUDED_TYPE__", False
         page_title_tag = soup.find("title")
         page_title_str = page_title_tag.text if page_title_tag else ""
         FOREIGN_TITLE_PATTERNS = [
@@ -533,10 +533,10 @@ def scrape_description(product_url, site="FANZA", genre=""):
         for bc in bracket_contents:
             if any(fp in bc for fp in FOREIGN_TITLE_PATTERNS):
                 logger.warning(f"[FANZA] 外国語版タイトルパターン（{bc}）のため除外: {product_url}")
-                return "__EXCLUDED_TYPE__"
+                return "__EXCLUDED_TYPE__", False
         if any(kw in text for kw in ["カテゴリー</th><td>写真集", "カテゴリー</th><td>グラビア", "カテゴリー</th><td>文芸・小説", "カテゴリー</th><td>ライトノベル"]):
             logger.warning(f"[FANZA] 禁止カテゴリーを検知: {product_url}")
-            return "__EXCLUDED_TYPE__"
+            return "__EXCLUDED_TYPE__", False
         next_tag = soup.find("script", id="__NEXT_DATA__")
         if next_tag:
             try:
@@ -544,7 +544,7 @@ def scrape_description(product_url, site="FANZA", genre=""):
                 p = ndata.get("props", {}).get("pageProps", {})
                 desc = p.get("product", {}).get("description") or p.get("data", {}).get("description", "")
                 if desc and len(desc.strip()) > 50:
-                    return desc.strip()
+                    return desc.strip(), is_excl_html
             except Exception:
                 pass
         # JSペイロード内の生テキスト検索 (SPA構造対応)
@@ -557,7 +557,7 @@ def scrape_description(product_url, site="FANZA", genre=""):
                     best_desc = decoded
             except Exception:
                 continue
-        if len(best_desc) > 50: return best_desc
+        if len(best_desc) > 50: return best_desc, is_excl_html
         
         for p_tag in soup.find_all("p"):
             classes = " ".join(p_tag.get("class", []))
