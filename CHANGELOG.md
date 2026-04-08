@@ -1,5 +1,18 @@
 # Changelog
 
+## [v13.7.1] - 2026-04-08
+### Fixed (専売・独占タグ判定の全サイト100%精度化)
+- **DigiKet (`novelove_fetcher.py`)**:
+  - 専売判定の文字列マッチを `re.IGNORECASE` 対応に変更。サイト側の表記揺れ（`DiGiket限定` など大文字小文字混在）による取りこぼしを完全解消。
+  - 偽陽性リスクのある単独キーワード `|専売` を判定パターンから除去し、`digiket限定/専売` `デジケット限定/専売` `限定配信` のプレフィックス付きに限定。
+- **FANZA / DMM.com / らぶカル (`novelove_fetcher.py`)**:
+  - APIジャンルタグに「独占販売」が含まれない商業作品でも専売判定が行えるよう、HTMLソース内の `c_icon_exclusive` バッジを直接検出するフォールバックロジックを追加。
+  - `scrape_description()` 内でバッジ検出結果をキャッシュし、後段の `fetch_fanza_items()` でAPIジャンル判定と統合して `is_exclusive` を決定する二段構え方式を採用。
+- **DLsite**: 変更なし（既存の `type_exclusive` / `title="専売"` 判定で100%動作済み）。
+
+### 検証結果
+- 全5プラットフォーム（DLsite / DigiKet / Lovecal / FANZA商業 / FANZA同人）において、実データ（専売＋非専売の対照テスト）で誤検知・取りこぼしゼロを確認済み。
+
 ## [v13.7.0] - 2026-04-07
 ### Added & Changed (らぶカルの完全独立化とデータ修復)
 - **過去データのDB完全移行 (`tools/fix_lovecul_posts.py`)**:
