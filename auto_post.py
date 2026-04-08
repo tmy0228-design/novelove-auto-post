@@ -1136,7 +1136,16 @@ def _execute_posting_flow(row, cursor, conn):
     # タグ: generate_article内で既にDB既存タグへのフォールバック＋専売タグ付与済み
     final_ai_tags = ai_tags_from_ai
 
-
+    # v13.5.1: 専売タグの付与（DBの is_exclusive フラグに基づく厳密なDOM判定結果）
+    is_exclusive = row.get("is_exclusive", 0) == 1
+    if is_exclusive:
+        _normalized = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet"}
+        _sn = _normalized.get(site_label, site_label)
+        excl_tag = {"DLsite": "DLsite専売", "FANZA": "FANZA独占", "DigiKet": "DigiKet限定"}.get(_sn, "")
+        if not excl_tag and "らぶカル" in str(site_label):
+            excl_tag = "らぶカル独占"
+        if excl_tag and excl_tag not in final_ai_tags:
+            final_ai_tags.append(excl_tag)
     link = post_to_wordpress(
         wp_title, content, row["genre"], img_url,
         excerpt=excerpt, seo_title=seo_title, slug=pid, is_r18=is_r18,
@@ -1275,7 +1284,7 @@ def fetch_ranking_dmm_fanza(site, genre):
                 aff_url = (f"https://al.fanza.co.jp/?lurl={encoded_url}&af_id={af_id}{ch_params}"
                            if site == "FANZA" else
                            f"https://al.dmm.com/?lurl={encoded_url}&af_id={af_id}{ch_params}")
-                desc = scrape_description(item.get("URL", ""), site=site, genre=genre)
+                desc, _ = scrape_description(item.get("URL", ""), site=site, genre=genre)
                 if _is_noise_content(title, desc): continue
                 
                 final_items.append({

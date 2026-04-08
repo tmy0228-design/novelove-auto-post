@@ -425,7 +425,7 @@ def scrape_digiket_description(url):
                 description = html.unescape(description)
                 description = _clean_description(description)
 
-                # v11.3.2: 詳細ページの「カテゴリー」ラベルから公式メディア种別を確定
+                # v11.3.2: 詳細ページの「カテゴリー」ラベルから公式メディア種別を確定
                 official_format = None
                 for tbl in soup.find_all("table"):
                     if "カテゴリー" in tbl.get_text():
@@ -439,22 +439,38 @@ def scrape_digiket_description(url):
                                 break
                         if official_format:
                             break
+                
+                # 専売・限定 判定 (v13.5.1 改修: 厳格なDOM・画像判定)
+                is_exclusive = False
+                
+                # ユーザーからのご指摘通り、DigiKet限定作品には必ず専用のバッジ画像が付与される
+                if soup.find('img', src=lambda s: s and 'digiket.gif' in s.lower()):
+                    is_exclusive = True
+                else:
+                    # サブデータ内のテキスト（例：キーワード: DiGiket限定）を念のため確認。
+                    # aタグ完全一致のみとする（本文中テキストは絶対に拾わない）
+                    for a_tag in soup.find_all('a'):
+                        if a_tag.text.strip() == "DiGiket限定":
+                            is_exclusive = True
+                            break
 
-                return description, og_img_url, pages, official_format, release_date
+                return description, og_img_url, pages, official_format, release_date, is_exclusive
             logger.warning(f"  [DigiKet] あらすじ特定失敗: {url}")
-            return "", og_img_url, pages, None, release_date
+            return "", og_img_url, pages, None, release_date, False
     except Exception as e:
         logger.error(f"  [DigiKet] エラー発生: {e}")
-        return "", "", None, None, ""
+        return "", "", None, None, "", False
+
+_fanza_excl_cache = {}
 
 def scrape_description(product_url, site="FANZA", genre=""):
-    if not product_url: return ""
+    if not product_url: return "", False
     if "dlsite" in str(product_url).lower():
         desc, _tags, _excl = scrape_dlsite_description(product_url)
-        return desc
+        return desc, _excl
     if "digiket" in str(product_url).lower():
-        desc, _, _, _, _ = scrape_digiket_description(product_url)
-        return desc
+        desc, _, _, _, _, _excl = scrape_digiket_description(product_url)
+        return desc, _excl
     session = _make_fanza_session()
     try:
         r = session.get(
@@ -465,11 +481,31 @@ def scrape_description(product_url, site="FANZA", genre=""):
         r.encoding = r.apparent_encoding
         text = r.text
         
-        # バッジ判定のキャッシュ（後でfetch_fanza_items側から参照）
+        # 専売判定ロジック (v13.5.1 改修: 厳密なバッジ・システム値検索)
         global _fanza_excl_cache
-        if '_fanza_excl_cache' not in globals():
-            _fanza_excl_cache = {}
-        _fanza_excl_cache[product_url] = bool(re.search(r'c_icon_exclusive', text))
+        is_excl_html = False
+        soup = BeautifulSoup(text, "html.parser")
+        
+        # 1. FANZA同人 / らぶカル の 専売アイコンクラス
+        if soup.find(class_='c_icon_exclusive'):
+            is_excl_html = True
+            
+        # 2. FANZA商業 の 独占タグ（画面上の完全一致Span）
+        elif soup.find('span', string='独占'):
+            is_excl_html = True
+            
+        # 3. FANZA商業向け JSON内部データ (__NEXT_DATA__)
+        if not is_excl_html:
+            next_tag = soup.find("script", id="__NEXT_DATA__")
+            if next_tag:
+                try:
+                    import json
+                    if '"name":"独占販売"' in next_tag.string or '"独占販売"' in next_tag.string:
+                        is_excl_html = True
+                except Exception:
+                    pass
+            
+        _fanza_excl_cache[product_url] = is_excl_html
 
         soup = BeautifulSoup(text, "html.parser")
         is_comic = False
@@ -529,17 +565,17 @@ def scrape_description(product_url, site="FANZA", genre=""):
                 t = p_tag.get_text(separator="\n", strip=True)
                 if len(t) > len(best_desc):
                     best_desc = t
-        if len(best_desc) > 50: return best_desc
+        if len(best_desc) > 50: return best_desc, is_excl_html
         summary = soup.select_one(".summary__txt")
-        if summary and len(summary.text.strip()) > 10: return summary.text.strip()
+        if summary and len(summary.text.strip()) > 10: return summary.text.strip(), is_excl_html
         for selector in [".mg-b20", ".common-description", ".product-description__text"]:
             el = soup.select_one(selector)
-            if el and len(el.text.strip()) > 10: return el.text.strip()
+            if el and len(el.text.strip()) > 10: return el.text.strip(), is_excl_html
         og = soup.find("meta", property="og:description")
-        if og and len(og.get("content", "")) > 10: return og.get("content").strip()
+        if og and len(og.get("content", "")) > 10: return og.get("content").strip(), is_excl_html
     except Exception as e:
         logger.warning(f"スクレイピング失敗 ({product_url}): {e}")
-    return ""
+    return "", False
 
 
 # === DigiKet ジャンル解析ヘルパー ===
@@ -754,9 +790,9 @@ def fetch_and_stock_all():
                 item["_original_tags"] = dl_tags_str
                 item["_is_exclusive"] = 1 if dl_is_exclusive else 0
             else:
-                desc = scrape_description(p_url, site=site, genre=target["genre"])
+                desc, is_excl = scrape_description(p_url, site=site, genre=target["genre"])
                 item["_original_tags"] = ""
-                item["_is_exclusive"] = 0
+                item["_is_exclusive"] = 1 if is_excl else 0
             time.sleep(1.0)
             scraped_data.append((item, desc))
 
@@ -821,7 +857,7 @@ def fetch_and_stock_all():
                 item["_original_tags"] = ",".join(_fanza_tags[:10])
                 
                 # API判定とHTMLソースからのバッジ判定（キャッシュ）を統合
-                is_excl_api = 1 if "独占販売" in _genre_names else 0
+                is_excl_api = 1 if "専売" in _genre_names else 0
                 is_excl_html = 1 if globals().get('_fanza_excl_cache', {}).get(item.get("URL", ""), False) else 0
                 item["_is_exclusive"] = 1 if (is_excl_api or is_excl_html) else 0
             # アフィリエイトURL生成
