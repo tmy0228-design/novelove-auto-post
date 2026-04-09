@@ -628,7 +628,8 @@ def main():
         <style>
         /* デフォルトUIの非表示化 */
         #MainMenu {visibility: hidden;}
-        header {visibility: hidden;}
+        header {background: transparent !important;}
+        [data-testid="stHeader"] {background: transparent !important;}
         footer {visibility: hidden;}
 
         /* 背景とフォント（全体） */
