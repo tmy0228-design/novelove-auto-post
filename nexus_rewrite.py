@@ -29,6 +29,7 @@ nexus_rewrite.py — Novelove リライトエンジン v1.0.0
 
 import os
 import sys
+import time
 import argparse
 import sqlite3
 import requests
@@ -73,12 +74,24 @@ NORMALIZED_LABELS = {
 # 1. ロック管理
 # =====================================================================
 def _acquire_lock():
-    """ロックファイルを取得。既にロック中なら False を返す。"""
+    """ロックファイルを取得。既にロック中なら False を返す。
+    staleロック（1時間以上経過）は自動解除する。
+    """
     if os.path.exists(LOCK_FILE):
-        logger.warning(f"⚠️ リライトロックファイルが存在します: {LOCK_FILE}")
-        logger.warning("  別のリライトプロセスが実行中か、前回正常終了しなかった可能性があります。")
-        logger.warning("  問題なければ手動でファイルを削除してください。")
-        return False
+        # staleロック判定: 作成から1時間以上経過していたら自動解除
+        lock_age = time.time() - os.path.getmtime(LOCK_FILE)
+        if lock_age > 3600:  # 1時間 = 3600秒
+            logger.warning(f"⚠️ リライトロックが{lock_age/60:.0f}分以上経過（stale）のため自動解除します: {LOCK_FILE}")
+            try:
+                os.remove(LOCK_FILE)
+            except Exception as e:
+                logger.error(f"staleロック解除失敗: {e}")
+                return False
+        else:
+            logger.warning(f"⚠️ リライトロックファイルが存在します: {LOCK_FILE}")
+            logger.warning("  別のリライトプロセスが実行中か、前回正常終了しなかった可能性があります。")
+            logger.warning("  問題なければ手動でファイルを削除してください。")
+            return False
     try:
         with open(LOCK_FILE, "w", encoding="utf-8") as f:
             f.write(f"{datetime.now().isoformat()}\n")
@@ -280,7 +293,7 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
         if not SSH_PASS:
             logger.error("  [SSH] セキュリティエラー: SSH_PASS が環境変数に設定されていません。.env を確認してください。")
             return False
-        ssh.connect('novelove.jp', username='root', password=SSH_PASS, timeout=15)
+        ssh.connect('novelove.jp', username='root', password=SSH_PASS, timeout=30)
         
         # シェルコマンドでシングルクォートをエスケープ
         def escape_sh(s):
