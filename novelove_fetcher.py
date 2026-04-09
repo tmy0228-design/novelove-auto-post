@@ -454,6 +454,8 @@ def scrape_digiket_description(url):
                             is_exclusive = True
                             break
 
+                # 戻り値: (description, og_img_url, pages, official_format, release_date, is_exclusive)
+                # ※将来拡張時は NamedTuple 化を検討すること（6要素タプルは unpack エラーの温床: v13.7.2参照）
                 return description, og_img_url, pages, official_format, release_date, is_exclusive
             logger.warning(f"  [DigiKet] あらすじ特定失敗: {url}")
             return "", og_img_url, pages, None, release_date, False
@@ -859,7 +861,7 @@ def fetch_and_stock_all():
                 # API判定とHTMLソースからのバッジ判定（キャッシュ）を統合
                 # ★v13.8.0修正: scrape_description()で既にセットされた値を保持（OR統合）
                 is_excl_api = 1 if "専売" in _genre_names else 0
-                is_excl_html = 1 if globals().get('_fanza_excl_cache', {}).get(item.get("URL", ""), False) else 0
+                is_excl_html = 1 if globals().get('_fanza_excl_cache', {}).get(item.get("URL") or item.get("url") or "", False) else 0
                 is_excl_prev = item.get("_is_exclusive", 0)
                 item["_is_exclusive"] = 1 if (is_excl_prev or is_excl_api or is_excl_html) else 0
             # アフィリエイトURL生成
