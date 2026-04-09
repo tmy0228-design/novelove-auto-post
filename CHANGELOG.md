@@ -1,5 +1,15 @@
 # Changelog
 
+## [v13.9.0] - 2026-04-09
+### Fixed (コードレビュー監査 第4回 — セキュリティ・パフォーマンス・精度改善)
+- **`auto_post.py`**:
+  - 🔴 **セキュリティ修正**: `post_to_wordpress()` のFIFUアイキャッチ設定で `wp eval` による直接PHP実行を廃止。外部APIから取得した画像URLがPHPに注入されるリスクを排除し、`wp post meta update` コマンドに置換。
+  - `is_cross_db_duplicate()` の全件ループ（O(N)問題）を修正。SQLに `ORDER BY published_at DESC LIMIT 1000` を追加し、さらに文字数差30%以上のタイトルは `SequenceMatcher` 計算をスキップする足切りを追加。数千件規模での CPU 爆発を防止。
+  - `_evaluate_article_potential()` のスコア抽出正規表現を `re.search` → `re.findall` に変更。AIが「弱点が1つあるが総合は4」と出力した場合に最初の `1` を拾ってしまう誤爆を修正し、最後に出現した数字を最終スコアとして採用。
+  - `normalize_title()` のカッコ消去正規表現を修正。文字クラスで開き/閉じを個別定義していたため不対応のカッコペア（例: `【あらすじ)`）にもマッチするバグがあった。カッコペアを `|` で列挙する方式に変更。
+- **`novelove_fetcher.py`**:
+  - DigiKetスクレイピングのエンコーディング判定を自力トライデコードループから `BeautifulSoup(r.content, ...)` のUnicodeDammit自動判別に変更。UTF-8バイト列をcp932で誤デコードしてもエラーにならないサイレント文字化けのリスクを排除。
+
 ## [v13.8.2] - 2026-04-09
 ### Fixed (コードレビュー監査 第3回 — リスク修正)
 - **`nexus_gsc.py`**:
