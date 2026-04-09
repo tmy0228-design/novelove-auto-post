@@ -390,7 +390,7 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             # === スコア3：タグ不足チェック（タグ2以下は情報薄と判定してキャンセル） ===
             if ai_score <= 3 and len(ai_tags_from_ai) <= 2:
                 logger.warning(f"  [スコア3 タグ不足] タグ{len(ai_tags_from_ai)}個（2以下）のため執筆キャンセル → thin_score3")
-                return None, None, None, None, False, "thin_score3", model_name, level_name, proc_time, 0, "", [], ai_score
+                return ArticleResult(status="thin_score3", model=model_name, level=level_name, proc_time=proc_time)
 
             # === スコア3：こんな人におすすめのハイブリッド補完 ===
             if ai_score <= 3 and ai_tags_from_ai:
@@ -398,7 +398,7 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
 
             if not _check_image_ok(target["image_url"]):
                 logger.warning(f"  [画像NG] 投稿直前チェックで無効: {target['image_url']}")
-                return None, None, None, None, False, "image_missing", model_name, level_name, proc_time, 0, "", [], ai_score
+                return ArticleResult(status="image_missing", model=model_name, level=level_name, proc_time=proc_time)
 
             img_html = f'<p style="text-align:center;margin:20px 0;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow"><img src="{target["image_url"]}" alt="{target["title"]}" style="max-width:500px;width:100%;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.18);" /></a></p>\n'
             site_raw = target.get("site", "FANZA")
@@ -483,12 +483,26 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             is_r18_val = ":r18=1" in str(target.get("site", ""))
             # 戻り値: (wp_title, full_content, excerpt, seo_title, is_r18, status, model, level, time, words, reviewer, tags, score)
             # ※将来拡張時は NamedTuple 化を検討すること（13要素タプルは保守性リスク）
-            return wp_title, full_content, excerpt, seo_title, is_r18_val, "ok", model_name, level_name, proc_time, word_count, reviewer_name, ai_tags_from_ai, ai_score
+            return ArticleResult(
+                wp_title=wp_title,
+                content=full_content,
+                excerpt=excerpt,
+                seo_title=seo_title,
+                is_r18=is_r18_val,
+                status="ok",
+                model=model_name,
+                level=level_name,
+                proc_time=proc_time,
+                word_count=word_count,
+                reviewer_name=reviewer_name,
+                ai_tags=ai_tags_from_ai,
+                ai_score=ai_score,
+            )
         if error_type == "rate_limit":
             logger.warning("  レート制限 → フィルター試行を中断")
             break
         logger.warning(f"  [{level_name}] 失敗 → 次のフィルターレベルへ")
-    return None, None, None, None, False, final_error, final_model, "None", final_proc_time, 0, "", [], 0
+    return ArticleResult(status=final_error, model=final_model, level="None", proc_time=final_proc_time)
 
 
 def _inject_score3_osusume(content: str, tags: list) -> str:

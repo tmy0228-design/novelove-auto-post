@@ -1,5 +1,20 @@
 # Changelog
 
+## [v14.0.1] - 2026-04-09
+### Fixed (generate_article 戻り値の型不整合を完全修正)
+- **`novelove_writer.py`**:
+  - `generate_article()` の全4箇所の `return` が旧仕様の13要素タプルのままだった致命的バグを修正。`ArticleResult` dataclass インスタンスを返すように統一。
+  - これにより、ダッシュボード（`nexus_dashboard.py`）からのDRY-RUN/本番リライト実行時に `'tuple' object has no attribute 'wp_title'` エラーが発生していた問題を解消。
+- **`auto_post.py`**:
+  - `_execute_posting_flow()` 内の `generate_article()` 呼び出し後のエラーチェックを `res[0]` / `res[5]` 等のインデックスアクセスから `res.wp_title` / `res.status` 等のプロパティアクセスに変更。
+  - 13要素タプルアンパック (`wp_title, content, ... = res`) をプロパティ展開に置き換え。
+- **`nexus_rewrite.py`**:
+  - `generate_article` の import 元を `auto_post`（中継）から `novelove_writer`（実体）に修正。v14.0.0のファイル分割で関数の実体が移動していたにもかかわらず、旧パスのままだった問題を解消。
+- **`tools/backfill_digiket_dates.py`**:
+  - `scrape_digiket_description()` の戻り値を5要素で受け取っていたバグを6要素に修正（`is_exclusive` の受け漏れ）。
+- **`tools/deploy_ultimate_repair.py`** / **`tools/run_ultimate_repair.py`**:
+  - 同様に `scrape_digiket_description()` の旧4要素アンパックを6要素に修正。
+
 ## [v14.0.0] - 2026-04-09
 ### Refactored (ファイル分割 — メンテナンス性向上)
 - **`auto_post.py`** (1816行 → 764行):

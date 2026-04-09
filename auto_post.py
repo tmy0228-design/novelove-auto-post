@@ -591,16 +591,26 @@ def _execute_posting_flow(row, cursor, conn):
         conn.commit()
         return False, "duplicate_fuzzy"
 
-    # 記事生成 (v11.4.0: 12要素対応)
     res = generate_article(target)
-    if not res or not res[0] or not res[1]:
-        err = "ai_failed"
-        if res and len(res) >= 6 and res[5]: err = res[5]
+    if not res or not res.wp_title or not res.content:
+        err = res.status if res and res.status not in ("ok", "") else "ai_failed"
         cursor.execute("UPDATE novelove_posts SET status='excluded', last_error=? WHERE product_id=?", (err, pid))
         conn.commit()
         return False, err
 
-    wp_title, content, excerpt, seo_title, is_r18, status, model, level, ptime, words, rev_name, ai_tags_from_ai, ai_score = res
+    wp_title    = res.wp_title
+    content     = res.content
+    excerpt     = res.excerpt
+    seo_title   = res.seo_title
+    is_r18      = res.is_r18
+    status      = res.status
+    model       = res.model
+    level       = res.level
+    ptime       = res.proc_time
+    words       = res.word_count
+    rev_name    = res.reviewer_name
+    ai_tags_from_ai = res.ai_tags
+    ai_score    = res.ai_score
 
     # AI執筆完了時に、取得できたあらすじの文字数をログに出力（スクレイピング品質の検証証明）
     desc_c_len = len(str(target.get("description", "")))

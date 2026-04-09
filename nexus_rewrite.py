@@ -44,8 +44,10 @@ from novelove_core import (
     WP_SITE_URL, SCRIPT_DIR,
     WP_USER, WP_APP_PASSWORD, SSH_PASS,
 )
-# auto_post.py から執筆エンジンのみを借用
-from auto_post import generate_article, get_or_create_term, _evaluate_article_potential
+# auto_post.py から執筆エンジン補助関数・WordPressヘルパーを借用
+from auto_post import get_or_create_term, _evaluate_article_potential
+# 執筆エンジン本体は novelove_writer.py から
+from novelove_writer import generate_article
 from novelove_core import ArticleResult  # v13.10.0: generate_article 戻り値
 
 # === 定数 ===
