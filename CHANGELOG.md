@@ -1,5 +1,19 @@
 # Changelog
 
+## [v13.8.2] - 2026-04-09
+### Fixed (コードレビュー監査 第3回 — リスク修正)
+- **`nexus_gsc.py`**:
+  - `INSPECT_DAILY_LIMIT` を `1000` → `600` に修正。Google URL Inspection APIの公式無料枠の上限（600件/日）に準拠し、クォータ超過エラーを防止。
+- **`nexus_rewrite.py`**:
+  - `_acquire_lock()` に stale ロック自動解除ロジックを追加。DRY-RUN中の異常終了などでロックファイルが残存した場合、1時間経過後に自動削除して永久ブロックを防止。
+  - SSH接続タイムアウトを `15秒` → `30秒` に延長。深夜バッチ集中時のタイムアウト失敗リスクに対応。
+  - `import time` を追加（stale判定の `time.time()` に使用）。
+- **`nexus_dashboard.py`**:
+  - `is_desc_updated` リセット処理の `get_db_path()` 呼び出しで `row.get("site", "")` のみを渡していた箇所を、 `or row.get("_source_db", "")` のフォールバックを追加して他箇所と統一。
+  - 期待値スコア計算（`calculate_local_priority`）の `except` ブロックでエラーが握りつぶされていたサイレント障害を修正。`logger.warning` でエラーメッセージを出力するよう修正。
+- **`nexus_revive.py`**:
+  - あらすじ更新検知（`run_desc_check`）の `difflib.SequenceMatcher` 比較前に `re.sub(r'\s+', ' ', ...)` による空白・改行の正規化を追加。配信サイト側の無意味な改行・スペース変更による誤検知を抑制。
+
 ## [v13.8.1] - 2026-04-09
 ### Refactored / Cleaned Up (コードレビュー監査の残件対応)
 - **`auto_post.py`**:
