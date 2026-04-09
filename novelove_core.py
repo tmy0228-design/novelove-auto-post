@@ -22,6 +22,28 @@ from dotenv import load_dotenv
 
 from novelove_soul import REVIEWERS
 
+# === ArticleResult: generate_article の戻り値データクラス (v13.10.0) ===
+# auto_post.py / nexus_rewrite.py で共通利用。13要素タプルからの移行。
+from dataclasses import dataclass, field
+from typing import Optional
+
+@dataclass
+class ArticleResult:
+    wp_title:      Optional[str]  = None
+    content:       Optional[str]  = None
+    excerpt:       Optional[str]  = None
+    seo_title:     Optional[str]  = None
+    is_r18:        bool           = False
+    status:        str            = "ok"
+    model:         str            = ""
+    level:         str            = "None"
+    proc_time:     float          = 0.0
+    word_count:    int            = 0
+    reviewer_name: str            = ""
+    ai_tags:       list           = field(default_factory=list)
+    ai_score:      int            = 0
+
+
 # === .env 読み込み（全モジュール共通、ここで1回だけ行う） ===
 _env_path = "/home/kusanagi/scripts/.env"
 if os.path.exists(_env_path):
