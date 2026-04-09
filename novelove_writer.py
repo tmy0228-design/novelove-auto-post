@@ -1,0 +1,556 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+novelove_writer.py — Novelove AI執筆エンジン
+プロンプト構築・DeepSeek API通信・記事生成を担当
+"""
+import random
+import re
+import time
+import requests
+
+from novelove_soul import REVIEWERS, MOOD_PATTERNS, FACT_GUARD, NG_PHRASES, get_relationship
+
+from novelove_core import (
+    logger, ArticleResult,
+    get_affiliate_button_html,
+    _get_reviewer_for_genre, _genre_label,
+    DEEPSEEK_API_KEY,
+)
+
+from novelove_fetcher import (
+    AI_TAG_WHITELIST,
+    mask_input,
+    _check_image_ok,
+)
+
+# === DeepSeek API設定 ===
+DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
+DEEPSEEK_MODEL   = "deepseek-chat"
+
+def _evaluate_article_potential(title, description, original_tags=""):
+    """
+    執筆前にあらすじ情報だけを元に、「情報量と面白さ」で記事化ポテンシャルを1〜5点で評価する。
+    1〜2: 不採用（即スキップ）、3: ショート記事採用、4: 標準記事採用、5: 特大記事採用。
+    """
+    if not description or len(description.strip()) < 50:
+        return 2  # 情報が少なすぎる場合はAPIを叩かずに即終了
+    
+    prompt = f"""
+以下のタイトルとあらすじを読み、「嘘や補完なしで、充実した紹介記事が書ける情報量があるか」を1〜5点で評価してください。
+
+【必須の審査ルール】
+・「物語や世界観の設定」「キャラクターのプロフィール」「フェティッシュな属性・性癖」「プレイや描写内容の箇条書き」は、記事の価値が高い有用な情報として加点してください。
+・「ファイル形式・価格・特典」「サークルやスタッフ名」「他作品の宣伝・URL」等の宣伝メタ情報は、完全なノイズとして無視してください。
+
+5: 有用な情報が極めて豊富。嘘なく深い分析記事（約2000字）が余裕で書ける。
+4: 情報量は標準的かつ十分。手堅い紹介記事（約1000字）が書ける。
+3: 情報は少ないが設定に魅力がある。コンパクトな紹介（約500字）なら書ける。
+2: 情報が薄い、またはノイズが大半で記事化が困難。
+1: 判定不能・外国語。
+
+出力形式: 1〜5の数字1文字のみ
+
+タイトル: {title}
+あらすじ: {description[:1000]}
+{f"公式属性タグ: {original_tags}" if original_tags else ""}
+"""
+    messages = [
+        {"role": "system", "content": "あなたはプロの編集者です。情報量と面白さだけで厳密に審査してください。"},
+        {"role": "user", "content": prompt}
+    ]
+    # トークンを極限まで絞って即座に結果を返す（AIの無駄話で数字が途切れないようマージンを取る）
+    content, err = _call_deepseek_raw(messages, max_tokens=50, temperature=0.3)
+    if err != "ok" or not content:
+        return 0
+
+    match = re.search(r"[1-5]", content)
+    if match:
+        return int(match.group())
+    return 0
+
+# === AI執筆 ===
+def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False, mood="", ai_score=4, original_tags="", is_exclusive=False):
+    safe_title = mask_input(target["title"], mask_level)
+    safe_desc  = mask_input(target["description"], mask_level)
+    chat_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
+    chat_close = '</div></div>'
+
+    focus = reviewer.get("novel_focus", "") if is_novel else reviewer.get("manga_focus", "")
+    medium_label = "小説・ノベル" if is_novel else "漫画・コミック"
+
+    novel_rules = ""
+    if is_novel:
+        novel_rules = (
+            "\n[小説・ノベル作品の執筆ルール]"
+            "\n「コマ」「見開き」「絵」「描画」「ページ」など漫画特有の表現は一切使わないこと。"
+            "\n代わりに「文章」「心理描写」「行間」「表現」「語彙」「文体」「語り口」「読了感」など活字特有の視点で話すこと。"
+        )
+
+    guest_hint = ""
+    if is_guest:
+        guest_hint = (
+            f"\n[ゲスト紹介設定]"
+            f"\n{reviewer['name']}は通常とは別のジャンルを担当しているが、今回は特別にこの作品を紹介することになった。"
+            f"\n自分の専門外だからこそ気付く「新鮮な視点」を活かして紹介記事を書くこと。専門的になりすぎず、自分らしい言葉で正直に感想を伝えること。"
+        )
+
+    voice_hint = "\n※当サイトは漫画・小説専門です。「聴く」「イヤホン」などの音声表現は避け、「読む・見る」体験として紹介してください。"
+
+    mood_note = f"\n今回の感情モード: {mood}" if mood else ""
+    _tag_rule_nl = "\n"
+    _tag_rule_str = (_tag_rule_nl + "[公式属性タグの活用]" + _tag_rule_nl +
+        "作品には以下の公式属性タグが設定されています: " + original_tags + _tag_rule_nl +
+        "これらを活かして、具体的で読者に刺さる紹介文・おすすめコメントを書いてください。" +
+        "ファイル形式等の形式情報は無視し、内容・属性に関わる情報のみを参考にしてください。"
+    ) if original_tags else ""
+    
+    # === マンネリ化防止ロジック（10%の確率で設定の身の上話を引き出す） ===
+    if random.random() < 0.1:
+        intro_rule = f"冒頭の挨拶では、あなたのキャラクター設定にある身の上話（例: {reviewer.get('greeting', '')}）を自然に絡めてください。"
+    else:
+        intro_rule = "冒頭の挨拶では、あなたの年齢や職業等といった自己紹介・身の上話をするのは【絶対に禁止】します。" \
+                     "あなたの【キャラクターの口調や口癖だけ】を維持したまま、作品のあらすじに対する新鮮なリアクションだけで書き出してください。"
+
+    # === スコア別構成制御ロジック ===
+    if ai_score >= 5:
+        # スコア5：2000文字規模の特大フルダイブ記事
+        html_structure = f"""
+{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
+<h2>（作品の世界観や魅力を引き出すキャッチーな見出し）</h2>
+<p>（標準語で執筆）あらすじ・世界観・作品の属性情報。提供されたすべての有用な情報（シチュエーション・キャラ属性・プレイ内容の箇条書きを含む）を深く噛み砕いて400〜700字程度でリッチに解説。既にある設定の魅力を別の角度から掘り下げたり、読者の期待を煽る表現で膨らませること。</p>
+{chat_open}（50〜70字程度。設定への熱いリアクション）{chat_close}
+<h2>キャラクターの魅力と関係性</h2>
+<p>（標準語で執筆）キャラクターの性格、2人の関係性がどう変化するかなど、深い分析を400〜700字程度で執筆。</p>
+{chat_open}（50〜70字程度。キャラ愛や尊さへのリアクション）{chat_close}
+<h2>見どころ</h2>
+<ul>
+  <li><strong>（魅力ポイント1）</strong>：（標準語で執筆）魅力を具体的に。</li>
+  <li><strong>（魅力ポイント2）</strong>：（標準語で執筆）魅力を具体的に。</li>
+  <li><strong>（魅力ポイント3）</strong>：（標準語で執筆）魅力を具体的に。</li>
+</ul>
+<h2>こんな人におすすめ</h2>
+<ul style="list-style-type: none; padding-left: 0;">
+  <li>✅ （標準語で執筆）おすすめの層1</li>
+  <li>✅ （標準語で執筆）おすすめの層2</li>
+  <li>✅ （標準語で執筆）おすすめの層3</li>
+</ul>
+{chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
+"""
+    elif ai_score == 4:
+        # スコア4：1000文字規模の標準安定記事
+        html_structure = f"""
+{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
+<h2>（作品の世界観や魅力を引き出すキャッチーな見出し）</h2>
+<p>（標準語で執筆）あらすじ・世界観・作品の属性情報。提供されたすべての有用な情報（シチュエーション・キャラ属性・プレイ内容の箇条書きを含む）を300〜600字程度で解説。既にある設定の魅力を別の角度から掘り下げたり、読者の期待を煽る表現で膨らませること。</p>
+{chat_open}（50〜70字程度の紹介への反応）{chat_close}
+<h2>見どころ</h2>
+<ul>
+  <li><strong>（魅力ポイント1）</strong>：（標準語で執筆）魅力を具体的に。</li>
+  <li><strong>（魅力ポイント2）</strong>：（標準語で執筆）魅力を具体的に。</li>
+  <li><strong>（魅力ポイント3）</strong>：（標準語で執筆）魅力を具体的に。</li>
+</ul>
+<h2>こんな人におすすめ</h2>
+<ul style="list-style-type: none; padding-left: 0;">
+  <li>✅ （標準語で執筆）おすすめの層1</li>
+  <li>✅ （標準語で執筆）おすすめの層2</li>
+  <li>✅ （標準語で執筆）おすすめの層3</li>
+</ul>
+{chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
+"""
+    else:
+        # スコア3：500文字規模のショート記事（嘘・捏造・想像を一切禁止の厳格構成）
+        html_structure = f"""
+{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
+<h2>（あらすじから抽出したキャッチーで目を引く見出し）</h2>
+<p>（標準語で執筆）あらすじ・ツカミ。少ない情報をきれいに整理し、250〜500字程度で魅力的に書き直す。既にある設定の魅力を別の角度から掘り下げたり、読者の期待を煽る表現で膨らませること。
+【重要禁止事項】あらすじに書かれていないキャラクターの心理・後半の展開・存在しない設定を一切書かないこと。事実だけで完結させること。）</p>
+<h2>見どころ</h2>
+<ul>
+  <li>（あらすじに明記されている事実から1点目。推測・補完・創作は絶対禁止。）</li>
+  <!--もう1点書ける事実があれば: <li>（2点目）</li>。書けない場合はこの行ごと削除すること。最大2点まで。絶対に3点書かないこと。-->
+</ul>
+<h2>こんな人におすすめ</h2>
+<ul style="list-style-type: none; padding-left: 0;">
+  （あらすじから自然に読み取れる対象者を✅マーク付きで1〜3点書くこと。「BL/TLが好きな方」のような汎用表現は禁止。書ける点数だけ書いてOK。足りない分はシステムが自動補完するので無理に水増ししないこと。）
+</ul>
+{chat_open}（50〜70字程度。「こういうシチュエーション最高ですよね！」など、明らかになっている設定に対する純粋な興奮・オススメ感を短く語る。想像の展開を語ることは禁止。）{chat_close}
+"""
+
+
+
+    return f"""あなたは人気ファンブログ「Novelove」の特別ライター「{reviewer["name"]}」です。
+【キャラクター設定】
+名前: {reviewer["name"]}
+性格: {reviewer["personality"]}
+文体・口調: {reviewer["tone"]}
+今回の紹介の注目点（{medium_label}）: {focus}{mood_note}{guest_hint}{novel_rules}
+【執筆ルール】
+1. キャラクターコメント（吹き出し）と記事本文（HTMLタグ部分）を完全に書き分けること。
+2. 記事本文（<h2>, <p>, <ul>, <li>タグの中身）は**「標準的で丁寧な日本語（ですます調）」**で、客観的な紹介文として執筆すること。担当ライターの口調や一人称を混ぜないこと。
+3. 直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
+4. キャラクターコメント（吹き出し）の中身のみ、{reviewer["name"]}の個性を全開にした口調で執筆すること。
+5. 吹き出しコメントではキャラ設定に合ったオタク用語や口癖を自然に使うこと。ただし記事本文（ですます調パート）には使用しないこと。
+6. {voice_hint}
+7. 記事本文（<p>タグ）では、あらすじ情報から「存在しない設定やキャラクター」を創作（ハルシネーション）して文字を水増しすることは絶対禁止。
+8. h2見出しは毎回異なる切り口で書くこと。「○○に迫る」「○○が紡ぐ」のようなテンプレ表現は避けること。
+{f'9. 見どころの3点は、この作品ならではの魅力を優先順に並べること。毎回「ストーリー→ビジュアル→キャラクター」の同じ順番にしないこと。' + chr(10) + '10. 「こんな人におすすめ」は、具体的な設定に基づくこと。「BL/TLが好きな方」のような汎用表現は禁止。' if ai_score >= 4 else '9. 見どころは必ずあらすじに書かれている事実のみから書くこと。推測・補完・創作は絶対禁止。最大2点まで。書ける事実が1点しかなければ1点で完結させること。絶対に3点書かないこと。' + chr(10) + '10. 「こんな人におすすめ」はHTML指定の<ul>タグ内に<li>✅ ...</li>形式で、あらすじから読み取れる対象者のみを書くこと。書けない点数は書かなくてOK。'}
+【対象作品情報】
+タイトル: {safe_title}
+あらすじ: {safe_desc}
+{f"公式属性タグ: {original_tags}" if original_tags else ""}
+{f"販売形態: {str(target.get('site', '')).split(':')[0]}専売（他サービスでは購入できない限定作品）" if is_exclusive else ""}
+アフィリエイトURL: {target["affiliate_url"]}
+【出力形式（HTML）】
+指示文・説明文は一切出力せず、以下の構成のみを出力してください。
+
+{html_structure}
+
+TAGS: （以下のリストから作品に合うものを最大3つ、カンマ区切りで出力。該当なしは「なし」と出力）
+BL系: オメガバース/ヤンデレ/スパダリ/執着/年下攻め/幼なじみ/ケンカップル/主従/サラリーマン/年の差/転生/契約/再会/一途/運命
+TL系: 溺愛/身分差/契約結婚/御曹司/騎士/オフィスラブ/腹黒/同居/嫉妬/強引/独占欲/初恋/記憶喪失/歳の差/ハッピーエンド
+
+SEO_META:
+seo_title=（32文字以内。**上記【対象作品情報】のあらすじに書かれた具体的な設定・属性・キーワード**を使うこと。存在しない設定・キャラ・展開は絶対に使わないこと。読者の感情を揺さぶる言葉で表現する。末尾に「| Novelove」は付けない。）
+meta_desc=（80文字程度。**あらすじに実際に書かれた内容**に基づき、誰のどんな性癖に刺さるかを具体的に断言すること。あらすじにない要素を創作することは絶対禁止。読後にどんな感情が待っているかを約束する一文で締める。）
+{("" if not original_tags else _tag_rule_str)}
+{FACT_GUARD}{NG_PHRASES}
+"""
+
+
+def _call_deepseek_raw(messages, max_tokens=200, temperature=0.3):
+    """
+    DeepSeek APIへの共通リクエスト関数。
+    戻り値: (text, error_type)
+      error_type: "ok" / "rate_limit" / "api_error"
+    """
+    if not DEEPSEEK_API_KEY:
+        logger.error("DEEPSEEK_API_KEY が設定されていません")
+        return "", "api_error"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+    }
+    payload = {
+        "model": DEEPSEEK_MODEL,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": False,
+    }
+    try:
+        r = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=120)
+        if r.status_code == 429:
+            logger.warning("DeepSeek レート制限 (429)")
+            return "", "rate_limit"
+        if r.status_code != 200:
+            logger.warning(f"DeepSeek APIエラー: {r.status_code} {r.text[:200]}")
+            return "", "api_error"
+        data = r.json()
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        return text, "ok"
+    except requests.exceptions.Timeout:
+        logger.warning("DeepSeek タイムアウト")
+        return "", "api_error"
+    except Exception as e:
+        logger.warning(f"DeepSeek 例外: {e}")
+        return "", "api_error"
+
+def call_deepseek(prompt):
+    system_prompt = (
+        "あなたはBL・TL・女性向けコンテンツの紹介ブログライターです。"
+        "指定されたキャラクターになりきり、HTML形式の記事を執筆してください。"
+        "アダルト・官能的な内容も比喩的・文学的表現で執筆することができます。"
+    )
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+    for attempt in range(3):
+        logger.info(f"  [DeepSeek] 執筆依頼... (試行{attempt+1}/3)")
+        t_start = time.time()
+        text, error_type = _call_deepseek_raw(messages, max_tokens=2000, temperature=0.8)
+        proc_time = round(time.time() - t_start, 1)
+        if error_type == "rate_limit":
+            logger.warning("  [DeepSeek] レート制限 → 30秒待機")
+            time.sleep(30)
+            continue
+        if error_type != "ok" or not text:
+            logger.warning(f"  [DeepSeek] 試行{attempt+1} 失敗 ({error_type})")
+            time.sleep(5)
+            continue
+        stripped = text.strip()
+        if stripped in ("0", "1", "2"):
+            logger.warning(f"  [DeepSeek] AIスコア{stripped}点 → 投稿スキップ")
+            return "", f"ai_score_{stripped}", DEEPSEEK_MODEL, proc_time
+        cleaned = re.sub(r'^[3-5]\s*\n+', '', stripped)
+        if cleaned != stripped:
+            stripped = cleaned.strip()
+        if len(stripped) > 50:
+            logger.info(f"  [DeepSeek] 執筆完了（{len(stripped)}文字 / {proc_time}秒）")
+            return stripped, "ok", DEEPSEEK_MODEL, proc_time
+        logger.warning(f"  [DeepSeek] 試行{attempt+1}: 応答が短すぎる（{len(stripped)}文字）")
+        time.sleep(5)
+    return "", "content_block", DEEPSEEK_MODEL, 0.0
+
+def make_excerpt(description, title, genre, reviewer_name="", ai_tags=None):
+    """
+    v10.5.0: SEO強化版メタディスクリプション。
+    属性タグを自然に組み込み、レビュアー名とジャンルを明記する。
+    """
+    label = _genre_label(genre, title)
+    tag_part = ""
+    tags = [t for t in (ai_tags or []) if t]
+    if tags:
+        tag_part = f"{'・'.join(tags[:2])}などの要素が魅力的な"
+    else:
+        tag_part = f"注目の"
+    if reviewer_name:
+        outro = f"Noveloveの{reviewer_name}が、作品の見どころや気になる展開を詳しくお伝えします。"
+    else:
+        outro = f"Noveloveのライターが、作品の見どころや気になる展開を詳しくお伝えします。"
+    text = f"『{title}』のあらすじと魅力を紹介！{tag_part}{label}の紹介記事です。{outro}"
+    if len(text) > 160:
+        text = text[:158] + "…"
+    return text
+
+def generate_article(target, override_reviewer_id=None, override_mood=None):
+    if override_reviewer_id:
+        from novelove_soul import REVIEWERS
+        matched_reviewers = [r for r in REVIEWERS if r["id"] == override_reviewer_id]
+        if matched_reviewers:
+            reviewer = matched_reviewers[0]
+            is_guest = target.get("genre") not in reviewer.get("genres", [])
+        else:
+            reviewer, is_guest = _get_reviewer_for_genre(target["genre"])
+    else:
+        reviewer, is_guest = _get_reviewer_for_genre(target["genre"])
+
+    if override_mood:
+        mood = override_mood
+    else:
+        mood = random.choice(MOOD_PATTERNS)
+
+    is_novel = target["genre"] in ("novel_bl", "novel_tl")
+    reviewer_name = reviewer["name"]
+    # DBから取得したai_tagsがあれば先行パース
+    db_ai_tags = []
+    if target.get("ai_tags"):
+        db_ai_tags = [t.strip() for t in target["ai_tags"].split(",") if t.strip()]
+
+    final_error = "content_block"
+    final_model = DEEPSEEK_MODEL
+    final_proc_time = 0.0
+    for mask_level in [0, 1, 2]:
+        level_name = ["フィルターなし", "軽めフィルター", "ガチガチフィルター"][mask_level]
+        logger.info(f"  [{level_name}] で執筆試行中...")
+        prompt = build_prompt(target, reviewer, mask_level, is_novel=is_novel, is_guest=is_guest, mood=mood, ai_score=target.get("desc_score", 4), original_tags=target.get("original_tags", ""), is_exclusive=bool(target.get("is_exclusive", 0)))
+        content, error_type, model_name, proc_time = call_deepseek(prompt)
+        final_error = error_type
+        final_model = model_name
+        final_proc_time = proc_time
+        if content:
+            # 抽出処理: もうSCORE出力は撤廃したため、SCORE抽出ロジックごと消去
+            # 記事本来の ai_score は target["desc_score"] を利用する仕組みに変更
+            ai_score = target.get("desc_score", 4)
+
+
+            # 2. AI生成SEOメタの抽出（SEO_META: セクション）
+            ai_seo_title = ""
+            ai_meta_desc = ""
+            if "SEO_META:" in content:
+                parts_seo = content.split("SEO_META:")
+                content = parts_seo[0].strip()
+                seo_lines = parts_seo[1].strip().splitlines()
+                for sline in seo_lines:
+                    sline = sline.strip()
+                    if sline.startswith("seo_title="):
+                        ai_seo_title = sline[len("seo_title="):].strip().strip('「」')
+                    elif sline.startswith("meta_desc="):
+                        ai_meta_desc = sline[len("meta_desc="):].strip()
+                if ai_seo_title:
+                    logger.info(f"  [SEO] AI生成タイトル取得: {ai_seo_title[:30]}...")
+                if ai_meta_desc:
+                    logger.info(f"  [SEO] AI生成抜粋取得: {ai_meta_desc[:30]}...")
+
+            # 3. AI生成タグの抽出 (TAGS: セクション)
+            ai_tags_from_ai = []
+            if "TAGS:" in content:
+                parts_tags = content.split("TAGS:")
+                content = parts_tags[0].strip()
+                tag_line = parts_tags[1].strip().split("\n")[0].strip()
+                if tag_line and tag_line != "なし":
+                    # スラッシュ区切りまたはカンマ区切りを想定
+                    raw_tags = [t.strip() for t in tag_line.replace("/", ",").split(",") if t.strip()]
+                    for t in raw_tags:
+                        for allowed in AI_TAG_WHITELIST:
+                            if allowed in t or t in allowed:
+                                ai_tags_from_ai.append(allowed)
+                                break
+                    ai_tags_from_ai = list(dict.fromkeys(ai_tags_from_ai))[:3]
+
+            # === スコア3：タグ不足チェック（タグ2以下は情報薄と判定してキャンセル） ===
+            if ai_score <= 3 and len(ai_tags_from_ai) <= 2:
+                logger.warning(f"  [スコア3 タグ不足] タグ{len(ai_tags_from_ai)}個（2以下）のため執筆キャンセル → thin_score3")
+                return None, None, None, None, False, "thin_score3", model_name, level_name, proc_time, 0, "", [], ai_score
+
+            # === スコア3：こんな人におすすめのハイブリッド補完 ===
+            if ai_score <= 3 and ai_tags_from_ai:
+                content = _inject_score3_osusume(content, ai_tags_from_ai)
+
+            if not _check_image_ok(target["image_url"]):
+                logger.warning(f"  [画像NG] 投稿直前チェックで無効: {target['image_url']}")
+                return None, None, None, None, False, "image_missing", model_name, level_name, proc_time, 0, "", [], ai_score
+
+            img_html = f'<p style="text-align:center;margin:20px 0;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow"><img src="{target["image_url"]}" alt="{target["title"]}" style="max-width:500px;width:100%;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.18);" /></a></p>\n'
+            site_raw = target.get("site", "FANZA")
+            site_display = site_raw.split(":")[0] if isinstance(site_raw, str) and ":" in site_raw else str(site_raw)
+            format_name = _genre_label(target["genre"], target["title"])
+            icon = "📖"
+            if "ボイス" in format_name: icon = "🎧"
+            elif "コミック" in format_name or "漫画" in format_name: icon = "🎨"
+            # サイト名・フォーマット名の整形（らぶカル表記へのフォールバック）
+            site_display = "らぶカル" if site_display == "Lovecal" else site_display
+            badge_html = f'\n<p style="text-align:center; margin-bottom:20px;">\n<span style="background:#fefefe; border:1px solid #ddd; padding:6px 16px; border-radius:25px; font-weight:bold; color:#444; box-shadow:0 2px 4px rgba(0,0,0,0.05); display:inline-block;">{icon} {site_display} {format_name}</span>\n</p>'
+            text_link = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:5px; margin-bottom:15px;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{target["title"]}』の試し読み・お得なセール状況をチェック！</a></p>\n'
+            button_html = get_affiliate_button_html(target["affiliate_url"], "無料で試し読みする")
+            if "FANZA" in site_display or "らぶカル" in site_display:
+                credit_html = (
+                    f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'
+                    f'<a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/r18_135_17.gif" width="135" height="17" alt="WEB SERVICE BY FANZA" style="border:none;"></a>\n'
+                    f'</div>\n'
+                )
+            elif "DMM" in site_display:
+                credit_html = (
+                    f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'
+                    f'<a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/com_135_17.gif" width="135" height="17" alt="WEB SERVICE BY DMM.com" style="border:none;"></a>\n'
+                    f'</div>\n'
+                )
+            else:
+                credit_html = f'<p style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee; font-size:0.8em; color:#bbb;">\nPRESENTED BY {site_display} / Novelove Affiliate Program\n</p>\n'
+            release_display = ""
+            if target.get("release_date"):
+                try:
+                    rd = target["release_date"][:10].replace("-", "/")
+                    release_display = f'<p style="text-align:center; color:#666; font-size:0.9em; margin-bottom:10px;">発売日：{rd}</p>\n'
+                except Exception as e:
+                    logger.warning(f"  [発売日整形失敗] {e}")
+            
+            # v12.0.0: AI生成SEOタイトル・抜粋の優先利用
+            # まずベースとなるAI生成タグリストを確定
+            if not ai_tags_from_ai:
+                ai_tags_from_ai = list(db_ai_tags)
+
+            # 専売タグをWPタグリストに追加
+            _site_raw = str(target.get("site", "")).split(":")[0]
+            _is_excl = bool(target.get("is_exclusive", 0))
+            if _is_excl:
+                if "DLsite" in _site_raw and "DLsite専売" not in ai_tags_from_ai:
+                    ai_tags_from_ai.append("DLsite専売")
+                elif "FANZA" in _site_raw and "FANZA独占" not in ai_tags_from_ai:
+                    ai_tags_from_ai.append("FANZA独占")
+                elif "DigiKet" in _site_raw and "DigiKet限定" not in ai_tags_from_ai:
+                    ai_tags_from_ai.append("DigiKet限定")
+                elif "Lovecal" in _site_raw and "らぶカル独占" not in ai_tags_from_ai:
+                    ai_tags_from_ai.append("らぶカル独占")
+            
+            tags_for_seo = ai_tags_from_ai
+            tag_str = "・".join(tags_for_seo[:2]) if tags_for_seo else ""
+
+            # SEOタイトル: AIが生成したものを優先。なければテンプレートフォールバック
+            if ai_seo_title:
+                # 32文字超過サニタイズ
+                seo_title_body = ai_seo_title[:32]
+                seo_title = f"『{target['title']}』{seo_title_body}"
+            elif tag_str:
+                seo_title = f"『{target['title']}』あらすじ紹介！{tag_str}の{format_name}を紹介 | Novelove"
+            else:
+                seo_title = f"『{target['title']}』あらすじ紹介！注目の{format_name}を詳しく紹介 | Novelove"
+            if len(seo_title) > 70:
+                seo_title = seo_title[:68] + "… | Novelove"
+
+            # 抜粋: AIが生成したものを優先。なければテンプレートフォールバック
+            if ai_meta_desc:
+                # 160文字超過サニタイズ
+                excerpt = ai_meta_desc[:160]
+            else:
+                excerpt = make_excerpt(target["description"], target["title"], target["genre"], reviewer_name=reviewer["name"], ai_tags=tags_for_seo)
+            wp_title = target["title"]
+            # あわせて読みたい（文字リンク）は廃止。YARPPプラグインによる関連記事表示に移行。
+            full_content = (
+                badge_html + img_html + release_display + text_link +
+                content + button_html + credit_html
+            )
+            word_count = len(content)
+            is_r18_val = ":r18=1" in str(target.get("site", ""))
+            # 戻り値: (wp_title, full_content, excerpt, seo_title, is_r18, status, model, level, time, words, reviewer, tags, score)
+            # ※将来拡張時は NamedTuple 化を検討すること（13要素タプルは保守性リスク）
+            return wp_title, full_content, excerpt, seo_title, is_r18_val, "ok", model_name, level_name, proc_time, word_count, reviewer_name, ai_tags_from_ai, ai_score
+        if error_type == "rate_limit":
+            logger.warning("  レート制限 → フィルター試行を中断")
+            break
+        logger.warning(f"  [{level_name}] 失敗 → 次のフィルターレベルへ")
+    return None, None, None, None, False, final_error, final_model, "None", final_proc_time, 0, "", [], 0
+
+
+def _inject_score3_osusume(content: str, tags: list) -> str:
+    """
+    スコア3記事の「こんな人におすすめ」をAI出力 + タグ補完のハイブリッドで完成させる。
+    AIが書いたli要素を数え、不足分だけタグから補完して最大3点にする。
+    """
+    # AIが「こんな人におすすめ」セクションに書いたli要素を数える
+    osusume_match = re.search(
+        r'<h2>こんな人におすすめ</h2>\s*<ul[^>]*>(.+?)</ul>',
+        content, re.DOTALL
+    )
+    existing_items = []
+    if osusume_match:
+        ul_inner = osusume_match.group(1)
+        existing_items = re.findall(r'<li>.*?</li>', ul_inner, re.DOTALL)
+
+    ai_count = len(existing_items)
+    needed = max(0, 3 - ai_count)
+
+    if needed == 0:
+        # AIが3点書けていれば補完不要
+        return content
+
+    # 補完するタグを選ぶ（AIが既に書いたテキストに含まれているものは除外）
+    existing_text = osusume_match.group(0) if osusume_match else ""
+    supplement_items = []
+    for tag in tags:
+        if tag in existing_text:
+            continue  # 既にAIが言及済み
+        supplement_items.append(
+            f'  <li>✅ <strong>{tag}</strong>系の作品が好きな方</li>'
+        )
+        if len(supplement_items) >= needed:
+            break
+
+    if not supplement_items:
+        return content
+
+    if osusume_match:
+        # 既存のulに補完liを追記
+        new_ul = osusume_match.group(0).rstrip()
+        if new_ul.endswith('</ul>'):
+            new_ul = new_ul[:-5] + '\n' + '\n'.join(supplement_items) + '\n</ul>'
+        content = content[:osusume_match.start()] + new_ul + content[osusume_match.end():]
+    else:
+        # おすすめセクション自体がなければ末尾に追加
+        items_html = '\n'.join(supplement_items)
+        osusume_html = (
+            f'\n<h2>こんな人におすすめ</h2>\n'
+            f'<ul style="list-style-type: none; padding-left: 0;">\n'
+            f'{items_html}\n</ul>\n'
+        )
+        # 末尾の吹き出し直前に挿入（speech-bubble-leftの最後の出現位置）
+        sb_positions = [m.start() for m in re.finditer(r'<div class="speech-bubble-left">', content)]
+        if sb_positions:
+            insert_pos = sb_positions[-1]  # 最後の吹き出し（総評）の前に挿入
+            content = content[:insert_pos] + osusume_html + content[insert_pos:]
+        else:
+            content += osusume_html
+
+    logger.info(f"  [スコア3 補完] AI:{ai_count}点 + タグ補完:{len(supplement_items)}点 = 合計{ai_count + len(supplement_items)}点")
+    return content
+
+# === A+C方式: サムネURL生成ヘルパー ===
