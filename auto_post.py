@@ -135,9 +135,10 @@ def _evaluate_article_potential(title, description, original_tags=""):
     if err != "ok" or not content:
         return 0
 
-    match = re.search(r"[1-5]", content)
-    if match:
-        return int(match.group())
+    # v13.9.0: AI出力の誤爆対策 — 最後に出現した数字を最終スコアとする
+    matches = re.findall(r"[1-5]", content)
+    if matches:
+        return int(matches[-1])
     return 0
 
 # === AI執筆 ===
@@ -762,7 +763,8 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
             # 1. アイキャッチ画像の設定 (v13.2.3: A+C方式 — 軽量サムネURLを使用)
             if fifu_url:
                 try:
-                    subprocess.run([php_path, wp_path, "eval", f'fifu_dev_set_image({wp_post_id}, "{fifu_url}");', doc_root, "--allow-root"], capture_output=True, text=True, timeout=60, check=True)
+                    # v13.9.0: eval廃止 → WP-CLI post meta update に変更（コマンドインジェクション対策）
+                    subprocess.run([php_path, wp_path, "post", "meta", "update", str(wp_post_id), "fifu_image_url", fifu_url, doc_root, "--allow-root"], capture_output=True, text=True, timeout=60, check=True)
                 except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
                     std_err_msg = e.stderr if hasattr(e, "stderr") else str(e)
                     logger.error(f"  [WP-CLI] 画像設定失敗 (タイムアウトまたはエラー): {std_err_msg}")
@@ -1013,7 +1015,8 @@ def _run_main_logic():
 # === [v12.2.0] クロスDB重複排除（Fuzzy Matching）===
 def normalize_title(title):
     """タイトルから装飾（括弧とその中身）とスペースを除去し、スッピン文字列を返す。"""
-    t = re.sub(r'[\[\(（【〈《「『].*?[\]\)）】〉》」』]', '', str(title))
+    # v13.9.0: カッコペア対応修正（不対応のペアにマッチするバグを修正）
+    t = re.sub(r'\[.*?\]|\(.*?\)|（.*?）|【.*?】|〈.*?〉|《.*?》|「.*?」|『.*?』', '', str(title))
     t = re.sub(r'[\s　]+', '', t)
     return t.strip()
 
@@ -1028,14 +1031,18 @@ def is_cross_db_duplicate(new_title, current_pid, threshold=0.90):
         try:
             c2 = db_connect(db_p)
             c2.row_factory = sqlite3.Row
+            # v13.9.0: O(N)爆発対策 — 直近1000件に絞り込み
             rows = c2.execute(
-                "SELECT product_id, title FROM novelove_posts WHERE status='published' AND product_id!=?",
+                "SELECT product_id, title FROM novelove_posts WHERE status='published' AND product_id!=? ORDER BY published_at DESC LIMIT 1000",
                 (current_pid,)
             ).fetchall()
             c2.close()
             for r in rows:
                 norm_existing = normalize_title(r['title'])
                 if not norm_existing:
+                    continue
+                # v13.9.0: 文字数差30%以上は類似度90%超にならないためスキップ（CPU負荷低減）
+                if abs(len(norm_new) - len(norm_existing)) / max(len(norm_new), 1) > 0.3:
                     continue
                 ratio = difflib.SequenceMatcher(None, norm_new, norm_existing).ratio()
                 if ratio >= threshold:
