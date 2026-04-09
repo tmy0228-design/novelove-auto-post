@@ -1,5 +1,15 @@
 # Changelog
 
+## [v13.10.0] - 2026-04-09
+### Refactored (13要素タプル廃止 → ArticleResult dataclass)
+- **`novelove_core.py`**:
+  - `ArticleResult` dataclass を追加。`generate_article()` の戻り値型を定義し、全ファイルから共通参照できるようにした。
+- **`auto_post.py`**:
+  - `generate_article()` の return 4箇所すべてを `ArticleResult(...)` に変更。成功時・スコア不足時・画像欠落時・全試行失敗時のいずれもフィールド名指定で返す。
+  - `_execute_posting_flow()` の受け取り部分を `res[0]` / `res[5]` 等の数値インデックスアクセスから `res.wp_title` / `res.status` 等のプロパティアクセスに変更。既存の後続コードとの互換性は変数展開で維持。
+- **`nexus_rewrite.py`**:
+  - `generate_article()` の受け取り部分を同様に `ArticleResult` 対応に変更。
+
 ## [v13.9.0] - 2026-04-09
 ### Fixed (コードレビュー監査 第4回 — セキュリティ・パフォーマンス・精度改善)
 - **`auto_post.py`**:
