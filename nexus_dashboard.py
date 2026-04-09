@@ -148,6 +148,8 @@ def load_all_data() -> pd.DataFrame:
             )
         combined["期待値"] = combined.apply(lambda r: calc_pri(r.to_dict()), axis=1)
     except Exception as e:
+        import logging
+        logging.getLogger("novelove").warning(f"[Dashboard] 期待値スコア計算失敗（calculate_local_priority）: {e}")
         combined["期待値"] = 0
 
     return combined
@@ -451,7 +453,7 @@ def render_detail_panel(detail_pid, df, key_prefix="list"):
                 if st.button("✅ 確認済み（フラグをリセット）", key=f"{key_prefix}_btn_confirm_desc"):
                     try:
                         from novelove_core import get_db_path, db_connect as _dbc
-                        _db = _dbc(get_db_path(row.get("site", "")))
+                        _db = _dbc(get_db_path(row.get("site", "") or row.get("_source_db", "")))
                         _db.execute(
                             "UPDATE novelove_posts SET is_desc_updated = 0 WHERE product_id = ?",
                             (row["product_id"],)
