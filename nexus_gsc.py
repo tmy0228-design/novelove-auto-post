@@ -49,7 +49,7 @@ DEAD_ARTICLE_DAYS      = 30   # 公開後この日数を超えたら死に記事
 # === GSC インデックス確認: 安全装置 ===
 INSPECT_DAYS_MIN       = 14   # 公開後最低この日数以上の記事を確認対象にする
 INSPECT_RECHECK_DAYS   = 7    # 同一記事を再チェックするまでの最少日数
-INSPECT_DAILY_LIMIT    = 1000 # 1日の上限。超えたら安全のため打ち切り
+INSPECT_DAILY_LIMIT    = 600  # 1日の上限。Google URL Inspection API 無料枠の公式上限は600件/日
 
 DEAD_LEVEL1_UNINDEXED  = True  # レベル1: 未インデックス
 DEAD_LEVEL2_ZERO_IMPR  = True  # レベル2: インデックス済み・表示0
