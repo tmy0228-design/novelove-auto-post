@@ -29,7 +29,6 @@ nexus_rewrite.py — Novelove リライトエンジン v1.0.0
 
 import os
 import sys
-import time
 import argparse
 import sqlite3
 import requests
@@ -47,6 +46,7 @@ from novelove_core import (
 )
 # auto_post.py から執筆エンジンのみを借用
 from auto_post import generate_article, get_or_create_term, _evaluate_article_potential
+from novelove_core import ArticleResult  # v13.10.0: generate_article 戻り値
 
 # === 定数 ===
 LOCK_FILE         = os.path.join(SCRIPT_DIR, ".rewrite.lock")
@@ -74,24 +74,12 @@ NORMALIZED_LABELS = {
 # 1. ロック管理
 # =====================================================================
 def _acquire_lock():
-    """ロックファイルを取得。既にロック中なら False を返す。
-    staleロック（1時間以上経過）は自動解除する。
-    """
+    """ロックファイルを取得。既にロック中なら False を返す。"""
     if os.path.exists(LOCK_FILE):
-        # staleロック判定: 作成から1時間以上経過していたら自動解除
-        lock_age = time.time() - os.path.getmtime(LOCK_FILE)
-        if lock_age > 3600:  # 1時間 = 3600秒
-            logger.warning(f"⚠️ リライトロックが{lock_age/60:.0f}分以上経過（stale）のため自動解除します: {LOCK_FILE}")
-            try:
-                os.remove(LOCK_FILE)
-            except Exception as e:
-                logger.error(f"staleロック解除失敗: {e}")
-                return False
-        else:
-            logger.warning(f"⚠️ リライトロックファイルが存在します: {LOCK_FILE}")
-            logger.warning("  別のリライトプロセスが実行中か、前回正常終了しなかった可能性があります。")
-            logger.warning("  問題なければ手動でファイルを削除してください。")
-            return False
+        logger.warning(f"⚠️ リライトロックファイルが存在します: {LOCK_FILE}")
+        logger.warning("  別のリライトプロセスが実行中か、前回正常終了しなかった可能性があります。")
+        logger.warning("  問題なければ手動でファイルを削除してください。")
+        return False
     try:
         with open(LOCK_FILE, "w", encoding="utf-8") as f:
             f.write(f"{datetime.now().isoformat()}\n")
@@ -293,7 +281,7 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
         if not SSH_PASS:
             logger.error("  [SSH] セキュリティエラー: SSH_PASS が環境変数に設定されていません。.env を確認してください。")
             return False
-        ssh.connect('novelove.jp', username='root', password=SSH_PASS, timeout=30)
+        ssh.connect('novelove.jp', username='root', password=SSH_PASS, timeout=15)
         
         # シェルコマンドでシングルクォートをエスケープ
         def escape_sh(s):
@@ -467,12 +455,25 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     logger.info("  [AI] 執筆開始...")
     res = generate_article(target, override_reviewer_id=reviewer_id, override_mood=mood)
 
-    if not res or not res[0] or not res[1]:
-        err = res[5] if (res and len(res) >= 6 and res[5]) else "ai_failed"
+    # v13.10.0: ArticleResult 対応
+    if not res.wp_title or not res.content:
+        err = res.status if res.status not in ("ok", "") else "ai_failed"
         logger.error(f"❌ AI 執筆失敗: {err}")
         return False
-
-    wp_title, content, excerpt, seo_title, is_r18, status, model, level, ptime, words, rev_name, ai_tags_from_ai, ai_score = res
+    # 既存コードへの互換性を保つため変数に展開
+    wp_title        = res.wp_title
+    content         = res.content
+    excerpt         = res.excerpt
+    seo_title       = res.seo_title
+    is_r18          = res.is_r18
+    status          = res.status
+    model           = res.model
+    level           = res.level
+    ptime           = res.proc_time
+    words           = res.word_count
+    rev_name        = res.reviewer_name
+    ai_tags_from_ai = res.ai_tags
+    ai_score        = res.ai_score
 
     desc_c_len = len(desc_str)
     logger.info(f"  [完了] AI執筆成功！ (あらすじ{desc_c_len}文字 → 記事{words}文字 / ライター: {rev_name})")
