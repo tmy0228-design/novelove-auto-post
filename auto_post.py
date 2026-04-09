@@ -71,6 +71,7 @@ from novelove_core import (
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
     DLSITE_AFFILIATE_ID, DIGIKET_AFFILIATE_ID,
     WP_PHP_PATH, WP_CLI_PATH, WP_DOC_ROOT,
+    ArticleResult,       # v13.10.0: generate_article 戻り値データクラス
 )
 
 # === 取得ロジックは novelove_fetcher.py に分離 ===
@@ -462,7 +463,7 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             # === スコア3：タグ不足チェック（タグ2以下は情報薄と判定してキャンセル） ===
             if ai_score <= 3 and len(ai_tags_from_ai) <= 2:
                 logger.warning(f"  [スコア3 タグ不足] タグ{len(ai_tags_from_ai)}個（2以下）のため執筆キャンセル → thin_score3")
-                return None, None, None, None, False, "thin_score3", model_name, level_name, proc_time, 0, "", [], ai_score
+                return ArticleResult(status="thin_score3", model=model_name, level=level_name, proc_time=proc_time, ai_score=ai_score)
 
             # === スコア3：こんな人におすすめのハイブリッド補完 ===
             if ai_score <= 3 and ai_tags_from_ai:
@@ -470,7 +471,7 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
 
             if not _check_image_ok(target["image_url"]):
                 logger.warning(f"  [画像NG] 投稿直前チェックで無効: {target['image_url']}")
-                return None, None, None, None, False, "image_missing", model_name, level_name, proc_time, 0, "", [], ai_score
+                return ArticleResult(status="image_missing", model=model_name, level=level_name, proc_time=proc_time, ai_score=ai_score)
 
             img_html = f'<p style="text-align:center;margin:20px 0;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow"><img src="{target["image_url"]}" alt="{target["title"]}" style="max-width:500px;width:100%;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.18);" /></a></p>\n'
             site_raw = target.get("site", "FANZA")
@@ -553,14 +554,19 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             )
             word_count = len(content)
             is_r18_val = ":r18=1" in str(target.get("site", ""))
-            # 戻り値: (wp_title, full_content, excerpt, seo_title, is_r18, status, model, level, time, words, reviewer, tags, score)
-            # ※将来拡張時は NamedTuple 化を検討すること（13要素タプルは保守性リスク）
-            return wp_title, full_content, excerpt, seo_title, is_r18_val, "ok", model_name, level_name, proc_time, word_count, reviewer_name, ai_tags_from_ai, ai_score
+            # v13.10.0: ArticleResult に変更（13要素タプルを廃止）
+            return ArticleResult(
+                wp_title=wp_title, content=full_content, excerpt=excerpt,
+                seo_title=seo_title, is_r18=is_r18_val, status="ok",
+                model=model_name, level=level_name, proc_time=proc_time,
+                word_count=word_count, reviewer_name=reviewer_name,
+                ai_tags=ai_tags_from_ai, ai_score=ai_score
+            )
         if error_type == "rate_limit":
             logger.warning("  レート制限 → フィルター試行を中断")
             break
         logger.warning(f"  [{level_name}] 失敗 → 次のフィルターレベルへ")
-    return None, None, None, None, False, final_error, final_model, "None", final_proc_time, 0, "", [], 0
+    return ArticleResult(status=final_error, model=final_model, level="None", proc_time=final_proc_time)
 
 
 def _inject_score3_osusume(content: str, tags: list) -> str:
@@ -1122,16 +1128,27 @@ def _execute_posting_flow(row, cursor, conn):
         conn.commit()
         return False, "duplicate_fuzzy"
 
-    # 記事生成 (v11.4.0: 12要素対応)
+    # v13.10.0: ArticleResult 対応（タプルアクセスを廃止）
     res = generate_article(target)
-    if not res or not res[0] or not res[1]:
-        err = "ai_failed"
-        if res and len(res) >= 6 and res[5]: err = res[5]
+    if not res.wp_title or not res.content:
+        err = res.status if res.status not in ("ok", "") else "ai_failed"
         cursor.execute("UPDATE novelove_posts SET status='excluded', last_error=? WHERE product_id=?", (err, pid))
         conn.commit()
         return False, err
-
-    wp_title, content, excerpt, seo_title, is_r18, status, model, level, ptime, words, rev_name, ai_tags_from_ai, ai_score = res
+    # 既存コードへの互換性を保つため変数に展開
+    wp_title        = res.wp_title
+    content         = res.content
+    excerpt         = res.excerpt
+    seo_title       = res.seo_title
+    is_r18          = res.is_r18
+    status          = res.status
+    model           = res.model
+    level           = res.level
+    ptime           = res.proc_time
+    words           = res.word_count
+    rev_name        = res.reviewer_name
+    ai_tags_from_ai = res.ai_tags
+    ai_score        = res.ai_score
 
     # AI執筆完了時に、取得できたあらすじの文字数をログに出力（スクレイピング品質の検証証明）
     desc_c_len = len(str(target.get("description", "")))
