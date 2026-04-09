@@ -342,21 +342,8 @@ def scrape_digiket_description(url):
                 logger.warning(f"  [DigiKet] HTTPエラー {r.status_code}: {url}")
                 return "", "", None, None, ""
             # v12.9: エンコーディング自動判定を強化（文字化け防止）
-            # DigiKetはページによってShift-JIS/EUC-JP/UTF-8が混在するため、
-            # トライデコード方式で最も適切なエンコーディングを選択する
-            raw_bytes = r.content
-            detected_enc = None
-            for try_enc in ['utf-8', 'shift_jis', 'euc-jp', 'cp932']:
-                try:
-                    raw_bytes.decode(try_enc)
-                    detected_enc = try_enc
-                    break
-                except (UnicodeDecodeError, LookupError):
-                    continue
-            if not detected_enc:
-                detected_enc = 'shift_jis'  # 最終フォールバック
-            r.encoding = detected_enc
-            soup = BeautifulSoup(r.text, 'html.parser')
+            # v13.9.0: エンコーディング自動判別 — BS4のUnicodeDammitに委任（サイレント文字化け対策）
+            soup = BeautifulSoup(r.content, 'html.parser')
 
             # v11.3.1: ページ数の抽出ｗ
             pages = None
