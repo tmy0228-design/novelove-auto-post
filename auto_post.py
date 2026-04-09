@@ -1300,7 +1300,7 @@ def fetch_ranking_dlsite(genre):
     """v11.2.0: DLsiteの総合ランキングから漫画・小説のみ抽出"""
     items = []
     is_bl = (genre == "BL")
-    path = "bl/ranking/day" if is_bl else "girls/ranking/day"
+    path = "bl/ranking/week" if is_bl else "girls/ranking/week"
     url = f"https://www.dlsite.com/{path}"
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
@@ -1767,7 +1767,7 @@ def main():
         logger.info("🚨 緊急停止中のためスキップ。解除: rm emergency_stop.lock")
         return
 
-    logger.info("Novelove エンジン v13.2.3 起動")
+    logger.info("Novelove エンジン v13.8.0 起動")
     init_db()
     # メインロックチェック
     if os.path.exists(MAIN_LOCK_FILE):
