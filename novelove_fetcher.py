@@ -857,9 +857,11 @@ def fetch_and_stock_all():
                 item["_original_tags"] = ",".join(_fanza_tags[:10])
                 
                 # API判定とHTMLソースからのバッジ判定（キャッシュ）を統合
+                # ★v13.8.0修正: scrape_description()で既にセットされた値を保持（OR統合）
                 is_excl_api = 1 if "専売" in _genre_names else 0
                 is_excl_html = 1 if globals().get('_fanza_excl_cache', {}).get(item.get("URL", ""), False) else 0
-                item["_is_exclusive"] = 1 if (is_excl_api or is_excl_html) else 0
+                is_excl_prev = item.get("_is_exclusive", 0)
+                item["_is_exclusive"] = 1 if (is_excl_prev or is_excl_api or is_excl_html) else 0
             # アフィリエイトURL生成
             image_url = item.get("imageURL", {}).get("large", "")
             if site == "DLsite":
