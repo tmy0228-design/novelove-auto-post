@@ -1,5 +1,15 @@
 # Changelog
 
+## [v13.8.1] - 2026-04-09
+### Refactored / Cleaned Up (コードレビュー監査の残件対応)
+- **`auto_post.py`**:
+  - `build_prompt()` 内に残存していた冗長な `import random` を削除。
+  - ファイル冒頭のdocstringバージョンを `v13.0.0` から `v13.8.1` に更新。
+  - `generate_article()` の戻り値（13要素タプル）に、将来的な保守性低下リスク（NamedTuple化を推奨）を喚起するコメントを追加。
+- **`novelove_fetcher.py`**:
+  - `_fanza_excl_cache` から値を読み出す際のURLキーを、実際にキャッシュ登録する際の `p_url` 構築処理 (`item.get("URL") or item.get("url") or ""`) と完全に統一し、大文字・小文字やキーズレによるキャッシュミスのリスクを排除。
+  - `scrape_digiket_description()` の戻り値（6要素タプル）に、将来の unpack エラーを防止するための保守性喚起コメント（NamedTuple化推奨）を追加。
+
 ## [v13.8.0] - 2026-04-09
 ### Fixed (コードレビュー監査対応)
 - **`novelove_fetcher.py`**:
