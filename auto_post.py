@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v13.0.0
+Novelove 自動投稿エンジン v13.8.0
 【多重投稿ループ停止・データフロー修復・堅牢性強化】
 ==========================================================
 【変更点 v11.4.8】
@@ -177,7 +177,6 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
     ) if original_tags else ""
     
     # === マンネリ化防止ロジック（10%の確率で設定の身の上話を引き出す） ===
-    import random
     if random.random() < 0.1:
         intro_rule = f"冒頭の挨拶では、あなたのキャラクター設定にある身の上話（例: {reviewer.get('greeting', '')}）を自然に絡めてください。"
     else:
@@ -553,6 +552,8 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             )
             word_count = len(content)
             is_r18_val = ":r18=1" in str(target.get("site", ""))
+            # 戻り値: (wp_title, full_content, excerpt, seo_title, is_r18, status, model, level, time, words, reviewer, tags, score)
+            # ※将来拡張時は NamedTuple 化を検討すること（13要素タプルは保守性リスク）
             return wp_title, full_content, excerpt, seo_title, is_r18_val, "ok", model_name, level_name, proc_time, word_count, reviewer_name, ai_tags_from_ai, ai_score
         if error_type == "rate_limit":
             logger.warning("  レート制限 → フィルター試行を中断")
