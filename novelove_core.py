@@ -266,11 +266,24 @@ def calculate_local_priority(title: str, desc: str, tags: str = "", original_tag
     
     full_text = f"{title_str} {desc_str} {tags_str} {original_tags_str}"
     
-    # 1. 最速紹介（当日発売）ボーナス
-    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
-    today_slash = datetime.datetime.now().strftime("%Y/%m/%d")
-    if today_str in release_date_str or today_slash in release_date_str:
-        score += 50
+    # 1. 発売日ボーナス（段階的減衰）
+    if release_date_str:
+        try:
+            # YYYY-MM-DD or YYYY/MM/DD 形式をパース
+            rd_clean = release_date_str.strip().replace("/", "-")[:10]
+            release_dt = datetime.datetime.strptime(rd_clean, "%Y-%m-%d").date()
+            today_dt = datetime.datetime.now().date()
+            days_ago = (today_dt - release_dt).days
+            if days_ago == 0:
+                score += 50   # 当日発売
+            elif days_ago == 1:
+                score += 30   # 昨日
+            elif days_ago == 2:
+                score += 15   # 2日前
+            elif days_ago == 3:
+                score += 5    # 3日前
+        except (ValueError, TypeError):
+            pass
 
     # 2. 文字数情報量（100〜600がスイートスポット）
     desc_len = len(desc_str.strip())
