@@ -654,8 +654,10 @@ def run_desc_check():
 
             checked_count += 1
 
-            # difflib で内容の変化を検知
-            ratio = difflib.SequenceMatcher(None, old_desc, new_desc).ratio()
+            # difflib で内容の変化を検知（空白・改行を正規化してノイズをカット）
+            _old_norm = re.sub(r'\s+', ' ', old_desc).strip()
+            _new_norm = re.sub(r'\s+', ' ', new_desc).strip()
+            ratio = difflib.SequenceMatcher(None, _old_norm, _new_norm).ratio()
             if ratio >= 0.99:  # 99%以上一致 → 変化なし
                 continue
 
