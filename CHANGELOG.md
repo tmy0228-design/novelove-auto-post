@@ -1,5 +1,21 @@
 # Changelog
 
+## [v14.0.0] - 2026-04-09
+### Refactored (ファイル分割 — メンテナンス性向上)
+- **`auto_post.py`** (1816行 → 764行):
+  - AI執筆エンジン（7関数）を `novelove_writer.py` に分離。
+  - ランキング生成（7関数）を `novelove_ranking.py` に分離。
+  - 司令塔としてのメインフロー・WP投稿・重複判定のみを保持。
+  - `from novelove_writer import ...` / `from novelove_ranking import ...` で機能を呼び出し。
+- **`novelove_writer.py`** (新規, 556行):
+  - `_evaluate_article_potential`, `build_prompt`, `_call_deepseek_raw`, `call_deepseek`, `make_excerpt`, `generate_article`, `_inject_score3_osusume` を収容。
+  - プロンプト修正や記事構成の調整時にこのファイルだけを編集すればよい。
+- **`novelove_ranking.py`** (新規, 569行):
+  - `fetch_ranking_dmm_fanza`, `fetch_ranking_dlsite`, `fetch_ranking_digiket`, `format_ranking_prompt`, `_post_ranking_article_to_wordpress`, `get_ranking_slug`, `process_ranking_articles` を収容。
+  - `auto_post.py` との循環import回避のため、`post_to_wordpress` / `_check_global_cooldown` は関数内遅延importで解決。
+- **ロジック変更なし。** 全関数の中身は1行も変更していない。構造整理のみ。
+- **依存関係**: soul → core → fetcher → writer → ranking → auto_post（一方通行）
+
 ## [v13.10.0] - 2026-04-09
 ### Refactored (13要素タプル廃止 → ArticleResult dataclass)
 - **`novelove_core.py`**:
