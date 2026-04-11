@@ -964,14 +964,10 @@ def main():
 
                 desc_show_cols = [c for c in ["product_id", "title", "_source_db", "genre", "published_at"] if c in desc_updated_df.columns]
                 desc_display = desc_updated_df[desc_show_cols].copy()
-                # ソート用の数値列（隠し）
-                desc_display["_diff_num"] = desc_updated_df.apply(_desc_char_diff, axis=1)
-                # 表示列: 変化量 (+63文字 形式) と 一致率
-                desc_display["変化量"] = desc_display["_diff_num"].apply(
-                    lambda v: ("+" if v >= 0 else "") + f"{v}文字"
-                )
+                # 変化量・一致率は数値のまま保持（AgGrid valueFormatter で表示形式のみ加工）
+                desc_display["変化量"] = desc_updated_df.apply(_desc_char_diff, axis=1)
                 desc_display["一致率"] = desc_updated_df.apply(
-                    lambda r: f"{_desc_ratio(r):.0%}", axis=1
+                    lambda r: round(_desc_ratio(r) * 100), axis=1
                 )
                 if "published_at" in desc_display.columns:
                     desc_display["公開日"] = pd.to_datetime(desc_display["published_at"], errors="coerce").dt.strftime("%Y/%m/%d").fillna("-")
@@ -979,18 +975,26 @@ def main():
                 desc_display = desc_display.rename(columns={"product_id": "作品ID", "title": "タイトル", "_source_db": "DB", "genre": "ジャンル"})
                 desc_display["_pid"] = desc_updated_df["product_id"].values
 
-                # 変化量の絶対値で降順ソート（デフォルト）
+                # 変化量の絶対値降順でソート（デフォルト）
                 desc_display = desc_display.reindex(
-                    desc_display["_diff_num"].abs().sort_values(ascending=False).index
+                    desc_display["変化量"].abs().sort_values(ascending=False).index
                 ).reset_index(drop=True)
+
+                # valueFormatter: 変化量 (+63文字形式), 一致率 (98%形式)
+                from st_aggrid import JsCode
+                change_fmt = JsCode("""function(p){if(p.value==null)return'-';return(p.value>=0?'+':'')+p.value+'文字';}""")  
+                ratio_fmt  = JsCode("""function(p){if(p.value==null)return'-';return p.value+'%';}""")  
 
                 gb_desc = GridOptionsBuilder.from_dataframe(desc_display)
                 gb_desc.configure_selection('single', use_checkbox=False)
-                gb_desc.configure_column("_pid",      hide=True)
-                gb_desc.configure_column("_diff_num", hide=True)
+                gb_desc.configure_column("_pid",    hide=True)
                 gb_desc.configure_column("タイトル", width=310, minWidth=180)
-                gb_desc.configure_column("変化量",   width=100, minWidth=80, sortable=True)
-                gb_desc.configure_column("一致率",   width=85,  minWidth=70)
+                gb_desc.configure_column("変化量", width=105, minWidth=85, sortable=True,
+                                         type=["numericColumn","rightAligned"],
+                                         valueFormatter=change_fmt)
+                gb_desc.configure_column("一致率", width=85,  minWidth=70,
+                                         type=["numericColumn","rightAligned"],
+                                         valueFormatter=ratio_fmt)
                 gridOptions_desc = gb_desc.build()
                 gridOptions_desc['domLayout'] = 'normal'
 
