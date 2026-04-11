@@ -1182,7 +1182,7 @@ def main():
             display_df_for_grid["_product_id"] = filtered["product_id"].values
 
             gb_main = GridOptionsBuilder.from_dataframe(display_df_for_grid)
-            gb_main.configure_selection('single', use_checkbox=False)
+            gb_main.configure_selection('multiple', use_checkbox=True, header_checkbox=True)
             gb_main.configure_column("_product_id", hide=True)
 
             # 列幅と順番を再整理（潰れないように minWidth を明示定設定）
@@ -1211,6 +1211,21 @@ def main():
             gridOptions_main = gb_main.build()
             gridOptions_main['domLayout'] = 'normal'
 
+            # 📚 条件付き行ハイライト設定 (JsCode)
+            from st_aggrid.shared import JsCode
+            jscode = JsCode("""
+            function(params) {
+                if (params.data['ステータス'] === '🟢 公開済' && params.data['📶 GSC'] === '❌ 未登録') {
+                    return { 'backgroundColor': '#ffe0e0' };
+                }
+                if (params.data['📝'] === '📝 更新') {
+                    return { 'backgroundColor': '#e0f7fa' };
+                }
+                return null;
+            }
+            """)
+            gridOptions_main['getRowStyle'] = jscode
+
             event = AgGrid(
                 display_df_for_grid,
                 gridOptions=gridOptions_main,
@@ -1222,16 +1237,32 @@ def main():
                 key="df_main_list"
             )
 
-            # データ一覧テーブルで選択された行の作品IDを取得 → 下部テキストボックスに直接反映
+            # データ一覧テーブルで選択された行の作品IDを取得
             selected_main = event.get('selected_rows')
-            # st.write("DEBUG selected_main:", selected_main)
+            
             if selected_main is not None and len(selected_main) > 0:
+                if isinstance(selected_main, pd.DataFrame):
+                    selected_pids = [str(p) for p in selected_main["_product_id"].values]
+                else:
+                    selected_pids = [str(r.get("_product_id", "")) for r in selected_main if r.get("_product_id")]
+
+                # --- ⚙️ バルクアクション UI ---
+                if len(selected_pids) > 1:
+                    st.markdown("---")
+                    st.markdown(f"### ⚙️ バルクアクション (全 {len(selected_pids)} 件選択中)")
+                    if st.button(f"🚀 選択した全記事へGoogleに再インデックスを申請する", type="primary", key="bulk_ping_main"):
+                        with st.spinner("🚀 順次一括Ping送信中..."):
+                            success_cnt = 0
+                            for p in selected_pids:
+                                ok, msg = _ssh_ping_google(p)
+                                if ok:
+                                    success_cnt += 1
+                            st.success(f"🎉 {success_cnt}/{len(selected_pids)}件のPing送信に成功しました！")
+                            st.info("⛳ 数日以内にGSCへの反映が進むはずです。")
+
+                # --- 👇 従来の下部詳細パネルへの選択情報渡し ---
                 try:
-                    if isinstance(selected_main, pd.DataFrame):
-                        pid = str(selected_main.iloc[0].get("_product_id", ""))
-                    else:
-                        pid = str(selected_main[0].get("_product_id", ""))
-                    
+                    pid = selected_pids[0] if selected_pids else ""
                     if pid:
                         if st.session_state.get("_selected_pid_from_list") != pid:
                             st.session_state["_selected_pid_from_list"] = pid
