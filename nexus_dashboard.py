@@ -185,7 +185,9 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
         ("last_rewritten_at","📅 最終リライト"),
     ]:
         if col in display.columns:
-            display[label] = pd.to_datetime(display[col], errors="coerce").dt.strftime("%Y/%m/%d").fillna("-")
+            # 混入した特殊文字・空白・改行等を正規表現で除去してから変換
+            _clean = display[col].astype(str).str.extract(r"(\d{4}[-/]\d{2}[-/]\d{2})")[0]
+            display[label] = pd.to_datetime(_clean, errors="coerce").dt.strftime("%Y/%m/%d").fillna("-")
 
     # 記事種別（post_type）を日本語化
     if "post_type" in display.columns:
