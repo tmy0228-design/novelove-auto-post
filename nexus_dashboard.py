@@ -947,33 +947,50 @@ def main():
 
                 import difflib as _difflib
                 import re as _re
-                def _desc_summary(row):
+                def _desc_char_diff(row):
                     old = str(row.get("prev_description") or "")
                     new = str(row.get("description") or "")
-                    ratio = _difflib.SequenceMatcher(None,
+                    return len(new) - len(old)
+
+                def _desc_ratio(row):
+                    old = str(row.get("prev_description") or "")
+                    new = str(row.get("description") or "")
+                    if not old and not new:
+                        return 0.0
+                    return _difflib.SequenceMatcher(None,
                         _re.sub(r'\s+', ' ', old).strip(),
                         _re.sub(r'\s+', ' ', new).strip()
-                    ).ratio() if old and new else 0.0
-                    diff = len(new) - len(old)
-                    sign = "+" if diff >= 0 else ""
-                    return f"{ratio:.0%} 一致 / {sign}{diff}文字"
+                    ).ratio()
 
                 desc_show_cols = [c for c in ["product_id", "title", "_source_db", "genre", "published_at"] if c in desc_updated_df.columns]
                 desc_display = desc_updated_df[desc_show_cols].copy()
-                desc_display["変化量"] = desc_updated_df.apply(_desc_summary, axis=1)
+                desc_display["文字数差"] = desc_updated_df.apply(_desc_char_diff, axis=1)
+                desc_display["変化量"] = desc_display.apply(
+                    lambda r: (("+" if r["文字数差"] >= 0 else "") + f"{r['文字数差']}文字"),
+                    axis=1
+                )
                 if "published_at" in desc_display.columns:
                     desc_display["公開日"] = pd.to_datetime(desc_display["published_at"], errors="coerce").dt.strftime("%Y/%m/%d").fillna("-")
                     desc_display = desc_display.drop(columns=["published_at"])
                 desc_display = desc_display.rename(columns={"product_id": "作品ID", "title": "タイトル", "_source_db": "DB", "genre": "ジャンル"})
                 desc_display["_pid"] = desc_updated_df["product_id"].values
 
+                # 文字数差の絶対値で降順ソート（デフォルト）
+                desc_display = desc_display.reindex(
+                    desc_display["文字数差"].abs().sort_values(ascending=False).index
+                ).reset_index(drop=True)
+
                 gb_desc = GridOptionsBuilder.from_dataframe(desc_display)
                 gb_desc.configure_selection('single', use_checkbox=False)
                 gb_desc.configure_column("_pid", hide=True)
-                gb_desc.configure_column("タイトル", width=350, minWidth=200)
-                gb_desc.configure_column("変化量", width=160, minWidth=120)
+                gb_desc.configure_column("タイトル", width=320, minWidth=200)
+                gb_desc.configure_column("文字数差", width=110, minWidth=90, sortable=True,
+                                         sort="desc", sortIndex=0,
+                                         type=["numericColumn", "rightAligned"])
+                gb_desc.configure_column("変化量", width=110, minWidth=90)
                 gridOptions_desc = gb_desc.build()
                 gridOptions_desc['domLayout'] = 'normal'
+
 
                 event_desc = AgGrid(
                     desc_display,
