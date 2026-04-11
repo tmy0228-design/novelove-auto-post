@@ -219,7 +219,7 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
     # あらすじ更新バッジ
     if "is_desc_updated" in display.columns:
         display["📝"] = display["is_desc_updated"].apply(
-            lambda v: "updated" if (pd.notna(v) and int(v) == 1) else "-"
+            lambda v: "📝 更新" if (pd.notna(v) and int(v) == 1) else "-"
         )
 
     # あらすじ文字数
@@ -862,6 +862,9 @@ def main():
         # セール中のみ
         only_sale = st.checkbox("🔥 セール中のみ")
 
+        # あらすじ更新ありのみ
+        only_desc_updated = st.checkbox("📝 あらすじ更新ありのみ")
+
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔄 データを再読み込み", use_container_width=True):
             st.cache_data.clear()
@@ -906,20 +909,24 @@ def main():
     if only_sale and "sale_discount_rate" in filtered.columns:
         filtered = filtered[filtered["sale_discount_rate"] > 0]
 
+    if only_desc_updated and "is_desc_updated" in filtered.columns:
+        filtered = filtered[filtered["is_desc_updated"] == 1]
+
     # =====================================================================
     # サマリーカード (トップメトリクス領域)
     # =====================================================================
     pub_count  = len(filtered[filtered["status"] == "published"]) if "status" in filtered.columns else 0
     pend_count = len(filtered[filtered["status"] == "pending"])   if "status" in filtered.columns else 0
-
     sale_count = len(filtered[filtered["sale_discount_rate"] > 0]) if "sale_discount_rate" in filtered.columns else 0
+    desc_updated_count = int((df["is_desc_updated"] == 1).sum()) if "is_desc_updated" in df.columns else 0
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("📦 総件数", f"{total:,}")
     col2.metric("🔍 絞り込み後", f"{len(filtered):,}")
     col3.metric("🟢 公開済み", f"{pub_count:,}")
     col4.metric("🟡 在庫中", f"{pend_count:,}")
     col5.metric("🔥 セール中", f"{sale_count:,}")
+    col6.metric("📝 あらすじ更新", f"{desc_updated_count:,}")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -929,6 +936,71 @@ def main():
     tab_kpi, tab_list = st.tabs(["📊 KPIサマリー ＆ GSC", "📋 データ一覧"])
 
     with tab_kpi:
+        # =====================================================================
+        # あらすじ更新検知パネル
+        # =====================================================================
+        if "is_desc_updated" in df.columns:
+            desc_updated_df = df[df["is_desc_updated"] == 1].copy()
+            if not desc_updated_df.empty:
+                st.markdown("#### 📝 あらすじ更新検知 — リライト候補")
+                st.caption(f"{len(desc_updated_df)}件のあらすじが更新されています。下の一覧から作品を選んで詳細パネルで差分を確認・リライトができます。")
+
+                import difflib as _difflib
+                def _desc_summary(row):
+                    old = str(row.get("prev_description") or "")
+                    new = str(row.get("description") or "")
+                    ratio = _difflib.SequenceMatcher(None,
+                        re.sub(r'\s+', ' ', old).strip(),
+                        re.sub(r'\s+', ' ', new).strip()
+                    ).ratio() if old and new else 0.0
+                    diff = len(new) - len(old)
+                    sign = "+" if diff >= 0 else ""
+                    return f"{ratio:.0%} 一致 / {sign}{diff}文字"
+
+                import re as _re
+                desc_show_cols = [c for c in ["product_id", "title", "_source_db", "genre", "published_at"] if c in desc_updated_df.columns]
+                desc_display = desc_updated_df[desc_show_cols].copy()
+                desc_display["変化量"] = desc_updated_df.apply(_desc_summary, axis=1)
+                if "published_at" in desc_display.columns:
+                    desc_display["公開日"] = pd.to_datetime(desc_display["published_at"], errors="coerce").dt.strftime("%Y/%m/%d").fillna("-")
+                    desc_display = desc_display.drop(columns=["published_at"])
+                desc_display = desc_display.rename(columns={"product_id": "作品ID", "title": "タイトル", "_source_db": "DB", "genre": "ジャンル"})
+                desc_display["_pid"] = desc_updated_df["product_id"].values
+
+                gb_desc = GridOptionsBuilder.from_dataframe(desc_display)
+                gb_desc.configure_selection('single', use_checkbox=False)
+                gb_desc.configure_column("_pid", hide=True)
+                gb_desc.configure_column("タイトル", width=350, minWidth=200)
+                gb_desc.configure_column("変化量", width=160, minWidth=120)
+                gridOptions_desc = gb_desc.build()
+                gridOptions_desc['domLayout'] = 'normal'
+
+                event_desc = AgGrid(
+                    desc_display,
+                    gridOptions=gridOptions_desc,
+                    height=min(400, 45 * len(desc_updated_df) + 60),
+                    update_mode=GridUpdateMode.SELECTION_CHANGED,
+                    columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS,
+                    allow_unsafe_jscode=True,
+                    theme='streamlit',
+                    key="df_desc_updated"
+                )
+
+                selected_desc = event_desc.get('selected_rows')
+                if selected_desc is not None and len(selected_desc) > 0:
+                    if isinstance(selected_desc, pd.DataFrame):
+                        _dpid = str(selected_desc.iloc[0].get("_pid", ""))
+                    else:
+                        _dpid = str(selected_desc[0].get("_pid", ""))
+                    if _dpid and st.session_state.get("_last_desc_pid") != _dpid:
+                        st.session_state["_last_desc_pid"] = _dpid
+                        st.session_state["global_rewrite_pid_input"] = _dpid
+                        st.rerun()
+            else:
+                st.success("✅ あらすじ更新検知なし — 現在リライト候補はありません。")
+
+            st.markdown("---")
+
         # =====================================================================
         # GSC 死に記事アラートパネル
         # =====================================================================
