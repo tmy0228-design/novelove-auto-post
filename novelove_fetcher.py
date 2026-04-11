@@ -20,6 +20,7 @@ import urllib.parse
 import time
 import re
 import html
+import os
 from bs4 import BeautifulSoup
 from datetime import datetime
 
@@ -159,6 +160,91 @@ def _extract_author(item):
             if isinstance(val, dict): return val.get("name", "")
             if isinstance(val, str) and val.strip(): return val.strip()
     return ""
+
+def _run_emergency_ai_extraction(product_url, site_type="FANZA"):
+    """
+    【緊急AI自己修復機能】
+    プログラムによるあらすじ抽出が完全に空振った場合（サイトの構造変更時等）に呼び出され、
+    該当ページのHTMLから大枠のテキストを切り取ってAIに投げ、あらすじ本文と新クラス名を予測・修復させる。
+    成功した場合はDiscordに通知を送り、プログラム側のクラス名更新を促す。
+    """
+    try:
+        api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+        if not api_key:
+            logger.warning("  [AI緊急修復] DEEPSEEK_API_KEY が未設定のためスキップ")
+            return ""
+
+        # 本番と同じセッション・ヘッダーでアクセス（ボット対策回避）
+        session = _make_fanza_session()
+        r = _fetch_with_retry(product_url, session=session,
+                              headers={"User-Agent": "Mozilla/5.0", "Referer": "https://book.dmm.co.jp/"},
+                              timeout=20, label="Emergency_AI")
+        if not r or r.status_code != 200:
+            return ""
+
+        r.encoding = r.apparent_encoding
+        soup = BeautifulSoup(r.text, 'html.parser')
+
+        for trash in soup(['script', 'style', 'header', 'footer', 'nav', 'aside', 'svg', 'img']):
+            trash.decompose()
+
+        body = soup.find('body')
+        if not body:
+            return ""
+
+        # コスト削減のため最大8000文字にクリップ
+        html_segment = str(body)[:8000]
+
+        prompt = (
+            "以下のHTMLはアダルトコンテンツ販売ページの一部ですが、あらすじ（商品説明）プログラムの抽出に失敗しました。\n"
+            "この中から、作品のあらすじ本文を抽出し、さらにそれに最も近いCSSクラス名やID名を推測してください。\n"
+            "準備中などのダミーテキストの場合は空文字にしてください。\n\n"
+            "【出力形式（厳密なJSON）】\n"
+            '{"description": "あらすじ本文（HTMLタグを含まない純粋なテキスト）", '
+            '"guessed_class": "推測されるクラス名（例: .summary__txt など）"}\n\n'
+            f"対象HTML:\n{html_segment}"
+        )
+        messages = [{"role": "user", "content": prompt}]
+        api_url = "https://api.deepseek.com/chat/completions"
+        api_headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        payload = {"model": "deepseek-chat", "messages": messages, "response_format": {"type": "json_object"}}
+
+        # 最大3回リトライ
+        for attempt in range(1, 4):
+            try:
+                res = requests.post(api_url, headers=api_headers, json=payload, timeout=40)
+                if res.status_code == 200:
+                    break
+                logger.warning(f"  [AI緊急修復] API応答エラー (attempt {attempt}/3): status={res.status_code}")
+                time.sleep(2 ** attempt)
+            except Exception as e:
+                logger.warning(f"  [AI緊急修復] API通信エラー (attempt {attempt}/3): {e}")
+                time.sleep(2 ** attempt)
+        else:
+            return ""
+
+        content = res.json()["choices"][0]["message"]["content"]
+        data = json.loads(content)
+
+        desc = data.get("description", "").strip()
+        gc = data.get("guessed_class", "")
+
+        if len(desc) < 50:
+            return ""
+
+        # Discord通知を送る
+        notify_discord(
+            f"⚠️ **[{site_type}] サイト構造変更を検知・AIが自己修復しました！**\n"
+            f"URL: {product_url}\n"
+            f"💡 推測される新しいクラス場所: `{gc}`\n"
+            f"（プログラムの抽出機能にこのクラスを追加してください）",
+            username="🚨 自己修復システム"
+        )
+        logger.info(f"  [AI緊急修復] 成功: {len(desc)}文字取得, 推測クラス={gc}")
+        return desc
+    except Exception as e:
+        logger.warning(f"  [AI緊急修復] エラー: {e}")
+        return ""
 
 def _is_noise_content(title, desc=""):
     ng_words = [
@@ -311,6 +397,10 @@ def scrape_dlsite_description(url):
         meta_desc = soup.select_one('meta[property="og:description"]')
         if meta_desc and meta_desc.get('content'):
             return meta_desc.get('content').strip(), tags_str, is_exclusive
+        # 最終フォールバック（完全0文字ならAI起動）
+        ai_desc = _run_emergency_ai_extraction(url, site_type="DLsite")
+        if ai_desc:
+            return ai_desc, tags_str, is_exclusive
         return "", tags_str, is_exclusive
     except Exception as e:
         logger.error(f"DLsiteスクレイピングエラー: {e}")
@@ -445,6 +535,10 @@ def scrape_digiket_description(url):
                 # ※将来拡張時は NamedTuple 化を検討すること（6要素タプルは unpack エラーの温床: v13.7.2参照）
                 return description, og_img_url, pages, official_format, release_date, is_exclusive
             logger.warning(f"  [DigiKet] あらすじ特定失敗: {url}")
+            # 最終フォールバック（完全0文字ならAI起動）
+            ai_desc = _run_emergency_ai_extraction(url, site_type="DigiKet")
+            if ai_desc:
+                return ai_desc, og_img_url, pages, None, release_date, False
             return "", og_img_url, pages, None, release_date, False
     except Exception as e:
         logger.error(f"  [DigiKet] エラー発生: {e}")
@@ -526,42 +620,63 @@ def scrape_description(product_url, site="FANZA", genre=""):
         if any(kw in text for kw in ["カテゴリー</th><td>写真集", "カテゴリー</th><td>グラビア", "カテゴリー</th><td>文芸・小説", "カテゴリー</th><td>ライトノベル"]):
             logger.warning(f"[FANZA] 禁止カテゴリーを検知: {product_url}")
             return "__EXCLUDED_TYPE__", False
+        # === あらすじ抽出（URL別完全分離ロジック） ===
         next_tag = soup.find("script", id="__NEXT_DATA__")
-        if next_tag:
-            try:
-                ndata = json.loads(next_tag.string)
-                p = ndata.get("props", {}).get("pageProps", {})
-                desc = p.get("product", {}).get("description") or p.get("data", {}).get("description", "")
-                if desc and len(desc.strip()) > 50:
-                    return desc.strip(), is_excl_html
-            except Exception:
-                pass
-        # JSペイロード内の生テキスト検索 (SPA構造対応)
         best_desc = ""
-        for m in re.findall(r'"description":"([^"\\]*(?:\\.[^"\\]*)*)"', text):
-            try:
-                decoded = json.loads('"' + m + '"')
-                decoded = html.unescape(decoded)
-                if len(decoded) > len(best_desc) and '<' not in decoded:
-                    best_desc = decoded
-            except Exception:
-                continue
-        if len(best_desc) > 50: return best_desc, is_excl_html
-        
-        for p_tag in soup.find_all("p"):
-            classes = " ".join(p_tag.get("class", []))
-            if "sc-" in classes:
-                t = p_tag.get_text(separator="\n", strip=True)
-                if len(t) > len(best_desc):
-                    best_desc = t
-        if len(best_desc) > 50: return best_desc, is_excl_html
-        summary = soup.select_one(".summary__txt")
-        if summary and len(summary.text.strip()) > 10: return summary.text.strip(), is_excl_html
-        for selector in [".mg-b20", ".common-description", ".product-description__text"]:
-            el = soup.select_one(selector)
-            if el and len(el.text.strip()) > 10: return el.text.strip(), is_excl_html
-        og = soup.find("meta", property="og:description")
-        if og and len(og.get("content", "")) > 10: return og.get("content").strip(), is_excl_html
+
+        # --- FANZA同人 / らぶカル ---
+        if "/dc/doujin/" in product_url or "/dc/lovecure/" in product_url or "lovecul" in product_url:
+            summary = soup.select_one(".summary__txt")
+            if summary:
+                best_desc = summary.get_text(separator="\n", strip=True)
+
+        # --- FANZA商業 (Books SPA) / DMM一般 (Books) ---
+        elif "book.dmm.co.jp" in product_url or "book.dmm.com" in product_url:
+            # 1. __NEXT_DATA__ JSON構造化データから取得（最も正確）
+            if next_tag:
+                try:
+                    ndata = json.loads(next_tag.string)
+                    p = ndata.get("props", {}).get("pageProps", {})
+                    desc = p.get("product", {}).get("description") or p.get("data", {}).get("description", "")
+                    if desc and len(desc.strip()) > len(best_desc):
+                        best_desc = desc.strip()
+                except Exception:
+                    pass
+            # 2. __NEXT_DATA__ 内の生テキスト正規表現フォールバック
+            if len(best_desc) < 50 and next_tag:
+                try:
+                    for m in re.findall(r'"description":"([^"\\]*(?:\\.[^"\\]*)*)"', next_tag.string):
+                        decoded = json.loads('"' + m + '"')
+                        decoded = html.unescape(decoded)
+                        if len(decoded) > len(best_desc) and '<' not in decoded:
+                            best_desc = decoded
+                except Exception:
+                    pass
+            # 3. SPA動的クラス（style_content__ / style_container__）
+            if len(best_desc) < 50:
+                for d in soup.find_all("div", class_=lambda c: c and ("style_content__" in c or "style_container__" in c)):
+                    t = d.get_text(separator="\n", strip=True)
+                    if len(t) > len(best_desc) and "特典" not in t[:10]:
+                        best_desc = t
+
+        # --- その他のDMMフロア共通 ---
+        else:
+            for selector in [".summary__txt", ".mg-b20", ".common-description", ".product-description__text"]:
+                el = soup.select_one(selector)
+                if el:
+                    t = el.get_text(separator="\n", strip=True)
+                    if len(t) > len(best_desc):
+                        best_desc = t
+
+        # 結果判定
+        if len(best_desc) > 50:
+            return best_desc.strip(), is_excl_html
+
+        # 全DMM系 取得失敗時の最終フォールバック（緊急AI修復）
+        ai_desc = _run_emergency_ai_extraction(product_url, site_type="FANZA/DMM")
+        if ai_desc:
+            return ai_desc, is_excl_html
+
     except Exception as e:
         logger.warning(f"スクレイピング失敗 ({product_url}): {e}")
     return "", False

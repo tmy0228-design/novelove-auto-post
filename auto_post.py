@@ -594,7 +594,13 @@ def _execute_posting_flow(row, cursor, conn):
     res = generate_article(target)
     if not res or not res.wp_title or not res.content:
         err = res.status if res and res.status not in ("ok", "") else "ai_failed"
-        cursor.execute("UPDATE novelove_posts SET status='excluded', last_error=? WHERE product_id=?", (err, pid))
+        # content_block（AIが内容的に執筆不可と判断）は再挑戦しても無駄なのでexcluded
+        # それ以外（サーバーダウン等の一時エラー）はpendingに戻して次回再挑戦させる
+        if err == "content_block":
+            cursor.execute("UPDATE novelove_posts SET status='excluded', last_error=? WHERE product_id=?", (err, pid))
+        else:
+            cursor.execute("UPDATE novelove_posts SET last_error=? WHERE product_id=?", (err, pid))
+            logger.info(f"  [お蔵入り防止] status=pending のまま保持。次回再挑戦します。(reason={err})")
         conn.commit()
         return False, err
 
