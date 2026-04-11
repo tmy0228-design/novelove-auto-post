@@ -946,18 +946,18 @@ def main():
                 st.caption(f"{len(desc_updated_df)}件のあらすじが更新されています。下の一覧から作品を選んで詳細パネルで差分を確認・リライトができます。")
 
                 import difflib as _difflib
+                import re as _re
                 def _desc_summary(row):
                     old = str(row.get("prev_description") or "")
                     new = str(row.get("description") or "")
                     ratio = _difflib.SequenceMatcher(None,
-                        re.sub(r'\s+', ' ', old).strip(),
-                        re.sub(r'\s+', ' ', new).strip()
+                        _re.sub(r'\s+', ' ', old).strip(),
+                        _re.sub(r'\s+', ' ', new).strip()
                     ).ratio() if old and new else 0.0
                     diff = len(new) - len(old)
                     sign = "+" if diff >= 0 else ""
                     return f"{ratio:.0%} 一致 / {sign}{diff}文字"
 
-                import re as _re
                 desc_show_cols = [c for c in ["product_id", "title", "_source_db", "genre", "published_at"] if c in desc_updated_df.columns]
                 desc_display = desc_updated_df[desc_show_cols].copy()
                 desc_display["変化量"] = desc_updated_df.apply(_desc_summary, axis=1)
