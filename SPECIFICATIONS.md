@@ -267,7 +267,8 @@ AI が出力する HTML 記事は、以下のインライン CSS を含む強固
 - `pending`: 審査合格（スコア3-5）。投稿待ち。
 - `published`: 投稿完了。
 - `excluded`: 除外（スコア0-2 またはノイズ）。ダッシュボードから `watching` / `pending` への復帰が可能（v13.0.7）。
-- `last_error`: `no_image`, `wp_post_failed`, `api_error` 等の理由を記録。
+- `deleted`: 手動削除済み。ダッシュボードから削除操作を行い、WP上はゴミ箱に移動された記事。WPゴミ箱は30日後に自動完全削除される。
+- `last_error`: `no_image`, `wp_post_failed`, `api_error`, `manually_deleted` 等の理由を記録。
 
 ### 5-2. 新設カラム（v12.7.0 / v12.8.0 拡張）
 - `original_tags`: 各サイトからスクレイピングした公式属性タグ（ジャンル・キーワード等）を格納。

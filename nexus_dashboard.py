@@ -75,6 +75,7 @@ STATUS_MAP = {
     "published": "🟢 公開済",
     "pending":   "🟡 執筆待",
     "excluded":  "🔴 除外済",
+    "deleted":   "🗑 削除済",
     "failed":    "❌ 取得エラー",
     "failed_ai": "❌ AIエラー",
 }
@@ -261,6 +262,46 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
 # =====================================================================
 # SSH ユーティリティ
 # =====================================================================
+def _ssh_trash_wp_post(product_id: str) -> tuple[bool, str]:
+    """
+    SSH経由で作品ID(スラッグ)からWP投稿IDを特定し、ゴミ箱へ移動する。
+    --force なし = 完全削除ではなくゴミ箱移動（30日後に自動削除）。
+    """
+    if not _PARAMIKO_AVAILABLE:
+        return False, "paramikoがインストールされていません"
+    try:
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        from novelove_core import SSH_PASS
+        if not SSH_PASS:
+            return False, "セキュリティエラー: SSH_PASS が未設定"
+        ssh.connect('novelove.jp', username='root', password=SSH_PASS, timeout=15)
+        doc_root = os.environ.get("WP_DOC_ROOT", "/home/kusanagi/myblog/DocumentRoot")
+
+        # 1. スラッグからWP投稿IDを特定
+        cmd_resolve = f"cd {doc_root} && wp post list --name='{product_id}' --field=ID --allow-root"
+        sin, sout, serr = ssh.exec_command(cmd_resolve)
+        post_id = sout.read().decode().strip()
+
+        if not post_id or not post_id.isdigit():
+            ssh.close()
+            return False, f"WP内に記事が見つかりません（slug: {product_id}）"
+
+        # 2. ゴミ箱へ移動（--force なし）
+        cmd_trash = f"cd {doc_root} && wp post delete {post_id} --allow-root"
+        stdin, stdout, stderr = ssh.exec_command(cmd_trash)
+        exit_status = stdout.channel.recv_exit_status()
+        ssh.close()
+
+        if exit_status == 0:
+            return True, f"WP記事(ID:{post_id})をゴミ箱に移動しました"
+        else:
+            err_msg = stderr.read().decode().strip()
+            return False, f"wp post delete 失敗（exit={exit_status}）: {err_msg}"
+    except Exception as e:
+        return False, f"SSH接続エラー: {e}"
+
+
 def _ssh_ping_google(product_id: str) -> tuple[bool, str]:
     """
     SSH経由で作品ID(スラッグ)から投稿IDを特定し、キャッシュクリア + Google Ping通知を発火。
@@ -469,6 +510,38 @@ def render_detail_panel(detail_pid, df, key_prefix="list"):
 
             # ── 下段: リライトパネル（published のみ表示） ──
             if row.get("status") == "published":
+                # ── 🗑 記事削除パネル ──
+                st.markdown("---")
+                with st.expander("🗑 この記事を削除する", expanded=False):
+                    st.warning("⚠️ WP記事がゴミ箱に移動され、DBステータスが「削除済み」に変更されます。WPゴミ箱内の記事は30日後に自動で完全削除されます。")
+                    _del_confirm = st.checkbox(
+                        "この記事を削除することを確認しました",
+                        key=f"{key_prefix}_del_confirm_{detail_pid}",
+                    )
+                    if _del_confirm:
+                        if st.button("🗑 削除を実行する", key=f"{key_prefix}_btn_delete_{detail_pid}", type="primary"):
+                            with st.spinner("🗑 WP記事をゴミ箱に移動中..."):
+                                ok, msg = _ssh_trash_wp_post(str(row["product_id"]))
+                            if ok:
+                                # DB側も deleted に更新
+                                try:
+                                    from novelove_core import get_db_path, db_connect as _dbc
+                                    _sdb = row.get("site", "") or row.get("_source_db", "")
+                                    _db = _dbc(get_db_path(_sdb))
+                                    _db.execute(
+                                        "UPDATE novelove_posts SET status = 'deleted', last_error = 'manually_deleted' WHERE product_id = ?",
+                                        (str(row["product_id"]),)
+                                    )
+                                    _db.commit()
+                                    _db.close()
+                                    st.success(f"✅ {msg}　DB: deleted に更新しました。")
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"⚠️ WPゴミ箱移動は成功しましたが、DB更新に失敗: {e}")
+                            else:
+                                st.error(f"❌ WPゴミ箱移動に失敗: {msg}")
+
                 st.markdown("---")
                 st.markdown("##### 🔄 リライト設定")
 
@@ -1259,6 +1332,46 @@ def main():
                                     success_cnt += 1
                             st.success(f"🎉 {success_cnt}/{len(selected_pids)}件のPing送信に成功しました！")
                             st.info("⛳ 数日以内にGSCへの反映が進むはずです。")
+
+                    # --- 🗑 バルク削除 ---
+                    st.markdown("")
+                    with st.expander(f"🗑 選択した {len(selected_pids)} 件を一括削除する", expanded=False):
+                        st.warning("⚠️ 選択した全記事のWP記事がゴミ箱に移動され、DBステータスが「削除済み」に変更されます。")
+                        _bulk_del_confirm = st.checkbox(
+                            f"{len(selected_pids)} 件すべてを削除することを確認しました",
+                            key="bulk_del_confirm",
+                        )
+                        if _bulk_del_confirm:
+                            if st.button("🗑 一括削除を実行する", key="bulk_del_exec", type="primary"):
+                                with st.spinner(f"🗑 {len(selected_pids)} 件を順次削除中..."):
+                                    del_ok = 0
+                                    del_fail = 0
+                                    for p in selected_pids:
+                                        ok, msg = _ssh_trash_wp_post(p)
+                                        if ok:
+                                            try:
+                                                from novelove_core import get_db_path, db_connect as _dbc
+                                                # product_id から該当DBを特定
+                                                _row = df[df["product_id"].astype(str) == p]
+                                                if not _row.empty:
+                                                    _sdb = str(_row.iloc[0].get("site", "") or _row.iloc[0].get("_source_db", ""))
+                                                    _db = _dbc(get_db_path(_sdb))
+                                                    _db.execute(
+                                                        "UPDATE novelove_posts SET status = 'deleted', last_error = 'manually_deleted' WHERE product_id = ?",
+                                                        (p,)
+                                                    )
+                                                    _db.commit()
+                                                    _db.close()
+                                                del_ok += 1
+                                            except Exception:
+                                                del_ok += 1  # WP側は成功しているのでカウント
+                                        else:
+                                            del_fail += 1
+                                    st.success(f"🎉 {del_ok}/{len(selected_pids)} 件の削除に成功しました！")
+                                    if del_fail > 0:
+                                        st.warning(f"⚠️ {del_fail} 件はWPゴミ箱移動に失敗しました。")
+                                    st.cache_data.clear()
+                                    st.rerun()
 
                 # --- 👇 従来の下部詳細パネルへの選択情報渡し ---
                 try:
