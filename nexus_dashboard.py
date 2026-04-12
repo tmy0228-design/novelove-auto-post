@@ -850,6 +850,14 @@ def main():
     # 左サイドバー：フィルターパネル
     # =====================================================================
     with st.sidebar:
+        # キャッシュクリア機能
+        with st.expander("🛠 システム管理", expanded=False):
+            if st.button("🗑 すべてのキャッシュをクリア", use_container_width=True, help="DBの読み込みキャッシュやメモリをクリアして最新の状態にします。"):
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                st.success("キャッシュを全消去しました。表を再読み込みします。")
+                st.rerun()
+
         st.markdown("### 🔍 フィルター & 検索")
         
         # キーワード検索
