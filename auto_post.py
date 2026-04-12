@@ -566,6 +566,12 @@ def _execute_posting_flow(row, cursor, conn):
     # A+C方式: FIFUには軽量サムネ、記事本文には大きいURLを使う
     thumb_url = _get_thumbnail_url(img_url)
 
+    # 🌟 URLにloveculが含まれていたら、DBのsiteがFANZA等でも強制的にLovecal扱いにする
+    _product_url_val = row["product_url"] or ""
+    if "lovecul.dmm.co.jp" in _product_url_val:
+        site_raw = "Lovecal:r18=1"
+        site_label = "Lovecal"
+
     target = {
         "product_id":    pid,
         "title":         row["title"],
@@ -573,9 +579,10 @@ def _execute_posting_flow(row, cursor, conn):
         "genre":         row["genre"],
         "site":          site_raw,
         "description":   desc_str,
+        "product_url":   _product_url_val,
         # 🌟 v14.3.0: affiliate_urlはDBのキャッシュを使わず、product_urlから毎回再生成する
         # （らぶカル等のアフィリエイトドメイン判定バグを根絶する）
-        "affiliate_url": generate_affiliate_url(site_label, row["product_url"] or ""),
+        "affiliate_url": generate_affiliate_url(site_label, _product_url_val),
         "image_url":     img_url,
         "thumb_url":     thumb_url,
         "release_date":  row["release_date"],

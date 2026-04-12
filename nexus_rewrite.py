@@ -461,6 +461,12 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     latest_score = _evaluate_article_potential(title, desc_str, original_tags=row["original_tags"])
     logger.info(f"  [評価] 元のスコア: {row['desc_score'] or 0} -> 最新スコア: {latest_score}")
 
+    # 🌟 URLにloveculが含まれていたら、DBのsiteがFANZA等でも強制的にLovecal扱いにする
+    _product_url_val = row["product_url"] or row["affiliate_url"] or ""
+    if "lovecul.dmm.co.jp" in _product_url_val:
+        site_raw = "Lovecal:r18=1"
+        site_label = "Lovecal"
+
     target = {
         "product_id":    row["product_id"],
         "title":         title,
@@ -468,8 +474,9 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         "genre":         genre,
         "site":          site_raw,
         "description":   desc_str,
+        "product_url":   _product_url_val,
         # 🌟 v14.3.0: affiliate_urlはDBキャッシュではなく、product_urlから毎回再生成
-        "affiliate_url": generate_affiliate_url(site_label, row["product_url"] or row["affiliate_url"] or ""),
+        "affiliate_url": generate_affiliate_url(site_label, _product_url_val),
         "image_url":     img_url,
         "release_date":  row["release_date"] or "",
         "ai_tags":       row["ai_tags"] or "",

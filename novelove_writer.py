@@ -442,15 +442,21 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             # 専売タグをWPタグリストに追加
             _site_raw = str(target.get("site", "")).split(":")[0]
             _is_excl = bool(target.get("is_exclusive", 0))
+            _url = str(target.get("product_url", "")) or str(target.get("affiliate_url", ""))
+            
+            # loveculドメインのものは、DBのsiteがFANZAとなっていても強制的にらぶカル扱いにする
+            if "lovecul.dmm.co.jp" in _url:
+                _site_raw = "Lovecal"
+
             if _is_excl:
                 if "DLsite" in _site_raw and "DLsite専売" not in ai_tags_from_ai:
                     ai_tags_from_ai.append("DLsite専売")
+                elif "Lovecal" in _site_raw and "らぶカル独占" not in ai_tags_from_ai:
+                    ai_tags_from_ai.append("らぶカル独占")
                 elif "FANZA" in _site_raw and "FANZA独占" not in ai_tags_from_ai:
                     ai_tags_from_ai.append("FANZA独占")
                 elif "DigiKet" in _site_raw and "DigiKet限定" not in ai_tags_from_ai:
                     ai_tags_from_ai.append("DigiKet限定")
-                elif "Lovecal" in _site_raw and "らぶカル独占" not in ai_tags_from_ai:
-                    ai_tags_from_ai.append("らぶカル独占")
             
             tags_for_seo = ai_tags_from_ai
             tag_str = "・".join(tags_for_seo[:2]) if tags_for_seo else ""
