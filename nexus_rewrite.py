@@ -301,10 +301,14 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
             cmd_ex = f"cd {doc_root} && wp post meta update {wp_post_id} the_page_meta_description '{safe_excerpt}' --allow-root"
             ssh.exec_command(cmd_ex)
             
-        # === 最重要: 更新フックの発火 ===
-        # これを実行することで Cocoon/KUSANAGI のキャッシュパージ ＆ RankMath(Google等) へのPing通知が走る
+        # === 最重要: 更新フックの発火とキャッシュの完全消去 ===
+        # これを実行することで RankMath(Google等) へのPing通知が走る
+        # さらに、再執筆内容が即座に反映されるよう本番サーバーのキャッシュを全クリアする
         cmd_update = f"cd {doc_root} && wp post update {wp_post_id} --allow-root"
-        stdin, stdout, stderr = ssh.exec_command(cmd_update)
+        cmd_cache_clear = f"cd {doc_root} && wp cache flush --allow-root && kusanagi bcache clear && kusanagi fcache clear"
+        
+        # 連続実行
+        stdin, stdout, stderr = ssh.exec_command(f"{cmd_update} && {cmd_cache_clear}")
         # コマンドの完了を待機
         exit_status = stdout.channel.recv_exit_status()
         
