@@ -340,6 +340,42 @@ def _ssh_ping_google(product_id: str) -> tuple[bool, str]:
         return False, f"SSH接続エラー: {e}"
 
 
+def _ssh_clear_wp_cache() -> tuple[bool, str]:
+    """
+    SSH経由で本番サーバーのWPキャッシュ(及びKUSANAGIキャッシュ)をクリアする。
+    """
+    if not _PARAMIKO_AVAILABLE:
+        return False, "paramikoがインストールされていません"
+    try:
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        from novelove_core import SSH_PASS
+        if not SSH_PASS:
+            return False, "セキュリティエラー: SSH_PASS が環境変数に設定されていません"
+        ssh.connect('novelove.jp', username='root', password=SSH_PASS, timeout=15)
+        doc_root = os.environ.get("WP_DOC_ROOT", "/home/kusanagi/myblog/DocumentRoot")
+        
+        cmd_wp = f"cd {doc_root} && wp cache flush --allow-root"
+        cmd_ks = "kusanagi bcache clear && kusanagi fcache clear"
+        
+        # WPキャッシュをクリア
+        _, stdout1, stderr1 = ssh.exec_command(cmd_wp)
+        exit1 = stdout1.channel.recv_exit_status()
+        
+        # KUSANAGIキャッシュをクリア
+        _, stdout2, _ = ssh.exec_command(cmd_ks)
+        exit2 = stdout2.channel.recv_exit_status()
+        
+        ssh.close()
+        
+        if exit1 == 0:
+            return True, "✅ サイトのキャッシュ(WP/KUSANAGI)を全消去しました！"
+        else:
+            return False, f"キャッシュクリア失敗(WP={exit1}, KUSANAGI={exit2})"
+    except Exception as e:
+        return False, f"SSHリモート実行エラー: {e}"
+
+
 # =====================================================================
 # 詳細ビュー＆リライト操作パネル (共通)
 # =====================================================================
@@ -852,10 +888,15 @@ def main():
     with st.sidebar:
         # キャッシュクリア機能
         with st.expander("🛠 システム管理", expanded=False):
-            if st.button("🗑 すべてのキャッシュをクリア", use_container_width=True, help="DBの読み込みキャッシュやメモリをクリアして最新の状態にします。"):
-                st.cache_data.clear()
-                st.cache_resource.clear()
-                st.success("キャッシュを全消去しました。表を再読み込みします。")
+            if st.button("🗑 すべてのキャッシュをクリア", use_container_width=True, help="ダッシュボードの表示キャッシュと、本番サイト(WordPress/KUSANAGI)の全キャッシュを吹き飛ばします。"):
+                with st.spinner("サーバーのキャッシュを削除中..."):
+                    st.cache_data.clear()
+                    st.cache_resource.clear()
+                    success, msg = _ssh_clear_wp_cache()
+                if success:
+                    st.success("システムとサイトの全キャッシュをクリアしました！表を再読み込みします。")
+                else:
+                    st.warning(f"ダッシュボードのキャッシュのみクリアしました。(サイト側エラー: {msg})")
                 st.rerun()
 
         st.markdown("### 🔍 フィルター & 検索")
