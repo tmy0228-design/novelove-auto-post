@@ -61,7 +61,7 @@ from novelove_soul import REVIEWERS, MOOD_PATTERNS, FACT_GUARD, NG_PHRASES, get_
 from novelove_core import (
     logger, ERROR_LABELS, notify_discord,
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
-    get_affiliate_button_html,
+    get_affiliate_button_html, generate_affiliate_url,
     _get_reviewer_for_genre, _genre_label,
     get_db_path, db_connect, init_db, get_genre_index, save_genre_index,
     WP_SITE_URL,
@@ -573,7 +573,9 @@ def _execute_posting_flow(row, cursor, conn):
         "genre":         row["genre"],
         "site":          site_raw,
         "description":   desc_str,
-        "affiliate_url": row["affiliate_url"],
+        # 🌟 v14.3.0: affiliate_urlはDBのキャッシュを使わず、product_urlから毎回再生成する
+        # （らぶカル等のアフィリエイトドメイン判定バグを根絶する）
+        "affiliate_url": generate_affiliate_url(site_label, row["product_url"] or ""),
         "image_url":     img_url,
         "thumb_url":     thumb_url,
         "release_date":  row["release_date"],
@@ -632,9 +634,9 @@ def _execute_posting_flow(row, cursor, conn):
     # v13.5.1: 専売タグの付与（DBの is_exclusive フラグに基づく厳密なDOM判定結果）
     is_exclusive = (row["is_exclusive"] if "is_exclusive" in row.keys() else 0) == 1
     if is_exclusive:
-        _normalized = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet"}
+        _normalized = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "Lovecal"}
         _sn = _normalized.get(site_label, site_label)
-        excl_tag = {"DLsite": "DLsite専売", "FANZA": "FANZA独占", "DMM": "FANZA独占", "DigiKet": "DigiKet限定"}.get(_sn, "")
+        excl_tag = {"DLsite": "DLsite専売", "FANZA": "FANZA独占", "DMM": "FANZA独占", "DigiKet": "DigiKet限定", "Lovecal": "らぶカル独占"}.get(_sn, "")
         if not excl_tag and "らぶカル" in str(site_label):
             excl_tag = "らぶカル独占"
         if excl_tag and excl_tag not in final_ai_tags:
@@ -650,7 +652,7 @@ def _execute_posting_flow(row, cursor, conn):
         ai_tags_str = ",".join(final_ai_tags)
         # v12.8.0: wp_tags（WPへ実際に送信した完成品タグ一覧）を構築してDBへ書き戻す
         # ※ post_to_wordpress() 内のタグ構築ロジック(L746-778)と完全一致させること
-        _normalized_labels = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet"}
+        _normalized_labels = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "らぶカル"}
         _site_name_for_wp = _normalized_labels.get(site_label, site_label)
         _wp_tags_parts = []
         if _site_name_for_wp:

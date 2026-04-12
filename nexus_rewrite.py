@@ -40,7 +40,7 @@ from datetime import datetime
 from novelove_core import (
     logger,
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
-    db_connect, notify_discord,
+    db_connect, notify_discord, generate_affiliate_url,
     WP_SITE_URL, SCRIPT_DIR,
     WP_USER, WP_APP_PASSWORD, SSH_PASS,
 )
@@ -69,6 +69,7 @@ NORMALIZED_LABELS = {
     "FANZA":   "FANZA",
     "DLsite":  "DLsite",
     "DigiKet": "DigiKet",
+    "Lovecal": "らぶカル",
 }
 
 
@@ -116,7 +117,7 @@ def _get_published_row(product_id):
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 """SELECT product_id, title, author, genre, site, status,
-                          description, affiliate_url, image_url, wp_post_url,
+                          description, affiliate_url, image_url, product_url, wp_post_url,
                           ai_tags, desc_score, original_tags, is_exclusive,
                           release_date, reviewer, rewrite_count, wp_tags
                    FROM novelove_posts
@@ -138,10 +139,11 @@ def _wp_auth():
     return (WP_USER, WP_APP_PASSWORD)
 
 
-def _wp_get_post_id_and_tags(slug):
+def _wp_get_post_id_and_tags(slug, wp_post_url=None):
     """
     スラグ（= product_id）から WP 記事の ID と現在のタグ ID リストを取得する。
     nexus_revive.py の _wp_search_post_by_slug と同一のロジック。
+    見つからない場合は wp_post_url からスラグを抽出してリトライする。
     戻り値: (wp_post_id: int|None, tag_ids: list[int])
     """
     auth = _wp_auth()
@@ -155,6 +157,23 @@ def _wp_get_post_id_and_tags(slug):
         posts = r.json()
         if isinstance(posts, list) and posts:
             return posts[0]["id"], posts[0].get("tags", [])
+            
+        # フォールバック: wp_post_urlからスラグを抽出してリトライ
+        if wp_post_url:
+            import re
+            m = re.search(r'/([^/]+)/?$', wp_post_url.rstrip('/'))
+            if m:
+                url_slug = m.group(1)
+                if url_slug != slug:
+                    r2 = requests.get(
+                        f"{WP_SITE_URL}/wp-json/wp/v2/posts",
+                        auth=auth,
+                        params={"slug": url_slug, "status": "publish", "_fields": "id,tags"},
+                        timeout=15,
+                    )
+                    posts2 = r2.json()
+                    if isinstance(posts2, list) and posts2:
+                        return posts2[0]["id"], posts2[0].get("tags", [])
     except Exception as e:
         logger.warning(f"  [WP] 記事検索エラー (slug={slug}): {e}")
     return None, []
@@ -422,9 +441,10 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
 
     # --- Step 2: WP 上の記事IDと現在タグを取得 ---
     logger.info("  [WP] 記事ID・現在タグを取得中...")
-    wp_post_id, current_tag_ids = _wp_get_post_id_and_tags(product_id)
+    wp_post_url = row["wp_post_url"] if "wp_post_url" in row.keys() else ""
+    wp_post_id, current_tag_ids = _wp_get_post_id_and_tags(product_id, wp_post_url=wp_post_url)
     if not wp_post_id:
-        logger.error(f"❌ WP 上に slug='{product_id}' の公開記事が見つかりません")
+        logger.error(f"❌ WP 上に slug='{product_id}' の公開記事が見つかりません (urlフォールバックも失敗)")
         return False
 
     logger.info(f"  [WP] post_id={wp_post_id} / 現在のタグID: {current_tag_ids}")
@@ -448,7 +468,8 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         "genre":         genre,
         "site":          site_raw,
         "description":   desc_str,
-        "affiliate_url": row["affiliate_url"] or "",
+        # 🌟 v14.3.0: affiliate_urlはDBキャッシュではなく、product_urlから毎回再生成
+        "affiliate_url": generate_affiliate_url(site_label, row["product_url"] or row["affiliate_url"] or ""),
         "image_url":     img_url,
         "release_date":  row["release_date"] or "",
         "ai_tags":       row["ai_tags"] or "",

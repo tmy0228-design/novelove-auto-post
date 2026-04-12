@@ -240,6 +240,11 @@ def generate_affiliate_url(site: str, product_url: str, **kwargs) -> str:
         af_id      = DMM_AFFILIATE_LINK_ID or "novelove-001"
         ch_params  = "&ch=toolbar&ch_id=text"
         encoded    = urllib.parse.quote(product_url, safe="")
+        
+        # 🌟 Lovecal (らぶカル) のURLはFANZA仕様のアフィリンクだと死ぬためDMM用に強制置換
+        if "lovecul.dmm.co.jp" in product_url:
+            return f"https://al.dmm.com/?lurl={encoded}&af_id={af_id}{ch_params}"
+            
         if site == "FANZA":
             return f"https://al.fanza.co.jp/?lurl={encoded}&af_id={af_id}{ch_params}"
         # DMM.com
