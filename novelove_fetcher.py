@@ -668,17 +668,6 @@ def scrape_description(product_url, site="FANZA", genre=""):
                     if len(t) > len(best_desc):
                         best_desc = t
 
-        # === セーフモード・クッションページ等のダミーテキスト除外 ===
-        age_check_keywords = [
-            "ここから先は、性的・暴力的に過激な表現",
-            "セーフモードとは",
-            "表示しますか？",
-            "年齢確認"
-        ]
-        if any(kw in best_desc for kw in age_check_keywords):
-            logger.warning(f"[FANZA] クッションページ(セーフモード等)のダミーテキストを検知したため破棄します: {product_url}")
-            best_desc = ""
-
         # 結果判定
         if len(best_desc) > 50:
             return best_desc.strip(), is_excl_html
