@@ -620,47 +620,27 @@ def scrape_description(product_url, site="FANZA", genre=""):
         if any(kw in text for kw in ["カテゴリー</th><td>写真集", "カテゴリー</th><td>グラビア", "カテゴリー</th><td>文芸・小説", "カテゴリー</th><td>ライトノベル"]):
             logger.warning(f"[FANZA] 禁止カテゴリーを検知: {product_url}")
             return "__EXCLUDED_TYPE__", False
-        # === あらすじ抽出（URL別完全分離ロジック） ===
-        next_tag = soup.find("script", id="__NEXT_DATA__")
+        # === あらすじ抽出（JSON-LD優先・全サイト共通ロジック） ===
+        # 第一優先: JSON-LD (Schema.org構造化データ) から取得
+        # - SPA/非SPA/セーフモード画面に関わらず、常にGoogleクローラー向けの
+        #   公式データが埋め込まれており、純粋なあらすじのみが格納されている
+        # - style_content__ 等の画面上の枠から取得しないことで汚染事故を根絶
         best_desc = ""
+        for ld_match in re.finditer(r'<script type="application/ld\+json">(.*?)</script>', text, re.DOTALL):
+            try:
+                ld_data = json.loads(ld_match.group(1))
+                items = ld_data if isinstance(ld_data, list) else [ld_data]
+                for item in items:
+                    if isinstance(item, dict) and "description" in item and isinstance(item["description"], str):
+                        if len(item["description"]) > len(best_desc):
+                            best_desc = item["description"]
+            except Exception:
+                pass
 
-        # --- FANZA同人 / らぶカル ---
-        if "/dc/doujin/" in product_url or "/dc/lovecure/" in product_url or "lovecul" in product_url:
-            summary = soup.select_one(".summary__txt")
-            if summary:
-                best_desc = summary.get_text(separator="\n", strip=True)
-
-        # --- FANZA商業 (Books SPA) / DMM一般 (Books) ---
-        elif "book.dmm.co.jp" in product_url or "book.dmm.com" in product_url:
-            # 1. __NEXT_DATA__ JSON構造化データから取得（最も正確）
-            if next_tag:
-                try:
-                    ndata = json.loads(next_tag.string)
-                    p = ndata.get("props", {}).get("pageProps", {})
-                    desc = p.get("product", {}).get("description") or p.get("data", {}).get("description", "")
-                    if desc and len(desc.strip()) > len(best_desc):
-                        best_desc = desc.strip()
-                except Exception:
-                    pass
-            # 2. __NEXT_DATA__ 内の生テキスト正規表現フォールバック
-            if len(best_desc) < 50 and next_tag:
-                try:
-                    for m in re.findall(r'"description":"([^"\\]*(?:\\.[^"\\]*)*)"', next_tag.string):
-                        decoded = json.loads('"' + m + '"')
-                        decoded = html.unescape(decoded)
-                        if len(decoded) > len(best_desc) and '<' not in decoded:
-                            best_desc = decoded
-                except Exception:
-                    pass
-            # 3. SPA動的クラス（style_content__ / style_container__）
-            if len(best_desc) < 50:
-                for d in soup.find_all("div", class_=lambda c: c and ("style_content__" in c or "style_container__" in c)):
-                    t = d.get_text(separator="\n", strip=True)
-                    if len(t) > len(best_desc) and "特典" not in t[:10]:
-                        best_desc = t
-
-        # --- その他のDMMフロア共通 ---
-        else:
+        # 第二優先（フォールバック）: 安全な固定クラス要素から取得
+        # - JSON-LDが存在しない旧システムページ（古い同人作品等）の対応
+        # - 固定クラス名のため、セーフモード等の変なテキストが入り込む心配がない
+        if len(best_desc) < 50:
             for selector in [".summary__txt", ".mg-b20", ".common-description", ".product-description__text"]:
                 el = soup.select_one(selector)
                 if el:
@@ -672,7 +652,7 @@ def scrape_description(product_url, site="FANZA", genre=""):
         if len(best_desc) > 50:
             return best_desc.strip(), is_excl_html
 
-        # 全DMM系 取得失敗時の最終フォールバック（緊急AI修復）
+        # 取得失敗 → 緊急AI修復（JSON-LDも固定クラスも存在しない = 新仕様変更の可能性が高いため通知）
         ai_desc = _run_emergency_ai_extraction(product_url, site_type="FANZA/DMM")
         if ai_desc:
             return ai_desc, is_excl_html
