@@ -324,7 +324,7 @@ def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_ima
     if guest_name:
         tags_to_add.append(guest_name)
         
-    wp_url = post_to_wordpress(
+    wp_url, _wp_id = post_to_wordpress(
         title=title, content=content, genre=genre, image_url=top_image_url,
         excerpt=excerpt, seo_title=f"{title} | Novelove",
         slug=slug, is_r18=False, site_label=site_name,

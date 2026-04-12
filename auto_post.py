@@ -222,7 +222,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         r = requests.post(f"{WP_SITE_URL}/wp-json/wp/v2/posts", auth=auth, json=post_data, timeout=40)
     except Exception as e:
         logger.error(f"WordPress投稿接続エラー: {e}")
-        return None
+        return None, None
 
     if r.status_code in (200, 201):
         data = r.json()
@@ -255,7 +255,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
                         # 最終手段として下書き変更を試行
                         try: requests.post(f"{WP_SITE_URL}/wp-json/wp/v2/posts/{wp_post_id}", auth=auth, json={"status": "draft"}, timeout=10)
                         except: pass
-                    return None # 呼び出し元で wp_post_failed として処理される
+                    return None, None # 呼び出し元で wp_post_failed として処理される
             
             # 2. SEOタイトルの設定
             if seo_title:
@@ -271,10 +271,10 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
                 except Exception as e:
                     logger.warning(f"  [WP-CLI] メタディスクリプション設定失敗: {e}")
                 
-        return link
+        return link, wp_post_id
     
     logger.error(f"WordPress投稿失敗: status={r.status_code}, body={r.text[:500]}")
-    return None
+    return None, None
 
 # === メインロジック ===
 # --- [削除] 旧 main() 定義 (v11.4.14 にて統合・削除) ---
@@ -639,7 +639,7 @@ def _execute_posting_flow(row, cursor, conn):
             excl_tag = "らぶカル独占"
         if excl_tag and excl_tag not in final_ai_tags:
             final_ai_tags.append(excl_tag)
-    link = post_to_wordpress(
+    link, wp_post_id = post_to_wordpress(
         wp_title, content, row["genre"], img_url,
         excerpt=excerpt, seo_title=seo_title, slug=pid, is_r18=is_r18,
         site_label=site_label, ai_tags=final_ai_tags, reviewer=rev_name,

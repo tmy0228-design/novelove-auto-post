@@ -875,14 +875,19 @@ def fetch_and_stock_all():
             else:
                 desc, is_excl_scraping = scrape_description(p_url, site=site, genre=target["genre"])
                 
-                # APIの生データから直接独占・先行フラグを探す (100%確実)
+                # APIの生データから直接独占・専売フラグを探す (100%確実)
+                # ※「先行」は期間限定のため専売ではない。除外する。
                 is_excl_api = False
                 info = item.get("iteminfo", {})
                 genres = [g.get("name", "") for g in info.get("genre", [])]
                 labels = [l.get("name", "") for l in info.get("label", [])]
-                if any("独占" in g or "先行" in g or "専売" in g for g in genres) or \
-                   any("独占" in l or "先行" in l or "専売" in l for l in labels):
-                    is_excl_api = True
+                genres_str = " ".join(genres)
+                labels_str = " ".join(labels)
+                
+                # 独占や専売が含まれており、かつ「先行」が含まれていない場合のみ専売とする
+                if "独占" in genres_str or "専売" in genres_str or "独占" in labels_str or "専売" in labels_str:
+                    if "先行" not in genres_str and "先行" not in labels_str:
+                        is_excl_api = True
 
                 item["_original_tags"] = ""
                 item["_is_exclusive"] = 1 if (is_excl_scraping or is_excl_api) else 0
