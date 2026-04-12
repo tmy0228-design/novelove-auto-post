@@ -262,9 +262,58 @@ def format_display_df(df: pd.DataFrame) -> pd.DataFrame:
 # =====================================================================
 # SSH ユーティリティ
 # =====================================================================
+def _resolve_wp_post_id(ssh, doc_root: str, product_id: str, wp_post_url: str = "") -> str:
+    """
+    product_id(スラグ)でWP投稿IDを検索。見つからない場合は
+    wp_post_urlからスラグを抽出してリトライする（-2等のスラグ相違対策）。
+    見つからなかった場合は空文字を返す。
+    """
+    # 1. product_id で検索
+    cmd = f"cd {doc_root} && wp post list --name='{product_id}' --field=ID --allow-root"
+    _, sout, _ = ssh.exec_command(cmd)
+    post_id = sout.read().decode().strip()
+    if post_id and post_id.isdigit():
+        return post_id
+
+    # 2. wp_post_url からスラグを抽出してリトライ
+    if wp_post_url:
+        import re
+        m = re.search(r'/([^/]+)/?$', wp_post_url.rstrip('/'))
+        if m:
+            url_slug = m.group(1)
+            if url_slug != product_id:
+                cmd2 = f"cd {doc_root} && wp post list --name='{url_slug}' --field=ID --allow-root"
+                _, sout2, _ = ssh.exec_command(cmd2)
+                post_id2 = sout2.read().decode().strip()
+                if post_id2 and post_id2.isdigit():
+                    return post_id2
+    return ""
+
+
+def _get_wp_post_url_from_db(product_id: str) -> str:
+    """DBからwp_post_urlを取得する。見つからなければ空文字。"""
+    try:
+        import sqlite3 as _sqlite3
+        for db_path in DB_SOURCES.values():
+            if not os.path.exists(db_path):
+                continue
+            conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            row = conn.execute(
+                "SELECT wp_post_url FROM novelove_posts WHERE product_id = ?",
+                (product_id,)
+            ).fetchone()
+            conn.close()
+            if row and row[0]:
+                return str(row[0])
+    except Exception:
+        pass
+    return ""
+
+
 def _ssh_trash_wp_post(product_id: str) -> tuple[bool, str]:
     """
     SSH経由で作品ID(スラッグ)からWP投稿IDを特定し、ゴミ箱へ移動する。
+    product_idで見つからない場合はDBのwp_post_urlからスラグを抽出してリトライ。
     --force なし = 完全削除ではなくゴミ箱移動（30日後に自動削除）。
     """
     if not _PARAMIKO_AVAILABLE:
@@ -278,16 +327,15 @@ def _ssh_trash_wp_post(product_id: str) -> tuple[bool, str]:
         ssh.connect('novelove.jp', username='root', password=SSH_PASS, timeout=15)
         doc_root = os.environ.get("WP_DOC_ROOT", "/home/kusanagi/myblog/DocumentRoot")
 
-        # 1. スラッグからWP投稿IDを特定
-        cmd_resolve = f"cd {doc_root} && wp post list --name='{product_id}' --field=ID --allow-root"
-        sin, sout, serr = ssh.exec_command(cmd_resolve)
-        post_id = sout.read().decode().strip()
+        # スラグ追尾（product_id → wp_post_url フォールバック）
+        wp_post_url = _get_wp_post_url_from_db(product_id)
+        post_id = _resolve_wp_post_id(ssh, doc_root, product_id, wp_post_url)
 
-        if not post_id or not post_id.isdigit():
+        if not post_id:
             ssh.close()
             return False, f"WP内に記事が見つかりません（slug: {product_id}）"
 
-        # 2. ゴミ箱へ移動（--force なし）
+        # ゴミ箱へ移動（--force なし）
         cmd_trash = f"cd {doc_root} && wp post delete {post_id} --allow-root"
         stdin, stdout, stderr = ssh.exec_command(cmd_trash)
         exit_status = stdout.channel.recv_exit_status()
@@ -304,7 +352,8 @@ def _ssh_trash_wp_post(product_id: str) -> tuple[bool, str]:
 
 def _ssh_ping_google(product_id: str) -> tuple[bool, str]:
     """
-    SSH経由で作品ID(スラッグ)から投稿IDを特定し、キャッシュクリア + Google Ping通知を発火。
+    SSH経由で作品ID(スラッグ)から投稿IDを特定し、Google Ping通知を発火。
+    product_idで見つからない場合はDBのwp_post_urlからスラグを抽出してリトライ。
     """
     if not _PARAMIKO_AVAILABLE:
         return False, "paramikoがインストールされていません"
@@ -316,22 +365,21 @@ def _ssh_ping_google(product_id: str) -> tuple[bool, str]:
             return False, "セキュリティエラー: SSH_PASS が環境変数に設定されていません。サーバーの .env を確認してください。"
         ssh.connect('novelove.jp', username='root', password=SSH_PASS, timeout=15)
         doc_root = os.environ.get("WP_DOC_ROOT", "/home/kusanagi/myblog/DocumentRoot")
-        
-        # 1. スラッグ(product_id)から投稿IDを取得
-        cmd_resolve = f"cd {doc_root} && wp post list --name='{product_id}' --field=ID --allow-root"
-        sin, sout, serr = ssh.exec_command(cmd_resolve)
-        post_id = sout.read().decode().strip()
-        
-        if not post_id or not post_id.isdigit():
+
+        # スラグ追尾（product_id → wp_post_url フォールバック）
+        wp_post_url = _get_wp_post_url_from_db(product_id)
+        post_id = _resolve_wp_post_id(ssh, doc_root, product_id, wp_post_url)
+
+        if not post_id:
             ssh.close()
             return False, f"WP内に記事が見つかりません（slug: {product_id}）"
-            
-        # 2. 投稿を更新してPing発火 (--post_status=publish を付けて強制的に更新フックを回す)
+
+        # 投稿を更新してPing発火 (--post_status=publish を付けて強制的に更新フックを回す)
         cmd = f"cd {doc_root} && wp post update {post_id} --post_status=publish --allow-root"
         stdin, stdout, stderr = ssh.exec_command(cmd)
         exit_status = stdout.channel.recv_exit_status()
         ssh.close()
-        
+
         if exit_status == 0:
             return True, f"GoogleへのPing通知が成功しました！（WP記事ID: {post_id}）"
         else:
@@ -1291,23 +1339,24 @@ def main():
 
             # 表示するカラム（日付は並べて配置）
             show_cols_priority = [
-                "ステータス", "📶 GSC", "期待値", "文字数", "記事種別", "DB", "タイトル", "📝",
+                "作品ID", "ステータス", "📶 GSC", "期待値", "文字数", "記事種別", "DB", "タイトル", "📝",
                 "ジャンル", "担当", "スコア", "タグ", "セール", 
                 "発売日", "公開日", "📅 最終リライト", "取得日", "エラー",
             ]
             show_cols = [c for c in show_cols_priority if c in display_df.columns]
 
-            st.info("💡 **一覧表の行をクリック**すると、直ちに画面最下部の「🔎 ダイレクト リライト」パネルに作品IDが自動入力され、詳細が表示されます。")
+            st.info("💡 **【操作ガイド】**\\n"
+                    "・**詳細の確認**： 行をクリックすると、画面最下部の「🔎 ダイレクト リライト」パネルに詳細がパッと表示されます！\\n"
+                    "・**一括処理（Ping/削除）**： キーボードの **`Ctrl`（Macは `Command`）** を押しながら複数の行をクリックして選択してください。")
 
-            # AgGrid 制御用に、不可視なカラム(_product_id)を仕込む
             display_df_for_grid = display_df[show_cols].copy()
-            display_df_for_grid["_product_id"] = filtered["product_id"].values
 
             gb_main = GridOptionsBuilder.from_dataframe(display_df_for_grid)
-            gb_main.configure_selection('multiple', use_checkbox=True, header_checkbox=True)
-            gb_main.configure_column("_product_id", hide=True)
+            # チェックボックスを廃止し、行クリックでスムーズに選択できるようにする
+            gb_main.configure_selection('multiple', use_checkbox=False)
 
             # 列幅と順番を再整理（潰れないように minWidth を明示定設定）
+            gb_main.configure_column("作品ID",     width=120, minWidth=100, sortable=True)
             gb_main.configure_column("ステータス", width=120, minWidth=120, sortable=True)
             gb_main.configure_column("📶 GSC",    width=80,  minWidth=80,  sortable=True)
             gb_main.configure_column("期待値",   width=80,  minWidth=80,  sortable=True)
@@ -1338,10 +1387,10 @@ def main():
             jscode = JsCode("""
             function(params) {
                 if (params.data['ステータス'] === '🟢 公開済' && params.data['📶 GSC'] === '❌ 未登録') {
-                    return { 'backgroundColor': '#ffe0e0' };
+                    return { 'backgroundColor': '#ffe0e0', 'color': '#000000' };
                 }
                 if (params.data['📝'] === '📝 更新') {
-                    return { 'backgroundColor': '#e0f7fa' };
+                    return { 'backgroundColor': '#1e4b56', 'color': '#ffffff' };
                 }
                 return null;
             }
@@ -1360,13 +1409,58 @@ def main():
             )
 
             # データ一覧テーブルで選択された行の作品IDを取得
-            selected_main = event.get('selected_rows')
-            
-            if selected_main is not None and len(selected_main) > 0:
-                if isinstance(selected_main, pd.DataFrame):
-                    selected_pids = [str(p) for p in selected_main["_product_id"].values]
-                else:
-                    selected_pids = [str(r.get("_product_id", "")) for r in selected_main if r.get("_product_id")]
+            try:
+                # デバッグ用の全ダンプ
+                with open('/tmp/aggrid_debug.log', 'w', encoding='utf-8') as _df:
+                    _df.write(f"EVENT_TYPE={type(event)}\\n")
+                    _df.write("HAS_DATA=" + str(hasattr(event, 'data')) + "\\n")
+                    _df.write("HAS_SELECTED_ROWS=" + str(hasattr(event, 'selected_rows')) + "\\n")
+                    _df.write("HAS_SELECTED_DATA=" + str(hasattr(event, 'selected_data')) + "\\n")
+                    _df.write(f"DIR={dir(event)}\\n")
+                    if hasattr(event, 'selected_data'):
+                        _df.write(f"selected_data_TYPE={type(getattr(event, 'selected_data'))}\\n")
+                    if hasattr(event, 'selected_rows'):
+                        _df.write(f"selected_rows_TYPE={type(getattr(event, 'selected_rows'))}\\n")
+
+                # ユーザーがクリックした際の event から確実に選択行データを取る
+                selected_main = None
+                if hasattr(event, 'selected_data') and getattr(event, 'selected_data') is not None:
+                    selected_main = getattr(event, 'selected_data')
+                elif hasattr(event, 'selected_rows') and getattr(event, 'selected_rows') is not None:
+                    selected_main = getattr(event, 'selected_rows')
+                elif hasattr(event, 'get'):
+                    selected_main = event.get('selected_data', event.get('selected_rows', []))
+
+                if selected_main is None:
+                    selected_main = []
+
+                selected_pids = []
+                
+                if selected_main is not None and len(selected_main) > 0:
+                    # pd.DataFrameの場合
+                    if isinstance(selected_main, pd.DataFrame) and not selected_main.empty:
+                        if "作品ID" in selected_main.columns:
+                            selected_pids = [str(p) for p in selected_main["作品ID"].values]
+                        elif "_product_id" in selected_main.columns:
+                            selected_pids = [str(p) for p in selected_main["_product_id"].values]
+                    # list(dict) の場合
+                    elif isinstance(selected_main, list) and len(selected_main) > 0:
+                        for row in selected_main:
+                            if isinstance(row, dict):
+                                if "作品ID" in row:
+                                    selected_pids.append(str(row["作品ID"]))
+                                elif "_product_id" in row:
+                                    selected_pids.append(str(row["_product_id"]))
+                            elif hasattr(row, '作品ID'):
+                                selected_pids.append(str(getattr(row, '作品ID')))
+                            elif hasattr(row, '_product_id'):
+                                selected_pids.append(str(getattr(row, '_product_id')))
+                
+            except Exception as e:
+                st.error(f"選択処理でエラーが発生しました: {e}")
+                selected_pids = []
+                
+            if len(selected_pids) > 0:
 
                 # --- ⚙️ バルクアクション UI ---
                 if len(selected_pids) > 1:
