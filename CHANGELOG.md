@@ -1,5 +1,21 @@
 # Changelog
 
+## [v14.1.0] - 2026-04-12
+### Fixed (Critical: 専売タグ誤検知の完全根絶 — ハイブリッド判定ロジックへ全面移行)
+- **`novelove_fetcher.py` — `scrape_description()`**:
+  - FANZA同人・らぶカルの専売判定において、ページ全体から `c_icon_exclusive` クラスを検索していた旧ロジックを**完全廃止**。関連作品やおすすめ欄の専売バッジを誤検知する元凶だった。
+  - FANZA/DMMのDOM仕様を精査し、**本商品のバッジには必ず `-detail` クラスが付与され、関連作品のバッジには `-small` クラスが付与される**という決定的な区別ルールを発見。
+  - 新セレクタ `.c_icon_exclusive.-detail` および `.c_list_productAttribute .c_icon_exclusive` のみを対象とする「狙い撃ち方式」に変更。ページ内に何十個の他作品バッジがあっても物理的に誤検知できない構造を実現。
+- **`novelove_fetcher.py` — `fetch_and_stock_all()`**:
+  - FANZA商業・DMMブックス等の専売判定を、不安定な `__NEXT_DATA__` JSON文字列検索から**DMM Affiliate API の公式メタデータ（`iteminfo.genre` / `iteminfo.label`）**による直接判定に完全移行。HTML構造やSPAの描画状態に一切依存しない100%確実な判定を実現。
+
+### Changed (仕様書の統合・整理)
+- **`SPECIFICATIONS.md`**:
+  - §2-3「独占・専売タグの自動付与」セクションをv14.1仕様に全面書き換え。API判定型(A)・クラス限定DOM判定型(B)・DLsite(C)・DigiKet(D)の4パターンの技術詳細を追記。
+  - §5-2に `site` カラム値→正式専売タグ名のマッピング表を追加（`HANDOFF_EXCLUSIVE_TAGS.md` から統合）。
+  - バージョンを v14.1.0 に更新。
+- **`HANDOFF_EXCLUSIVE_TAGS.md`**: 有用な情報を `SPECIFICATIONS.md` に統合完了後、削除。
+
 ## [v14.0.5] - 2026-04-12
 ### Added (ダッシュボードに「究極のキャッシュクリア機能」を追加)
 - **`nexus_dashboard.py`**:
