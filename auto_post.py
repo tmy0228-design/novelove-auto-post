@@ -675,9 +675,10 @@ def _execute_posting_flow(row, cursor, conn):
         wp_tags_str = ",".join(_wp_tags_parts)
         # v11.4.0: ai_tags も最新版で上書き保存, 過去のエラー履歴（last_error）もクリア, desc_scoreも保存
         # v12.8.0: wp_tags も同時保存
+        # v14.2.0: wp_post_id を書き戻すよう修正（wp_post_idが保存されない致命的バグを修正）
         cursor.execute(
-            "UPDATE novelove_posts SET status='published', wp_post_url=?, published_at=datetime('now', 'localtime'), reviewer=?, ai_tags=?, wp_tags=?, last_error=NULL, desc_score=? WHERE product_id=?",
-            (link, rev_name, ai_tags_str, wp_tags_str, ai_score, pid)
+            "UPDATE novelove_posts SET status='published', wp_post_id=?, wp_post_url=?, published_at=datetime('now', 'localtime'), reviewer=?, ai_tags=?, wp_tags=?, last_error=NULL, desc_score=? WHERE product_id=?",
+            (wp_post_id, link, rev_name, ai_tags_str, wp_tags_str, ai_score, pid)
         )
         conn.commit()
 

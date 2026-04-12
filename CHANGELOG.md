@@ -1,6 +1,23 @@
 # Changelog
 
+## [v14.2.0] - 2026-04-12
+### Fixed (Critical: wp_post_id が DB に保存されない致命的バグを修正)
+- **`auto_post.py` — 投稿成功時のDB更新処理**:
+  - `status='published'` に更新する `cursor.execute()` の `UPDATE` 文に、`wp_post_id=?` が含まれていなかった。
+  - WordPressへの投稿直後に取得した `wp_post_id` を、SEOタイトルやアイキャッチ設定には使用していたにもかかわらず、最終的なDB保存ステップに書き忘れていた。
+  - この結果、過去に投稿された363件の記事が `wp_post_id=NULL` のまま放置され、各種整合性チェックや専売タグの再設定スクリプトがこれらの記事を「未投稿」と誤判断する二次被害が発生していた。
+  - `UPDATE` 文に `wp_post_id=?` を追加し、パラメータタプルにも `wp_post_id` を先頭に追記することで根本修正。今後の新規投稿からは正しく `wp_post_id` が保存される。
+
+### Fixed (データ修復: 過去363件の wp_post_id を一括補完)
+- **`tools/backfill_wp_post_id.py`** (新規ツール):
+  - `wp_post_id` が NULL のまま公開済みになっている全363件のレコードに対し、`wp_post_url` を元にWordPress REST APIへ逆引きクエリを投げ、`wp_post_id` を一括補完した。
+  - 補完成功: 363件 / 失敗: 0件。
+- **`tools/rebuild_exclusive_v4.py`** (新規ツール):
+  - `wp_post_id` 補完完了後に、全543件の公開済みFANZA/DMM/らぶカル記事を新ロジック（v14.1）で再スキャン。
+  - 旧スクリプト（v3）が `wp_post_id IS NOT NULL` という条件で無意識に除外していた363件を含め、完全な修復を実施。
+
 ## [v14.1.0] - 2026-04-12
+
 ### Fixed (Critical: 専売タグ誤検知の完全根絶 — ハイブリッド判定ロジックへ全面移行)
 - **`novelove_fetcher.py` — `scrape_description()`**:
   - FANZA同人・らぶカルの専売判定において、ページ全体から `c_icon_exclusive` クラスを検索していた旧ロジックを**完全廃止**。関連作品やおすすめ欄の専売バッジを誤検知する元凶だった。
