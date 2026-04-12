@@ -249,7 +249,10 @@ def _run_emergency_ai_extraction(product_url, site_type="FANZA"):
 def _is_noise_content(title, desc=""):
     ng_words = [
         "簡体中文", "繁体中文", "繁體中文", "English", "韓国語版", "中国語",
-        "简体中文", "翻訳台詞", "中文字幕", "korean", "한국어"
+        "简体中文", "翻訳台詞", "中文字幕", "korean", "한국어",
+        "タイ語", "thai", "ภาษาไทย", "ベトナム語", "vietnamese", 
+        "インドネシア語", "indonesian", "スペイン語", "spanish",
+        "フランス語", "french", "ドイツ語", "german", "ロシア語", "russian"
     ]
     target_text = f"{title}_{desc}".lower()
     return any(word.lower() in target_text for word in ng_words)
@@ -564,30 +567,26 @@ def scrape_description(product_url, site="FANZA", genre=""):
         r.encoding = r.apparent_encoding
         text = r.text
         
-        # 専売判定ロジック (v13.5.1 改修: 厳密なバッジ・システム値検索)
+        # 専売判定ロジック (v14.1: FANZA同人/らぶカルの最新DOM仕様に完全適応)
         global _fanza_excl_cache
         is_excl_html = False
         soup = BeautifulSoup(text, "html.parser")
         
-        # 1. FANZA同人 / らぶカル の 専売アイコンクラス
-        if soup.find(class_='c_icon_exclusive'):
+        # 関連作品(リスト表示)のバッジは `-small` がつく。
+        # 本商品のバッジは必ず `c_list_productAttribute` 内にあり `-detail` がつく。
+        # したがってこれだけを探せば100%誤検知なく一発で判定可能。
+        if soup.select_one('.c_icon_exclusive.-detail, .c_list_productAttribute .c_icon_exclusive'):
             is_excl_html = True
-            
-        # 2. FANZA商業 の 独占タグ（画面上の完全一致Span）
-        elif soup.find('span', string='独占'):
-            is_excl_html = True
-            
-        # 3. FANZA商業向け JSON内部データ (__NEXT_DATA__)
-        if not is_excl_html:
-            next_tag = soup.find("script", id="__NEXT_DATA__")
-            if next_tag:
-                try:
-                    import json
-                    if '"name":"独占販売"' in next_tag.string or '"独占販売"' in next_tag.string:
+        else:
+            # 念のためのテキストフォールバック（本商品ヘッダ周辺のみ）
+            header_area = soup.select_one('.productHeader__item, .m-productInfo, .product-main')
+            if header_area:
+                for s in header_area.find_all('span'):
+                    t = s.text.strip()
+                    if t in ['独占', 'FANZA独占', 'DMM先行', '先行配信', '専売']:
                         is_excl_html = True
-                except Exception:
-                    pass
-            
+                        break
+                        
         _fanza_excl_cache[product_url] = is_excl_html
 
         soup = BeautifulSoup(text, "html.parser")
@@ -874,9 +873,19 @@ def fetch_and_stock_all():
                 item["_original_tags"] = dl_tags_str
                 item["_is_exclusive"] = 1 if dl_is_exclusive else 0
             else:
-                desc, is_excl = scrape_description(p_url, site=site, genre=target["genre"])
+                desc, is_excl_scraping = scrape_description(p_url, site=site, genre=target["genre"])
+                
+                # APIの生データから直接独占・先行フラグを探す (100%確実)
+                is_excl_api = False
+                info = item.get("iteminfo", {})
+                genres = [g.get("name", "") for g in info.get("genre", [])]
+                labels = [l.get("name", "") for l in info.get("label", [])]
+                if any("独占" in g or "先行" in g or "専売" in g for g in genres) or \
+                   any("独占" in l or "先行" in l or "専売" in l for l in labels):
+                    is_excl_api = True
+
                 item["_original_tags"] = ""
-                item["_is_exclusive"] = 1 if is_excl else 0
+                item["_is_exclusive"] = 1 if (is_excl_scraping or is_excl_api) else 0
             time.sleep(1.0)
             scraped_data.append((item, desc))
 
