@@ -580,7 +580,7 @@ def scrape_description(product_url, site="FANZA", genre=""):
                     break
         if has_format_tag and not is_comic and not is_novel_target:
             logger.warning(f"[FANZA] マンガ以外の形式のため除外: {product_url}")
-            return "__EXCLUDED_TYPE__", False
+            return "__EXCLUDED_TYPE__"
         page_title_tag = soup.find("title")
         page_title_str = page_title_tag.text if page_title_tag else ""
         FOREIGN_TITLE_PATTERNS = [
@@ -591,10 +591,10 @@ def scrape_description(product_url, site="FANZA", genre=""):
         for bc in bracket_contents:
             if any(fp in bc for fp in FOREIGN_TITLE_PATTERNS):
                 logger.warning(f"[FANZA] 外国語版タイトルパターン（{bc}）のため除外: {product_url}")
-                return "__EXCLUDED_TYPE__", False
+                return "__EXCLUDED_TYPE__"
         if any(kw in text for kw in ["カテゴリー</th><td>写真集", "カテゴリー</th><td>グラビア", "カテゴリー</th><td>文芸・小説", "カテゴリー</th><td>ライトノベル"]):
             logger.warning(f"[FANZA] 禁止カテゴリーを検知: {product_url}")
-            return "__EXCLUDED_TYPE__", False
+            return "__EXCLUDED_TYPE__"
         # === あらすじ抽出（JSON-LD優先・全サイト共通ロジック） ===
         # 第一優先: JSON-LD (Schema.org構造化データ) から取得
         # - SPA/非SPA/セーフモード画面に関わらず、常にGoogleクローラー向けの
@@ -917,12 +917,11 @@ def fetch_and_stock_all():
                 _fanza_tags = [g for g in _genre_names if g and g not in _fanza_noise]
                 item["_original_tags"] = ",".join(_fanza_tags[:10])
                 
-                # v14.4.0: 専売判定 - API統一ルール（全サイト共通）
-                # DMM公式APIのジャンルタグに「専売」or「独占」があれば専売。
-                # ※「先行」を含む場合は期間限定のため除外。
+                # v14.5.0: 専売判定 - API統一ルール（全サイト共通）
+                # DMM公式APIのジャンルタグに「専売」「独占」「独占販売」があれば専売。
+                # 「先行」の有無は無関係。純粋に専売・独占タグの存在だけで判定する。
                 _has_excl = any(g in ('専売', '独占', '独占販売') for g in _genre_names)
-                _has_senkou = '先行' in ' '.join(_genre_names)
-                item["_is_exclusive"] = 1 if (_has_excl and not _has_senkou) else 0
+                item["_is_exclusive"] = 1 if _has_excl else 0
             # アフィリエイトURL生成
             image_url = item.get("imageURL", {}).get("large", "")
             if site == "DLsite":
