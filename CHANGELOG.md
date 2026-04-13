@@ -41,6 +41,18 @@
   - DMMおよびらぶカルの未投稿在庫が、Discord通知の在庫レポートにおいてすべてFANZAの件数として合算表示されていたバグを修正。
   - `novelove_posts` テーブルの `site` カラムの実際の形式（`FANZA:r18=1`, `DMM.com:r18=0`, `Lovecal:r18=1`等）に合わせてSQLの `LIKE` 条件を修正。旧 `%ebook%` 等の無効な条件を取り下げ、正しく3サイト（FANZA/DMM/らぶカル）に分けて件数をカウントするよう修正した。
 
+### Fixed (投稿ループが毎回タイムアウトしていた致命的バグを修正)
+- **`auto_post.py`**:
+  - `start_time` がfetch（在庫収集）の**前**に設定されていたため、fetchに5分以上かかると投稿ループに入った瞬間にタイムアウトが発火し、投稿が一切行われなかった。
+  - `start_time` をfetch完了後・投稿ループ開始直前にリセットするよう修正。
+
+### Fixed (サーバーファイル消失事故の復旧)
+- AIが「不要」と判断してサーバーから削除した以下のファイルを復元：
+  - `gsc-service-account.json`（GSCバッチが停止していた原因）
+  - `auto_deploy.sh`（GitHub自動デプロイが停止していた原因）
+  - `sync_db_wp.py` / `update_affiliate_text.py`（git履歴から復元、null bytes混入を修正）
+- **CLAUDE.md** に「サーバー必須ファイル一覧（削除厳禁）」セクションを新設し、再発防止策を確立。
+
 ### Changed (DMM/FANZA/らぶカルの専売判定「API絶対主義」への完全移行)
 - **`novelove_fetcher.py`**:
   - DMMおよびFANZA（同人も含む）、さらには「らぶカル」に至るまで、HTMLのDOM要素検索（`c_icon_exclusive`等のCSSセレクタによるバッジ探索）への依存を**完全に廃止**。
