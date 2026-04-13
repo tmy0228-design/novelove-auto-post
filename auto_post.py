@@ -331,8 +331,6 @@ def _run_main_logic():
         logger.info(f"🕒 クールダウン中（{elapsed:.1f}分経過）。0.1秒で終了します。")
         return
 
-    # 処理開始時刻（5分タイムアウト用）
-    start_time = time.time()
 
     fetch_and_stock_all()
     try:
@@ -369,6 +367,8 @@ def _run_main_logic():
         conn.commit()
         conn.close()
     # pendingから1件投稿（ジャンルラウンドロビン）
+    # ★ タイムアウトはfetch完了後・投稿ループ開始時点から計測する
+    start_time = time.time()
     g_idx_base = get_genre_index()
     posted = False
     tried_details = []
