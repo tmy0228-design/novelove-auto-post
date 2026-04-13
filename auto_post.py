@@ -375,9 +375,15 @@ def _run_main_logic():
     error_count = 0  # ★ 連続失敗カウンター
 
     for i in range(len(FETCH_TARGETS)):
-        # ★ 5分タイムアウトチェック
+        # ★ 5分タイムアウトチェック（緊急停止ではなくスキップ＆リトライ）
         if time.time() - start_time > 300:
-            trigger_emergency_stop("処理が5分を超過しました（タイムアウト）")
+            logger.warning("⏰ 今回の投稿をスキップしました（5分タイムアウト）。次回のcronで自動リトライします。")
+            notify_discord(
+                "⏰ **投稿処理がタイムアウトしました**\n"
+                "今回の投稿はスキップされましたが、次回のcron（30分後）で自動リトライします。\n"
+                "※ 連続して発生する場合はサーバーのネットワーク状態を確認してください。",
+                username="⏰ タイムアウト通知"
+            )
             break
 
         target_info = FETCH_TARGETS[(g_idx_base + i) % len(FETCH_TARGETS)]
