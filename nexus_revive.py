@@ -642,7 +642,7 @@ def run_desc_check():
             genre_raw   = row["genre"] or ""
 
             try:
-                new_desc, _ = scrape_description(product_url, site=site_raw, genre=genre_raw)
+                new_desc = scrape_description(product_url, site=site_raw, genre=genre_raw)
             except Exception as e:
                 logger.warning(f"  [DESC] 取得失敗 ({pid}): {e}")
                 errors.append(f"{pid}: {e}")

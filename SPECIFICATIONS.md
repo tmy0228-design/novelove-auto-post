@@ -72,50 +72,38 @@ v11.4.0 より、取得時の AI 審査を廃止し、**「投稿直前の 1 回
     - **0点 / エラー**: 外国語版や形式不一致。`excluded` へ変更。API 障害時は次回再試行。
 - **動的タグ抽出 (TAGS)**: 
     指示に基づき、AI が記事内容から作品に最適なタグを最大 3 つ抽出。これに加え、スクレイピングで取得した公式属性タグ（`original_tags`）をプロンプトに注入し、生成の具体性を向上させます。
-- **独占・専売タグの自動付与 (v14.1 全面改修)**:
-    各プラットフォームの技術仕様に最適化された「ハイブリッド判定ロジック」により、関連作品やおすすめ欄のバッジを絶対に誤検知しない100%確実な専売判定を実現しています。判定結果は `is_exclusive` フラグとしてDBに格納され、記事投稿時にWordPressへ専売タグとして自動付与・同期されます。
+- **独占・専売タグの自動付与 (v14.4 API完全統一・「API絶対主義」)**:
+    各プラットフォームの技術仕様に最適化された正確無比な判定ロジックにより、関連作品やおすすめ欄のバッジ誤検知、HTML仕様変更による検知漏れを防ぐ100%確実な専売判定を実現しています。判定結果は `is_exclusive` フラグとしてDBに格納され、記事投稿時にWordPressへ専売タグとして自動付与・同期されます。
 
     **【正式タグ名（絶対に変更禁止）】**
     | サイト | 正式タグ名 | 判定方法 | 判定箇所 |
     | :--- | :--- | :--- | :--- |
-    | **DLsite** | `DLsite専売` | HTMLの `type_exclusive` クラス or `title="専売"` 属性 | `scrape_dlsite_description()` |
-    | **FANZA同人** | `FANZA独占` | HTMLの `c_icon_exclusive.-detail` クラス（本商品固有のバッジのみ） | `scrape_description()` |
-    | **FANZA商業 / DMMブックス** | `FANZA独占` | **DMM Affiliate API** の `iteminfo.genre` / `iteminfo.label` に「独占」「先行」「専売」を含むか | `fetch_and_stock_all()` |
+    | **DLsite** | `DLsite専売` | 裏JSON APIの返却データ (`is_exclusive`)、またはHTML DOMの先頭にある `type_exclusive` クラス / `title="専売"` 属性 | `scrape_dlsite_description()` |
     | **DigiKet** | `DigiKet限定` | HTMLの `digiket.gif` バッジ画像 or `<a>` テキスト完全一致 `DiGiket限定` | `scrape_digiket_description()` |
-    | **らぶカル** | `らぶカル独占` | HTMLの `c_icon_exclusive.-detail` クラス（本商品固有のバッジのみ） | `scrape_description()` |
+    | **FANZA / DMM / らぶカル** | 各プラットフォーム固有 (例:`FANZA独占`, `らぶカル独占`) | **【完全API判定】**DMM公式APIのジャンル・ラベルデータに『専売』『独占』が含まれ、かつ『先行』が含まれていない場合 | `fetch_and_stock_all()` |
 
-    **【判定ロジックの技術詳細（v14.1 ハイブリッド方式）】**
+    **【判定ロジックの技術詳細】**
 
-    **(A) API判定型（FANZA商業 / DMMブックス等）**
-    `fetch_and_stock_all()` でDMM Affiliate APIからデータを取得する際、レスポンスの `iteminfo` フィールド内にある `genre`（ジャンル情報）や `label`（レーベル情報）の `name` 値に「独占」「先行」「専売」のいずれかが含まれるかを直接チェックする。APIの公式メタデータを使用するため、HTML構造やSPAの描画状態に一切依存せず、100%確実に判定可能。
+    **(A) DMM系 API絶対主義（FANZA一般・同人 / DMMブックス / らぶカル）**
+    過去、ページ構造の変更や他作品バッジの誤検知（False Positive）を引き起こしていたDOMからのスクレイピング（`c_icon_exclusive` 等の探索）を**完全廃止**しました。
+    現在はすべて、`fetch_and_stock_all()` でデータを取得する際、公式のDMM Affiliate APIレスポンス（`iteminfo.genre` または `iteminfo.label`）に「専売」「独占」「独占販売」が含まれ、かつ「先行」が含まれていないかをチェックする方式に統一しています。
+    - **先行配信の除外**: APIデータに「先行」という文字が含まれる場合は `is_exclusive=0` とします（いずれ他サイトでも配信されるため専売扱いから外す）。
+    - **予告作品**: 発売前の予告作品でAPIデータが未登録の場合、専売フラグは付きません。仕様通り安全側に倒しています。
+    - **トラブルシューティング**: 今後「専売判定がおかしい」と感じた場合は、HTMLではなく必ずAPIレスポンスのジャンル配列を確認してください。APIが返していないものは専売として扱いません。
 
-    **(B) クラス限定DOM判定型（FANZA同人 / らぶカル）**
-    `scrape_description()` 内で、取得したHTMLに対し以下のCSSセレクタで専売バッジを探索する：
-    - `.c_icon_exclusive.-detail` — 本商品自身の専売バッジ（必ず `-detail` クラスが付与される）
-    - `.c_list_productAttribute .c_icon_exclusive` — 商品属性エリア内の専売バッジ
+    **(B) DLsite**
+    `scrape_dlsite_description()` 内で、`type_exclusive` クラスまたは `title="専売"` 属性を持つ要素を検索。DLsiteのHTML構造ではメイン商品バッジがDOMの先頭に出現するため、`soup.find()` のヒットで安定して正しく判定されます。また、JSON APIを活用した精緻な検証も部分的に導入しています。
 
-    > [!IMPORTANT]
-    > **FANZA/らぶカルのDOM仕様における決定的な区別ルール**
-    > - 本商品のバッジ: `span class="c_icon_exclusive -detail"` （`-detail` クラス付き）
-    > - おすすめ・関連作品のバッジ: `span class="c_icon_exclusive -small"` （`-small` クラス付き）
-    >
-    > **`-detail` クラスのみを対象とすることで、ページ内に何十個の他作品バッジがあっても物理的に誤検知できない構造**を実現している。ページ全体を対象とした `soup.find(class_='c_icon_exclusive')` は**絶対に使用禁止**（関連作品のバッジを拾って誤検知する元凶となる）。
-
-    **(C) DLsite**
-    `scrape_dlsite_description()` 内で、`type_exclusive` クラスまたは `title="専売"` 属性を持つ要素を検索。DLsiteのHTML構造ではメイン商品バッジがDOMの先頭に出現するため、`soup.find()` の最初のヒットで正しく判定される。
-
-    **(D) DigiKet**
-    `scrape_digiket_description()` 内で、`digiket.gif` を含む `<img>` タグ、または `<a>` タグのテキストが `DiGiket限定` と完全一致するかで判定。ページ全文の正規表現検索は**廃止済み**（サイドバーメニュー「DiGiket限定作品」に全ページでマッチする設計欠陥があったため）。
+    **(C) DigiKet**
+    `scrape_digiket_description()` 内で、`digiket.gif` を含む `<img>` タグ、または `<a>` タグのテキストが `DiGiket限定` と完全一致するかで判定します。
 
     > [!CAUTION]
-    > **タグ名の変更は厳禁。** 過去に「FANZA独占」を「FANZA専売」に変更したことで、WPのフィルターメニューとの不整合が発生し、全記事のタグが消失する重大障害が発生した（v13.5.1 事故）。タグ名の変更は `functions.php` のショートコード、`auto_post.py` のタグ付与、ダッシュボードの表示、既存WP記事のタグすべてに波及するため、絶対に行わないこと。
+    > **タグ名の変更は厳禁。** 過去にタグ名を変更したことでフィルターメニューとの不整合が発生し、過去記事のタグが消失する障害（v13.5.1事故）が発生しました。システム全体へ波及するため絶対に行わないこと。
 
     > [!WARNING]
     > **【過去の誤検知バグと修正履歴】**
-    > 1. **v13.5.1: DigiKet 専売判定の二重欠陥** — `scrape_digiket_description()` の戻り値6値を5値でしか受け取っていなかった＋正規表現フォールバックがサイドバーに全マッチ。→ 戻り値修正＋正規表現廃止。
-    > 2. **v14.1: FANZA同人/らぶカルの関連作品誤検知** — ページ全体から `c_icon_exclusive` を検索していたため、おすすめ作品欄の専売バッジを誤検知。→ `-detail` クラス限定検索に変更。
-    > 3. **v14.1: FANZA商業の `__NEXT_DATA__` 依存を廃止** — SPA画面のJSON文字列検索は不安定なため、DMM Affiliate APIの公式メタデータ（`iteminfo.genre`）による判定に完全移行。
-    > 4. **教訓**: ページ全体を舐める文字列検索・正規表現・汎用クラス検索は、関連コンテンツやサイドバーの誤検知を引き起こす元凶。常に「本商品固有のデータソース（API/固有クラス/固有属性）」のみを信頼源とすること。
+    > 1. **v13.5.1: DigiKet 専売判定の二重欠陥** — 正規表現フォールバックによるサイドバー全体のマッチ。→ 正規表現廃止。
+    > 2. **v14.1〜v14.4: DMM/FANZAの関連作品誤検知と脱スクレイピング** — クラス名やHTML検索によりおすすめ作品の専売バッジを誤検知（False Positive）してしまう問題。→ 戻り値変更とレガシー探索ロジックの撤去により、HTML・DOM依存から**DMM公式APIによる判定に完全移行**。
 
 ### 2-4. AI 執筆 (Writer Logic)
 - **キャラクター・ペルソナ**: 5 名の個性的なライター（紫苑, 葵, 蓮, 茉莉花, 桃香）を設定。

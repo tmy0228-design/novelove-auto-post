@@ -1,0 +1,21 @@
+﻿import paramiko
+ssh = paramiko.SSHClient()
+ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh.connect('novelove.jp', username='root', password='#Dama0228', timeout=15)
+i,o,e = ssh.exec_command('openssl passwd -apr1 "#Dama0228"')
+o.channel.recv_exit_status()
+pw = o.read().decode().strip()
+print('hash:', pw)
+entry = 'admin:' + pw
+cmd = "python3 -c \"f=open('/home/kusanagi/scripts/.htpasswd_nexus','w');f.write('" + entry + "\\n');f.close();print('written')\""
+i,o,e = ssh.exec_command(cmd)
+o.channel.recv_exit_status()
+print('write:', o.read().decode())
+i,o,e = ssh.exec_command('cat /home/kusanagi/scripts/.htpasswd_nexus')
+o.channel.recv_exit_status()
+print('file:', o.read().decode())
+i,o,e = ssh.exec_command('systemctl reload nginx')
+o.channel.recv_exit_status()
+print('nginx reloaded')
+ssh.close()
+print('DONE')

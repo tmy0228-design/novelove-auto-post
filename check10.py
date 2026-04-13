@@ -1,0 +1,11 @@
+﻿import paramiko
+ssh = paramiko.SSHClient()
+ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh.connect('novelove.jp', username='root', password='#Dama0228', timeout=15)
+i,o,e = ssh.exec_command('tail -n 20 /home/kusanagi/scripts/novelove.log')
+o.channel.recv_exit_status()
+print('=== novelove.log ===\n' + o.read().decode())
+i,o,e = ssh.exec_command('tail -n 20 /home/kusanagi/scripts/novelove_auto.log')
+o.channel.recv_exit_status()
+print('=== novelove_auto.log ===\n' + o.read().decode())
+ssh.close()

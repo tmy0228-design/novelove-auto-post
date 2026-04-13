@@ -87,7 +87,7 @@ def fetch_ranking_dmm_fanza(site, genre):
                 aff_url = (f"https://al.fanza.co.jp/?lurl={encoded_url}&af_id={af_id}{ch_params}"
                            if site == "FANZA" else
                            f"https://al.dmm.com/?lurl={encoded_url}&af_id={af_id}{ch_params}")
-                desc, _ = scrape_description(item.get("URL", ""), site=site, genre=genre)
+                desc = scrape_description(item.get("URL", ""), site=site, genre=genre)
                 if _is_noise_content(title, desc): continue
                 
                 final_items.append({

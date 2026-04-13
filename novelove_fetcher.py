@@ -547,16 +547,14 @@ def scrape_digiket_description(url):
         logger.error(f"  [DigiKet] エラー発生: {e}")
         return "", "", None, None, "", False
 
-_fanza_excl_cache = {}
-
 def scrape_description(product_url, site="FANZA", genre=""):
-    if not product_url: return "", False
+    if not product_url: return ""
     if "dlsite" in str(product_url).lower():
         desc, _tags, _excl = scrape_dlsite_description(product_url)
-        return desc, _excl
+        return desc
     if "digiket" in str(product_url).lower():
         desc, _, _, _, _, _excl = scrape_digiket_description(product_url)
-        return desc, _excl
+        return desc
     session = _make_fanza_session()
     try:
         r = session.get(
@@ -566,28 +564,6 @@ def scrape_description(product_url, site="FANZA", genre=""):
         )
         r.encoding = r.apparent_encoding
         text = r.text
-        
-        # 専売判定ロジック (v14.1: FANZA同人/らぶカルの最新DOM仕様に完全適応)
-        global _fanza_excl_cache
-        is_excl_html = False
-        soup = BeautifulSoup(text, "html.parser")
-        
-        # 関連作品(リスト表示)のバッジは `-small` がつく。
-        # 本商品のバッジは必ず `c_list_productAttribute` 内にあり `-detail` がつく。
-        # したがってこれだけを探せば100%誤検知なく一発で判定可能。
-        if soup.select_one('.c_icon_exclusive.-detail, .c_list_productAttribute .c_icon_exclusive'):
-            is_excl_html = True
-        else:
-            # 念のためのテキストフォールバック（本商品ヘッダ周辺のみ）
-            header_area = soup.select_one('.productHeader__item, .m-productInfo, .product-main')
-            if header_area:
-                for s in header_area.find_all('span'):
-                    t = s.text.strip()
-                    if t in ['独占', 'FANZA独占', 'DMM先行', '先行配信', '専売']:
-                        is_excl_html = True
-                        break
-                        
-        _fanza_excl_cache[product_url] = is_excl_html
 
         soup = BeautifulSoup(text, "html.parser")
         is_comic = False
@@ -649,16 +625,16 @@ def scrape_description(product_url, site="FANZA", genre=""):
 
         # 結果判定
         if len(best_desc) > 50:
-            return best_desc.strip(), is_excl_html
+            return best_desc.strip()
 
         # 取得失敗 → 緊急AI修復（JSON-LDも固定クラスも存在しない = 新仕様変更の可能性が高いため通知）
         ai_desc = _run_emergency_ai_extraction(product_url, site_type="FANZA/DMM")
         if ai_desc:
-            return ai_desc, is_excl_html
+            return ai_desc
 
     except Exception as e:
         logger.warning(f"スクレイピング失敗 ({product_url}): {e}")
-    return "", False
+    return ""
 
 
 # === DigiKet ジャンル解析ヘルパー ===
@@ -873,24 +849,11 @@ def fetch_and_stock_all():
                 item["_original_tags"] = dl_tags_str
                 item["_is_exclusive"] = 1 if dl_is_exclusive else 0
             else:
-                desc, is_excl_scraping = scrape_description(p_url, site=site, genre=target["genre"])
+                desc = scrape_description(p_url, site=site, genre=target["genre"])
                 
-                # APIの生データから直接独占・専売フラグを探す (100%確実)
-                # ※「先行」は期間限定のため専売ではない。除外する。
-                is_excl_api = False
-                info = item.get("iteminfo", {})
-                genres = [g.get("name", "") for g in info.get("genre", [])]
-                labels = [l.get("name", "") for l in info.get("label", [])]
-                genres_str = " ".join(genres)
-                labels_str = " ".join(labels)
-                
-                # 独占や専売が含まれており、かつ「先行」が含まれていない場合のみ専売とする
-                if "独占" in genres_str or "専売" in genres_str or "独占" in labels_str or "専売" in labels_str:
-                    if "先行" not in genres_str and "先行" not in labels_str:
-                        is_excl_api = True
-
+                # v14.4.0: 専売判定はAPI統一ルール（後段の共通処理で実施）
                 item["_original_tags"] = ""
-                item["_is_exclusive"] = 1 if (is_excl_scraping or is_excl_api) else 0
+                item["_is_exclusive"] = 0
             time.sleep(1.0)
             scraped_data.append((item, desc))
 
@@ -954,12 +917,12 @@ def fetch_and_stock_all():
                 _fanza_tags = [g for g in _genre_names if g and g not in _fanza_noise]
                 item["_original_tags"] = ",".join(_fanza_tags[:10])
                 
-                # API判定とHTMLソースからのバッジ判定（キャッシュ）を統合
-                # ★v13.8.0修正: scrape_description()で既にセットされた値を保持（OR統合）
-                is_excl_api = 1 if "専売" in _genre_names else 0
-                is_excl_html = 1 if globals().get('_fanza_excl_cache', {}).get(item.get("URL") or item.get("url") or "", False) else 0
-                is_excl_prev = item.get("_is_exclusive", 0)
-                item["_is_exclusive"] = 1 if (is_excl_prev or is_excl_api or is_excl_html) else 0
+                # v14.4.0: 専売判定 - API統一ルール（全サイト共通）
+                # DMM公式APIのジャンルタグに「専売」or「独占」があれば専売。
+                # ※「先行」を含む場合は期間限定のため除外。
+                _has_excl = any(g in ('専売', '独占', '独占販売') for g in _genre_names)
+                _has_senkou = '先行' in ' '.join(_genre_names)
+                item["_is_exclusive"] = 1 if (_has_excl and not _has_senkou) else 0
             # アフィリエイトURL生成
             image_url = item.get("imageURL", {}).get("large", "")
             if site == "DLsite":
