@@ -22,6 +22,7 @@ Novelove Nexus — 自動セール検知 & 売れ筋タグ管理エンジン v1.
 
 import os
 import re
+import time
 import sqlite3
 import difflib
 import requests
@@ -208,7 +209,6 @@ def fetch_fanza_sale_product_ids(published_pids):
     if not fanza_doujin_pids:
         return sale_ids
 
-    import time
     for pid in fanza_doujin_pids:
         try:
             params = {
@@ -232,7 +232,7 @@ def fetch_fanza_sale_product_ids(published_pids):
                     if list_price and price and list_price > price:
                         discount = int((1 - price / list_price) * 100)
                         if discount >= SALE_THRESHOLD_PERCENT:
-                            sale_ids.add(pid.lower())
+                            sale_ids.add(pid)
                 except (ValueError, TypeError):
                     pass
             time.sleep(1) # API制限のためスリープ
@@ -374,8 +374,8 @@ def fetch_dlsite_ranking_product_ids():
             if r.status_code != 200:
                 continue
             # 出現順を保持して重複除去→先頭30件のみ取得
-            rjs = list(dict.fromkeys(re.findall(r"(RJ\d{6,10})", r.text)))[:RANKING_TOP_N]
-            ranking_ids.update(rjs)
+            codes = list(dict.fromkeys(re.findall(r"((?:RJ|BJ|VJ)\d{6,10})", r.text)))[:RANKING_TOP_N]
+            ranking_ids.update(c.lower() for c in codes)
         except Exception as e:
             logger.warning(f"  [DLsite] ランキング取得エラー: {e}")
 
@@ -404,7 +404,7 @@ def fetch_digiket_ranking_product_ids():
                 # 出現順を保持して重複除去→先頭30件のみ取得
                 item_ids = list(dict.fromkeys(re.findall(r"ITM(\d+)", content)))[:RANKING_TOP_N]
                 for iid in item_ids:
-                    ranking_ids.add(f"itm{iid}".lower())
+                    ranking_ids.add(f"itm{iid}")
             except Exception as e:
                 logger.warning(f"  [DigiKet] ランキング取得エラー ({tgt['label']}/{sort_type}): {e}")
 
@@ -432,7 +432,7 @@ def fetch_digiket_sale_product_ids():
                 continue
             html_text = r.content.decode("EUC-JP", errors="ignore")
             for iid in re.findall(r"ITM(\d+)", html_text):
-                sale_ids.add(f"itm{iid}".lower())
+                sale_ids.add(f"itm{iid}")
         except Exception as e:
             logger.warning(f"  [DigiKet] セール取得エラー ({url}): {e}")
 
