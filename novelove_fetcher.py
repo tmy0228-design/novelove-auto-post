@@ -867,7 +867,22 @@ def fetch_and_stock_all():
             final_score = 0
             ai_tags = []
             item_title = item.get("title", "")
+            
+            # FANZAジャンルタグ取得・独占判定 (v14.7.0: 優先順位計算前に移動)
+            if site in ("FANZA", "DMM.com"):
+                _fanza_noise = {"単行本", "マンガ誌", "アンソロジー", "雑誌", "モノクロ", "フルカラー", "GIGATOON", "単話", "無料作品", "成人向け", "全年齢向け", "男性向け", "女性向け", "乙女向け"}
+                _item_genres = item.get("iteminfo", {}).get("genre", []) or []
+                _genre_names = [g.get("name", "") if isinstance(g, dict) else str(g) for g in _item_genres]
+                _fanza_tags = [g for g in _genre_names if g and g not in _fanza_noise]
+                item["_original_tags"] = ",".join(_fanza_tags[:10])
+                
+                # 専売判定 - API統一ルール（全サイト共通）
+                _has_excl = any(g in ('専売', '独占', '独占販売') for g in _genre_names)
+                item["_is_exclusive"] = 1 if _has_excl else 0
+
             item_original_tags = item.get("_original_tags", "")
+            _is_excl_bool = bool(item.get("_is_exclusive", 0))
+
             if desc == "__EXCLUDED_TYPE__":
                 last_error = "excluded_type"
                 desc = ""
@@ -890,7 +905,7 @@ def fetch_and_stock_all():
                     else:
                         # v11.4.0: AI審査を廃止、スクリプトフィルタ通過で即pending
                         final_status = "pending"
-                        final_score = calculate_local_priority(item_title, desc, original_tags=item_original_tags, release_date_raw=item.get("date", ""))
+                        final_score = calculate_local_priority(item_title, desc, original_tags=item_original_tags, release_date_raw=item.get("date", ""), is_exclusive=_is_excl_bool)
             else:
                 image_url_tmp = item.get("imageURL", {}).get("large", "")
                 if not _check_image_ok(image_url_tmp):
@@ -898,7 +913,7 @@ def fetch_and_stock_all():
                 else:
                     # v11.4.0: AI審査を廃止、スクリプトフィルタ通過で即pending
                     final_status = "pending"
-                    final_score = calculate_local_priority(item_title, desc, original_tags=item_original_tags, release_date_raw=item.get("date", ""))
+                    final_score = calculate_local_priority(item_title, desc, original_tags=item_original_tags, release_date_raw=item.get("date", ""), is_exclusive=_is_excl_bool)
 
             # 構造変化検知: 画像なし or あらすじなし が連続したらスクレイピング異常
             if last_error in ("no_description", "no_image", "no_desc_or_image"):
@@ -909,20 +924,8 @@ def fetch_and_stock_all():
             else:
                 scrape_fail_count = 0
 
-            # FANZAジャンルタグ取得・独占判定
-            if site in ("FANZA", "DMM.com"):
-                _fanza_noise = {"単行本", "マンガ誌", "アンソロジー", "雑誌", "モノクロ", "フルカラー", "GIGATOON", "単話", "無料作品", "成人向け", "全年齢向け", "男性向け", "女性向け", "乙女向け"}
-                _item_genres = item.get("iteminfo", {}).get("genre", []) or []
-                _genre_names = [g.get("name", "") if isinstance(g, dict) else str(g) for g in _item_genres]
-                _fanza_tags = [g for g in _genre_names if g and g not in _fanza_noise]
-                item["_original_tags"] = ",".join(_fanza_tags[:10])
-                
-                # v14.5.0: 専売判定 - API統一ルール（全サイト共通）
-                # DMM公式APIのジャンルタグに「専売」「独占」「独占販売」があれば専売。
-                # 「先行」の有無は無関係。純粋に専売・独占タグの存在だけで判定する。
-                _has_excl = any(g in ('専売', '独占', '独占販売') for g in _genre_names)
-                item["_is_exclusive"] = 1 if _has_excl else 0
             # アフィリエイトURL生成
+
             image_url = item.get("imageURL", {}).get("large", "")
             if site == "DLsite":
                 aff_url = generate_affiliate_url("DLsite", "", pid=pid, floor=target.get("floor", "girls"))
@@ -1133,7 +1136,7 @@ def fetch_digiket_items():
                     else:
                         # v11.4.0: AI審査を廃止、スクリプトフィルタ通過で即pending
                         final_status = "pending"
-                        final_score = calculate_local_priority(title, description, original_tags=_dk_tags_str, release_date_raw=date_str)
+                        final_score = calculate_local_priority(title, description, original_tags=_dk_tags_str, release_date_raw=date_str, is_exclusive=_dk_is_excl)
 
                     # 構造変化検知: 画像なし or あらすじなし が連続したらスクレイピング異常
                     if last_error in ("no_desc_or_image", "no_image"):

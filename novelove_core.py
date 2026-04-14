@@ -279,7 +279,7 @@ def db_connect(path, read_only=False):
     conn.execute("PRAGMA busy_timeout=60000;")
     return conn
 
-def calculate_local_priority(title: str, desc: str, tags: str = "", original_tags: str = "", release_date_raw: str = "") -> int:
+def calculate_local_priority(title: str, desc: str, tags: str = "", original_tags: str = "", release_date_raw: str = "", is_exclusive: bool = False) -> int:
     """
     APIコストゼロで、面白そうな記事の期待値を算出する（仮スコア計算）。
     ダッシュボード等の「期待値スコア(desc_score)」専用。
@@ -335,6 +335,11 @@ def calculate_local_priority(title: str, desc: str, tags: str = "", original_tag
         if nw in full_text:
             score -= 5
             
+    # 5. 専売ボーナス (v14.7.0)
+    # 最優先でAI審査に回すため、当日の新着(+50)を上回る+100の強力なボーナスを付与
+    if is_exclusive:
+        score += 100
+
     return score
 
 def init_db():
