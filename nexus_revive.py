@@ -183,7 +183,7 @@ def get_all_published_product_ids():
             ).fetchall()
             conn.close()
             for r in rows:
-                result[r["product_id"]] = r["site"] or ""
+                result[r["product_id"].lower()] = r["site"] or ""
         except Exception as e:
             logger.warning(f"  [DB] 読み込みエラー ({db_path}): {e}")
     return result
@@ -192,61 +192,55 @@ def get_all_published_product_ids():
 # =====================================================================
 # 3. FANZA / DMM セール & ランキング取得
 # =====================================================================
-def fetch_fanza_sale_product_ids():
+def fetch_fanza_sale_product_ids(published_pids):
     """
-    FANZA / DMM の公式APIでセール中の商品IDを取得する。
-    割引率30%以上の作品のみを返す。
-    戻り値: set of product_id (content_id)
+    FANZA同人（d_で始まる作品）のセル情報を1件ずつAPIに問い合わせて確実に取得する。
+    商業電子書籍はAPIが定価を返さないため対象外とする。
+    戻り値: set of product_id (content_id) 小文字
     """
     sale_ids = set()
     if not DMM_API_ID or not DMM_AFFILIATE_API_ID:
         logger.warning("  [FANZA] DMM API IDが設定されていません。セール取得をスキップします。")
         return sale_ids
 
-    # BL/TL × 同人/商業 の全フロアを巡回
-    floors = [
-        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin"},
-        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_bl"},  # らぶカルBL
-        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_tl"},  # らぶカルTL
-        {"site": "FANZA", "service": "ebook",  "floor": "bl"},
-        {"site": "FANZA", "service": "ebook",  "floor": "tl"},
-        {"site": "DMM.com", "service": "ebook", "floor": "comic"},
-        {"site": "DMM.com", "service": "ebook", "floor": "novel"},
-    ]
+    # d_で始まる作品（FANZA同人およびLovecal）だけを抽出して1件ずつチェック
+    fanza_doujin_pids = [pid for pid in published_pids.keys() if pid.startswith("d_")]
+    if not fanza_doujin_pids:
+        return sale_ids
 
-    for fl in floors:
+    import time
+    for pid in fanza_doujin_pids:
         try:
             params = {
                 "api_id": DMM_API_ID,
                 "affiliate_id": DMM_AFFILIATE_API_ID,
-                "site": fl["site"],
-                "service": fl["service"],
-                "floor": fl["floor"],
-                "hits": 100,
-                "sort": "rank",
+                "site": "FANZA",
+                "cid": pid,
                 "output": "json",
             }
-            r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
+            r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=5)
             if r.status_code != 200:
+                time.sleep(1) # API制限のためスリープ
                 continue
+                
             items = r.json().get("result", {}).get("items", [])
-            for item in items:
-                prices = item.get("prices", {})
+            if items:
+                prices = items[0].get("prices", {})
                 try:
                     list_price = int(str(prices.get("list_price", 0)).replace(",", ""))
-                    price = int(str(prices.get("price", 0) or item.get("price", 0)).replace(",", ""))
+                    price = int(str(prices.get("price", 0) or items[0].get("price", 0)).replace(",", ""))
+                    if list_price and price and list_price > price:
+                        discount = int((1 - price / list_price) * 100)
+                        if discount >= SALE_THRESHOLD_PERCENT:
+                            sale_ids.add(pid.lower())
                 except (ValueError, TypeError):
-                    continue
-                if list_price and price and list_price > price:
-                    discount = int((1 - price / list_price) * 100)
-                    if discount >= SALE_THRESHOLD_PERCENT:
-                        cid = item.get("content_id", "")
-                        if cid:
-                            sale_ids.add(cid)
+                    pass
+            time.sleep(1) # API制限のためスリープ
         except Exception as e:
-            logger.warning(f"  [FANZA] セール取得エラー ({fl.get('floor')}): {e}")
+            logger.warning(f"  [FANZA] セール個別取得エラー (cid={pid}): {e}")
+            time.sleep(1)
 
-    logger.info(f"  [FANZA] セール作品 {len(sale_ids)}件 検知")
+    logger.info(f"  [FANZA] セール作品 {len(sale_ids)}件 検知 ({len(fanza_doujin_pids)}件チェック)")
     return sale_ids
 
 
@@ -285,7 +279,7 @@ def fetch_fanza_ranking_product_ids():
             for item in items:
                 cid = item.get("content_id", "")
                 if cid:
-                    ranking_ids.add(cid)
+                    ranking_ids.add(cid.lower())
         except Exception as e:
             logger.warning(f"  [FANZA] ランキング取得エラー ({fl.get('floor')}): {e}")
 
@@ -309,10 +303,11 @@ def fetch_dlsite_sale_product_ids(published_pids):
     if not dlsite_pids:
         return sale_ids
 
-    # RJ系（女性向け）とBJ系（BL商業）でエンドポイントを分ける
-    rj_pids = [pid for pid in dlsite_pids if pid.upper().startswith("RJ")]
-    bj_pids = [pid for pid in dlsite_pids if pid.upper().startswith("BJ")]
-    other_pids = [pid for pid in dlsite_pids if not pid.upper().startswith(("RJ", "BJ"))]
+    # RJ系（女性向け）とBJ系（BL商業）などでエンドポイントを分ける
+    # product_idはすでに小文字になっている前提
+    rj_pids = [pid for pid in dlsite_pids if pid.startswith("rj")]
+    bj_pids = [pid for pid in dlsite_pids if pid.startswith("bj")]
+    other_pids = [pid for pid in dlsite_pids if not pid.startswith(("rj", "bj"))]
 
     endpoint_groups = []
     if rj_pids:
@@ -343,7 +338,7 @@ def fetch_dlsite_sale_product_ids(published_pids):
                     # DLsite の裏APIでは "discount" や "campaign" フィールドで割引を示す
                     discount_rate = info.get("discount", 0)
                     if discount_rate and int(discount_rate) >= SALE_THRESHOLD_PERCENT:
-                        sale_ids.add(pid)
+                        sale_ids.add(pid.lower())
                     # discount フィールドがない場合は定価との差で判定
                     elif price_without_tax and info.get("price_str"):
                         try:
@@ -351,7 +346,7 @@ def fetch_dlsite_sale_product_ids(published_pids):
                             if original > 0 and price_without_tax < original:
                                 calc_discount = int((1 - price_without_tax / original) * 100)
                                 if calc_discount >= SALE_THRESHOLD_PERCENT:
-                                    sale_ids.add(pid)
+                                    sale_ids.add(pid.lower())
                         except (ValueError, ZeroDivisionError):
                             pass
             except Exception as e:
@@ -409,7 +404,7 @@ def fetch_digiket_ranking_product_ids():
                 # 出現順を保持して重複除去→先頭30件のみ取得
                 item_ids = list(dict.fromkeys(re.findall(r"ITM(\d+)", content)))[:RANKING_TOP_N]
                 for iid in item_ids:
-                    ranking_ids.add(f"ITM{iid}")
+                    ranking_ids.add(f"itm{iid}".lower())
             except Exception as e:
                 logger.warning(f"  [DigiKet] ランキング取得エラー ({tgt['label']}/{sort_type}): {e}")
 
@@ -437,7 +432,7 @@ def fetch_digiket_sale_product_ids():
                 continue
             html_text = r.content.decode("EUC-JP", errors="ignore")
             for iid in re.findall(r"ITM(\d+)", html_text):
-                sale_ids.add(f"ITM{iid}")
+                sale_ids.add(f"itm{iid}".lower())
         except Exception as e:
             logger.warning(f"  [DigiKet] セール取得エラー ({url}): {e}")
 
@@ -476,7 +471,7 @@ def run_nexus():
 
     # FANZA
     try:
-        fanza_sales = fetch_fanza_sale_product_ids()
+        fanza_sales = fetch_fanza_sale_product_ids(published_pids)
         all_sale_ids.update(fanza_sales)
     except Exception as e:
         err_msg = f"[FANZA セール] {e}"
