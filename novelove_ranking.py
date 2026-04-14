@@ -503,6 +503,30 @@ def process_ranking_articles():
     background: #f0f8ff !important;
     border: 1px solid #add8e6 !important;
 }
+.speech-bubble-left .speech-text::before {
+    content: "" !important; position: absolute !important; top: 20px !important;
+    left: -12px !important; right: auto !important;
+    border-width: 6px 12px 6px 0 !important; border-style: solid !important;
+    border-color: transparent #ffb6c1 transparent transparent !important;
+}
+.speech-bubble-left .speech-text::after {
+    content: "" !important; position: absolute !important; top: 20px !important;
+    left: -10px !important; right: auto !important;
+    border-width: 6px 12px 6px 0 !important; border-style: solid !important;
+    border-color: transparent #fff0f5 transparent transparent !important;
+}
+.speech-bubble-right .speech-text::before {
+    content: "" !important; position: absolute !important; top: 20px !important;
+    right: -12px !important; left: auto !important;
+    border-width: 6px 0 6px 12px !important; border-style: solid !important;
+    border-color: transparent transparent transparent #add8e6 !important;
+}
+.speech-bubble-right .speech-text::after {
+    content: "" !important; position: absolute !important; top: 20px !important;
+    right: -10px !important; left: auto !important;
+    border-width: 6px 0 6px 12px !important; border-style: solid !important;
+    border-color: transparent transparent transparent #f0f8ff !important;
+}
 @media (max-width:600px) {
     .speech-bubble-left img, .speech-bubble-right img {
         width: 40px !important;
