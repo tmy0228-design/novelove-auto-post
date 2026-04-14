@@ -301,47 +301,65 @@ def fetch_dlsite_sale_product_ids(published_pids):
     DLsiteの裏JSON API を使い、DB上の published 記事のうち
     現在セール中（割引30%以上）の product_id を特定する。
     一度に100件ずつバルク問い合わせを行い、通信回数を最小化する。
+    ※ RJ系（女性向け）は /girls/ エンドポイント、BJ系（BL商業）は /bl/ エンドポイントを使用。
+      エンドポイントを混在させると正しく取得できないため分岐処理が必要。(v14.5.2修正)
     """
     sale_ids = set()
     dlsite_pids = [pid for pid, site in published_pids.items() if "DLsite" in str(site)]
     if not dlsite_pids:
         return sale_ids
 
+    # RJ系（女性向け）とBJ系（BL商業）でエンドポイントを分ける
+    rj_pids = [pid for pid in dlsite_pids if pid.upper().startswith("RJ")]
+    bj_pids = [pid for pid in dlsite_pids if pid.upper().startswith("BJ")]
+    other_pids = [pid for pid in dlsite_pids if not pid.upper().startswith(("RJ", "BJ"))]
+
+    endpoint_groups = []
+    if rj_pids:
+        endpoint_groups.append(("https://www.dlsite.com/girls/product/info/ajax", rj_pids))
+    if bj_pids:
+        endpoint_groups.append(("https://www.dlsite.com/bl/product/info/ajax", bj_pids))
+    if other_pids:
+        # 不明なプレフィックスはgirlsにフォールバック
+        endpoint_groups.append(("https://www.dlsite.com/girls/product/info/ajax", other_pids))
+
     # 100件ずつバッチ処理
     batch_size = 100
-    for i in range(0, len(dlsite_pids), batch_size):
-        batch = dlsite_pids[i:i + batch_size]
-        pid_param = ",".join(batch)
-        try:
-            url = f"https://www.dlsite.com/girls/product/info/ajax?product_id={pid_param}"
-            r = requests.get(url, headers=HEADERS, timeout=20)
-            if r.status_code != 200:
-                continue
-            data = r.json()
-            for pid, info in data.items():
-                if not isinstance(info, dict):
+    for base_url, pid_list in endpoint_groups:
+        for i in range(0, len(pid_list), batch_size):
+            batch = pid_list[i:i + batch_size]
+            pid_param = ",".join(batch)
+            try:
+                url = f"{base_url}?product_id={pid_param}"
+                r = requests.get(url, headers=HEADERS, timeout=20)
+                if r.status_code != 200:
                     continue
-                price = info.get("price", 0)
-                price_without_tax = info.get("price_without_tax", 0)
-                # DLsite の裏APIでは "discount" や "campaign" フィールドで割引を示す
-                discount_rate = info.get("discount", 0)
-                if discount_rate and int(discount_rate) >= SALE_THRESHOLD_PERCENT:
-                    sale_ids.add(pid)
-                # discount フィールドがない場合は定価との差で判定
-                elif price_without_tax and info.get("price_str"):
-                    try:
-                        original = int(re.sub(r"[^\d]", "", str(info.get("price_str", "0"))))
-                        if original > 0 and price_without_tax < original:
-                            calc_discount = int((1 - price_without_tax / original) * 100)
-                            if calc_discount >= SALE_THRESHOLD_PERCENT:
-                                sale_ids.add(pid)
-                    except (ValueError, ZeroDivisionError):
-                        pass
-        except Exception as e:
-            logger.warning(f"  [DLsite] セール取得エラー (batch {i}): {e}")
+                data = r.json()
+                for pid, info in data.items():
+                    if not isinstance(info, dict):
+                        continue
+                    price = info.get("price", 0)
+                    price_without_tax = info.get("price_without_tax", 0)
+                    # DLsite の裏APIでは "discount" や "campaign" フィールドで割引を示す
+                    discount_rate = info.get("discount", 0)
+                    if discount_rate and int(discount_rate) >= SALE_THRESHOLD_PERCENT:
+                        sale_ids.add(pid)
+                    # discount フィールドがない場合は定価との差で判定
+                    elif price_without_tax and info.get("price_str"):
+                        try:
+                            original = int(re.sub(r"[^\d]", "", str(info.get("price_str", "0"))))
+                            if original > 0 and price_without_tax < original:
+                                calc_discount = int((1 - price_without_tax / original) * 100)
+                                if calc_discount >= SALE_THRESHOLD_PERCENT:
+                                    sale_ids.add(pid)
+                        except (ValueError, ZeroDivisionError):
+                            pass
+            except Exception as e:
+                logger.warning(f"  [DLsite] セール取得エラー (batch {i}, url={base_url}): {e}")
 
-    logger.info(f"  [DLsite] セール作品 {len(sale_ids)}件 検知")
+    logger.info(f"  [DLsite] セール作品 {len(sale_ids)}件 検知 (RJ:{len(rj_pids)}件, BJ:{len(bj_pids)}件 チェック)")
     return sale_ids
+
 
 
 def fetch_dlsite_ranking_product_ids():
