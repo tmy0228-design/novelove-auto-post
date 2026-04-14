@@ -588,7 +588,10 @@ def _execute_posting_flow(row, cursor, conn):
         "product_url":   _product_url_val,
         # 🌟 v14.3.0: affiliate_urlはDBのキャッシュを使わず、product_urlから毎回再生成する
         # （らぶカル等のアフィリエイトドメイン判定バグを根絶する）
-        "affiliate_url": generate_affiliate_url(site_label, _product_url_val),
+        # 🌟 v14.5.1: DLsite用にpid/floorを常に渡す（非DLsiteでは無視される）
+        "affiliate_url": generate_affiliate_url(site_label, _product_url_val,
+                                                pid=pid,
+                                                floor="bl" if "bl" in str(row["genre"]).lower() else "girls"),
         "image_url":     img_url,
         "thumb_url":     thumb_url,
         "release_date":  row["release_date"],

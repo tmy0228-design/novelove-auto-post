@@ -476,7 +476,10 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         "description":   desc_str,
         "product_url":   _product_url_val,
         # 🌟 v14.3.0: affiliate_urlはDBキャッシュではなく、product_urlから毎回再生成
-        "affiliate_url": generate_affiliate_url(site_label, _product_url_val),
+        # 🌟 v14.5.1: DLsite用にpid/floorを常に渡す（非DLsiteでは無視される）
+        "affiliate_url": generate_affiliate_url(site_label, _product_url_val,
+                                                pid=row["product_id"],
+                                                floor="bl" if "bl" in str(genre).lower() else "girls"),
         "image_url":     img_url,
         "release_date":  row["release_date"] or "",
         "ai_tags":       row["ai_tags"] or "",
