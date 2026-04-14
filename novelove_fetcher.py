@@ -1136,7 +1136,7 @@ def fetch_digiket_items():
                     else:
                         # v11.4.0: AI審査を廃止、スクリプトフィルタ通過で即pending
                         final_status = "pending"
-                        final_score = calculate_local_priority(title, description, original_tags=_dk_tags_str, release_date_raw=date_str, is_exclusive=_dk_is_excl)
+                        final_score = calculate_local_priority(title, description, original_tags=_dk_tags_str, release_date_raw=date_str, is_exclusive=bool(_dk_is_excl))
 
                     # 構造変化検知: 画像なし or あらすじなし が連続したらスクレイピング異常
                     if last_error in ("no_desc_or_image", "no_image"):
