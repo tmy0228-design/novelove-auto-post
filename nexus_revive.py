@@ -22,7 +22,6 @@ Novelove Nexus — 自動セール検知 & 売れ筋タグ管理エンジン v1.
 
 import os
 import re
-import time
 import sqlite3
 import difflib
 import requests
@@ -193,54 +192,67 @@ def get_all_published_product_ids():
 # =====================================================================
 # 3. FANZA / DMM セール & ランキング取得
 # =====================================================================
-def fetch_fanza_sale_product_ids(published_pids):
+def fetch_fanza_sale_product_ids():
     """
-    FANZA同人（d_で始まる作品）のセル情報を1件ずつAPIに問い合わせて確実に取得する。
-    商業電子書籍はAPIが定価を返さないため対象外とする。
-    戻り値: set of product_id (content_id) 小文字
+    FANZA / DMM の公式APIでセール中の商品IDを取得する。
+    割引率30%以上の作品のみを返す。
+    戻り値: set of product_id (content_id)
     """
     sale_ids = set()
     if not DMM_API_ID or not DMM_AFFILIATE_API_ID:
         logger.warning("  [FANZA] DMM API IDが設定されていません。セール取得をスキップします。")
         return sale_ids
 
-    # d_で始まる作品（FANZA同人およびLovecal）だけを抽出して1件ずつチェック
-    fanza_doujin_pids = [pid for pid in published_pids.keys() if pid.startswith("d_")]
-    if not fanza_doujin_pids:
-        return sale_ids
+    # BL/TL × 同人/商業 の全フロアを巡回
+    floors = [
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin"},
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_bl"},  # らぶカルBL
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_tl"},  # らぶカルTL
+        {"site": "FANZA", "service": "ebook",  "floor": "bl"},
+        {"site": "FANZA", "service": "ebook",  "floor": "tl"},
+        {"site": "DMM.com", "service": "ebook", "floor": "comic"},
+        {"site": "DMM.com", "service": "ebook", "floor": "novel"},
+        # 同人BL/TL（v14.6.0追加: DBのd_IDと突合するために必須）
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin", "keyword": "ボーイズラブ"},
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin", "keyword": "乙女向け"},
+        # らぶカルBL/TL（v14.6.0追加）
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_bl"},
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_tl"},
+    ]
 
-    for pid in fanza_doujin_pids:
+    for fl in floors:
         try:
             params = {
                 "api_id": DMM_API_ID,
                 "affiliate_id": DMM_AFFILIATE_API_ID,
-                "site": "FANZA",
-                "cid": pid,
+                "site": fl["site"],
+                "service": fl["service"],
+                "floor": fl["floor"],
+                "hits": 100,
+                "sort": "rank",
                 "output": "json",
             }
-            r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=5)
+            r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
             if r.status_code != 200:
-                time.sleep(1) # API制限のためスリープ
                 continue
-                
             items = r.json().get("result", {}).get("items", [])
-            if items:
-                prices = items[0].get("prices", {})
+            for item in items:
+                prices = item.get("prices", {})
                 try:
                     list_price = int(str(prices.get("list_price", 0)).replace(",", ""))
-                    price = int(str(prices.get("price", 0) or items[0].get("price", 0)).replace(",", ""))
-                    if list_price and price and list_price > price:
-                        discount = int((1 - price / list_price) * 100)
-                        if discount >= SALE_THRESHOLD_PERCENT:
-                            sale_ids.add(pid)
+                    price = int(str(prices.get("price", 0) or item.get("price", 0)).replace(",", ""))
                 except (ValueError, TypeError):
-                    pass
-            time.sleep(1) # API制限のためスリープ
+                    continue
+                if list_price and price and list_price > price:
+                    discount = int((1 - price / list_price) * 100)
+                    if discount >= SALE_THRESHOLD_PERCENT:
+                        cid = item.get("content_id", "")
+                        if cid:
+                            sale_ids.add(cid)
         except Exception as e:
-            logger.warning(f"  [FANZA] セール個別取得エラー (cid={pid}): {e}")
-            time.sleep(1)
+            logger.warning(f"  [FANZA] セール取得エラー ({fl.get('floor')}): {e}")
 
-    logger.info(f"  [FANZA] セール作品 {len(sale_ids)}件 検知 ({len(fanza_doujin_pids)}件チェック)")
+    logger.info(f"  [FANZA] セール作品 {len(sale_ids)}件 検知")
     return sale_ids
 
 
@@ -258,6 +270,12 @@ def fetch_fanza_ranking_product_ids():
         {"site": "FANZA", "service": "ebook",  "floor": "tl"},
         {"site": "DMM.com", "service": "ebook", "floor": "comic"},
         {"site": "DMM.com", "service": "ebook", "floor": "novel"},
+        # 同人BL/TL（v14.6.0追加: DBのd_IDと突合するために必須）
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin", "keyword": "ボーイズラブ"},
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin", "keyword": "乙女向け"},
+        # らぶカルBL/TL（v14.6.0追加）
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_bl"},
+        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_tl"},
     ]
 
     for fl in floors:
@@ -272,6 +290,8 @@ def fetch_fanza_ranking_product_ids():
                 "sort": "rank",
                 "output": "json",
             }
+            if fl.get("keyword"):
+                params["keyword"] = fl["keyword"]
             r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
             if r.status_code != 200:
                 continue
@@ -292,67 +312,50 @@ def fetch_fanza_ranking_product_ids():
 # =====================================================================
 def fetch_dlsite_sale_product_ids(published_pids):
     """
-    DLsiteの裏JSON API を使い、DB上の published 記事のうち
-    現在セール中（割引30%以上）の product_id を特定する。
-    一度に100件ずつバルク問い合わせを行い、通信回数を最小化する。
-    ※ RJ系（女性向け）は /girls/ エンドポイント、BJ系（BL商業）は /bl/ エンドポイントを使用。
-      エンドポイントを混在させると正しく取得できないため分岐処理が必要。(v14.5.2修正)
+    DLsiteのセール検索ページ (fsr/=/campaign/1/) をスクレイピングし、
+    現在セール中の全 product_id を取得する。
+    裏JSON API の discount/campaign フィールドは常にNoneを返すため使用不可。(v14.6.0刷新)
+    ※ girls/bl/girls-pro/bl-pro の4エンドポイントを巡回し、
+      ページネーションで全件取得する。
     """
     sale_ids = set()
-    dlsite_pids = [pid for pid, site in published_pids.items() if "DLsite" in str(site)]
-    if not dlsite_pids:
-        return sale_ids
 
-    # RJ系（女性向け）とBJ系（BL商業）などでエンドポイントを分ける
-    # product_idはすでに小文字になっている前提
-    rj_pids = [pid for pid in dlsite_pids if pid.startswith("rj")]
-    bj_pids = [pid for pid in dlsite_pids if pid.startswith("bj")]
-    other_pids = [pid for pid in dlsite_pids if not pid.startswith(("rj", "bj"))]
+    # 4フロアのセール検索ページ
+    sale_search_urls = [
+        "https://www.dlsite.com/girls/fsr/=/campaign/1/order/trend/per_page/100/",      # 女性向け同人
+        "https://www.dlsite.com/bl/fsr/=/campaign/1/order/trend/per_page/100/",          # BL同人
+        "https://www.dlsite.com/girls-pro/fsr/=/campaign/1/order/trend/per_page/100/",   # 女性向け商業
+        "https://www.dlsite.com/bl-pro/fsr/=/campaign/1/order/trend/per_page/100/",      # BL商業
+    ]
 
-    endpoint_groups = []
-    if rj_pids:
-        endpoint_groups.append(("https://www.dlsite.com/girls/product/info/ajax", rj_pids))
-    if bj_pids:
-        endpoint_groups.append(("https://www.dlsite.com/bl/product/info/ajax", bj_pids))
-    if other_pids:
-        # 不明なプレフィックスはgirlsにフォールバック
-        endpoint_groups.append(("https://www.dlsite.com/girls/product/info/ajax", other_pids))
-
-    # 100件ずつバッチ処理
-    batch_size = 100
-    for base_url, pid_list in endpoint_groups:
-        for i in range(0, len(pid_list), batch_size):
-            batch = pid_list[i:i + batch_size]
-            pid_param = ",".join(batch)
+    for base_url in sale_search_urls:
+        page = 1
+        while page <= 10:  # 安全弁: 最大10ページ（1000件）
             try:
-                url = f"{base_url}?product_id={pid_param}"
+                url = base_url if page == 1 else f"{base_url}page/{page}/"
                 r = requests.get(url, headers=HEADERS, timeout=20)
                 if r.status_code != 200:
-                    continue
-                data = r.json()
-                for pid, info in data.items():
-                    if not isinstance(info, dict):
-                        continue
-                    price = info.get("price", 0)
-                    price_without_tax = info.get("price_without_tax", 0)
-                    # DLsite の裏APIでは "discount" や "campaign" フィールドで割引を示す
-                    discount_rate = info.get("discount", 0)
-                    if discount_rate and int(discount_rate) >= SALE_THRESHOLD_PERCENT:
-                        sale_ids.add(pid.lower())
-                    # discount フィールドがない場合は定価との差で判定
-                    elif price_without_tax and info.get("price_str"):
-                        try:
-                            original = int(re.sub(r"[^\d]", "", str(info.get("price_str", "0"))))
-                            if original > 0 and price_without_tax < original:
-                                calc_discount = int((1 - price_without_tax / original) * 100)
-                                if calc_discount >= SALE_THRESHOLD_PERCENT:
-                                    sale_ids.add(pid.lower())
-                        except (ValueError, ZeroDivisionError):
-                            pass
-            except Exception as e:
-                logger.warning(f"  [DLsite] セール取得エラー (batch {i}, url={base_url}): {e}")
+                    break
 
-    logger.info(f"  [DLsite] セール作品 {len(sale_ids)}件 検知 (RJ:{len(rj_pids)}件, BJ:{len(bj_pids)}件 チェック)")
+                # ページからproduct_idを正規表現で抽出
+                codes = re.findall(r"((?:RJ|BJ|VJ)\d{6,10})", r.text)
+                unique_codes = list(dict.fromkeys(codes))  # 出現順を保持して重複除去
+
+                if not unique_codes:
+                    break  # 作品が見つからなければ次のフロアへ
+
+                for code in unique_codes:
+                    sale_ids.add(code.lower())
+
+                # 次ページがあるか確認（作品数が per_page 未満なら最終ページ）
+                if len(unique_codes) < 50:  # per_page=100だが、重複除去後50件未満なら最終ページと判断
+                    break
+                page += 1
+            except Exception as e:
+                logger.warning(f"  [DLsite] セール検索ページ取得エラー ({base_url}, page={page}): {e}")
+                break
+
+    logger.info(f"  [DLsite] セール作品 {len(sale_ids)}件 検知 (セール検索ページスクレイピング)")
     return sale_ids
 
 
@@ -432,7 +435,7 @@ def fetch_digiket_sale_product_ids():
                 continue
             html_text = r.content.decode("EUC-JP", errors="ignore")
             for iid in re.findall(r"ITM(\d+)", html_text):
-                sale_ids.add(f"itm{iid}")
+                sale_ids.add(f"ITM{iid}")
         except Exception as e:
             logger.warning(f"  [DigiKet] セール取得エラー ({url}): {e}")
 
@@ -471,7 +474,7 @@ def run_nexus():
 
     # FANZA
     try:
-        fanza_sales = fetch_fanza_sale_product_ids(published_pids)
+        fanza_sales = fetch_fanza_sale_product_ids()
         all_sale_ids.update(fanza_sales)
     except Exception as e:
         err_msg = f"[FANZA セール] {e}"
