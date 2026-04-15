@@ -44,8 +44,6 @@ SALE_TAG_SLUG     = "sale"
 BESTSELLER_TAG_NAME = "売れ筋作品"
 BESTSELLER_TAG_SLUG = "best-seller"
 
-# セール認定の最低割引率
-SALE_THRESHOLD_PERCENT = 30
 
 # DigiKet XML API のターゲットID
 DIGIKET_TARGETS = [
@@ -195,7 +193,8 @@ def get_all_published_product_ids():
 def fetch_fanza_sale_product_ids():
     """
     FANZA / DMM の公式APIでセール中の商品IDを取得する。
-    割引率30%以上の作品のみを返す。
+    APIレスポンスの campaign フィールドの有無で判定する（v14.8.0刷新）。
+    DLsite/DigiKetと同じ「公式セール対象品のみ」方式に統一。
     戻り値: set of product_id (content_id)
     """
     sale_ids = set()
@@ -237,18 +236,12 @@ def fetch_fanza_sale_product_ids():
                 continue
             items = r.json().get("result", {}).get("items", [])
             for item in items:
-                prices = item.get("prices", {})
-                try:
-                    list_price = int(str(prices.get("list_price", 0)).replace(",", ""))
-                    price = int(str(prices.get("price", 0) or item.get("price", 0)).replace(",", ""))
-                except (ValueError, TypeError):
-                    continue
-                if list_price and price and list_price > price:
-                    discount = int((1 - price / list_price) * 100)
-                    if discount >= SALE_THRESHOLD_PERCENT:
-                        cid = item.get("content_id", "")
-                        if cid:
-                            sale_ids.add(cid)
+                # v14.8.0: campaignフィールドの有無で公式セール判定
+                campaign = item.get("campaign")
+                if campaign:  # None/空リストでなければ公式セール対象
+                    cid = item.get("content_id", "")
+                    if cid:
+                        sale_ids.add(cid.lower())
         except Exception as e:
             logger.warning(f"  [FANZA] セール取得エラー ({fl.get('floor')}): {e}")
 
@@ -435,7 +428,7 @@ def fetch_digiket_sale_product_ids():
                 continue
             html_text = r.content.decode("EUC-JP", errors="ignore")
             for iid in re.findall(r"ITM(\d+)", html_text):
-                sale_ids.add(f"ITM{iid}")
+                sale_ids.add(f"itm{iid}")
         except Exception as e:
             logger.warning(f"  [DigiKet] セール取得エラー ({url}): {e}")
 
