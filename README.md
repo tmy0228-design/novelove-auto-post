@@ -1,4 +1,4 @@
-# Novelove 自動投稿システム (v13.6.1)
+# Novelove 自動投稿システム (v15.0.0)
 
 > [!IMPORTANT]
 > **開発・修正時の注意**: 作業を開始する前に、必ず `git pull origin main` で最新版をプルしてから作業を行ってください。
@@ -61,7 +61,7 @@ AI生成できた場合は優先採用、できなかった場合はテンプレ
 ### 3. 多段ガードレールと関所（Cooldown）システム
 - **サーキットブレーカー**: 連続エラー3回 or 5分超過で自動停止 → Discord緊急通知（`emergency_stop.lock`生成）
 - **関所（冷却機能）**: SQLiteのロックエラーを防ぐため、cron多重起動時の安全弁として冷却ロジックを実装。
-- **クールダウン**: 通常投稿55分・ランキング12時間の独立した間隔制御
+- **クールダウン**: 通常投稿は55分待機。ランキング記事は週1回の投稿を厳密に保証するため、12時間休止タイマーではなく「その週の対象データベースに完了記録(slug)があるか」を直接照合し、スキップミスを100%防止。
 - **重複防止**: DB全件 + WordPressの公開記事タイトルとの照合により二重投稿を100%排除し、SQLite固有の `ORDER BY 0` エラーも防ぐ堅牢なSQL構造。
 
 ## 🤖 AIモデル構成
@@ -79,7 +79,7 @@ AI生成できた場合は優先採用、できなかった場合はテンプレ
 # 30分おきに通常投稿
 */30 * * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py >> /home/kusanagi/scripts/novelove.log 2>&1
 
-# ランキング生成（曜日別: 日=FANZA, 月=DLsite, 火=DMM, 水=DigiKet）
+# ランキング生成（水=DigiKet, 木=DMM, 金=DLsite, 土=FANZA, 日=Lovecal / 厳選ピックアップ5選）
 0 22 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove.log 2>&1
 ```
 
