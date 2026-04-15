@@ -515,26 +515,37 @@ def render_detail_panel(detail_pid, df, key_prefix="list"):
                 else:
                     st.caption("ℹ️ GSCデータ未取得（次のGSCチェックまでお待ちください）")
 
-            # ── 手動ステータス変更（published 以外のステータスのみ表示）──
+            # ── 手動ステータス変更（全ステータスに対応 v15.0）──
             current_status = str(row.get("status", ""))
-            if current_status != "published":
-                st.markdown("---")
-                st.markdown("##### 🔄 ステータス変更")
-                st.caption("間違えて审査落ちにした場合や、適切なステータスに戻したい場合に利用してください。")
-                _STATUS_MAP_CHANGE = {
-                    "watching (審査キュー)": "watching",
-                    "pending (執筆待ち)": "pending",
-                    "excluded (除外・審査落ち)": "excluded",
-                }
-                _labels = list(_STATUS_MAP_CHANGE.keys())
-                _vals   = list(_STATUS_MAP_CHANGE.values())
-                _cur_idx = _vals.index(current_status) if current_status in _vals else 0
-                _new_label = st.selectbox(
-                    "変更先ステータス", options=_labels,
-                    index=_cur_idx, key=f"{key_prefix}_sel_status"
-                )
-                _new_status = _STATUS_MAP_CHANGE[_new_label]
-                if _new_status != current_status:
+            st.markdown("---")
+            st.markdown("##### 🔄 ステータス変更")
+            st.caption("ステータスを手動で変更できます。publishedからの変更は記事の公開状態に影響するため注意してください。")
+            _STATUS_MAP_CHANGE = {
+                "watching (審査キュー)": "watching",
+                "pending (執筆待ち)": "pending",
+                "published (公開済み)": "published",
+                "excluded (除外・審査落ち)": "excluded",
+                "deleted (削除済み)": "deleted",
+            }
+            _labels = list(_STATUS_MAP_CHANGE.keys())
+            _vals   = list(_STATUS_MAP_CHANGE.values())
+            _cur_idx = _vals.index(current_status) if current_status in _vals else 0
+            _new_label = st.selectbox(
+                "変更先ステータス", options=_labels,
+                index=_cur_idx, key=f"{key_prefix}_sel_status"
+            )
+            _new_status = _STATUS_MAP_CHANGE[_new_label]
+            if _new_status != current_status:
+                # published からの変更は危険操作 → 確認チェックボックスを表示
+                _needs_confirm = (current_status == "published")
+                _confirmed = True
+                if _needs_confirm:
+                    st.warning("⚠️ 公開済み記事のステータスを変更すると、記事の状態管理に影響します。")
+                    _confirmed = st.checkbox(
+                        "この操作を理解した上で実行します",
+                        key=f"{key_prefix}_status_confirm_{detail_pid}",
+                    )
+                if _confirmed:
                     if st.button(f"🔄 {_new_label} に変更する", key=f"{key_prefix}_btn_status", type="primary"):
                         try:
                             from novelove_core import get_db_path, db_connect as _dbc
@@ -548,7 +559,6 @@ def render_detail_panel(detail_pid, df, key_prefix="list"):
                             _db.close()
                             st.success(f"✅ {row['product_id']} を {_new_status} に変更しました。")
                             st.cache_data.clear()
-                            st.rerun()
                         except Exception as e:
                             st.error(f"❌ 変更失敗: {e}")
 
@@ -620,7 +630,7 @@ def render_detail_panel(detail_pid, df, key_prefix="list"):
                                     _db.close()
                                     st.success(f"✅ {msg}　DB: deleted に更新しました。")
                                     st.cache_data.clear()
-                                    st.rerun()
+                                    st.info("ℹ️ ページをリロードすると一覧が更新されます。")
                                 except Exception as e:
                                     st.error(f"⚠️ WPゴミ箱移動は成功しましたが、DB更新に失敗: {e}")
                             else:
@@ -1514,7 +1524,7 @@ def main():
                                     if del_fail > 0:
                                         st.warning(f"⚠️ {del_fail} 件はWPゴミ箱移動に失敗しました。")
                                     st.cache_data.clear()
-                                    st.rerun()
+                                    st.info("ℹ️ ページをリロードすると一覧が更新されます。")
 
                 # --- 👇 従来の下部詳細パネルへの選択情報渡し ---
                 try:
@@ -1523,7 +1533,6 @@ def main():
                         if st.session_state.get("_selected_pid_from_list") != pid:
                             st.session_state["_selected_pid_from_list"] = pid
                             st.session_state["global_rewrite_pid_input"] = pid
-                            st.rerun()
                 except Exception as e:
                     st.error(f"Selection Exception: {e}")
 
