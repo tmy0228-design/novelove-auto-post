@@ -1,3 +1,37 @@
+## v14.6.0 — タグ検知エンジン全面修正 (2026-04-15)
+
+### 🐛 修正: FANZAランキング（ほぼ機能していなかった）
+- `fetch_fanza_ranking_product_ids` に同人フロアを追加
+  - `digital_doujin` + keyword=ボーイズラブ（BL同人）
+  - `digital_doujin` + keyword=乙女向け（TL同人）
+  - `digital_doujin_bl`（らぶカルBL）
+  - `digital_doujin_tl`（らぶカルTL）
+- 従来は商業ebook 4フロア（bl/tl/comic/novel）のみで、DBの`d_`IDと**一致率0件**だった
+- 修正後: 本番テストで **6件一致**を確認
+
+### 🐛 修正: DLsiteセール検知（0件固定のバグ）
+- `fetch_dlsite_sale_product_ids` を裏JSON API方式→**セール検索ページスクレイピング方式**に刷新
+  - 旧: `product/info/ajax` の `discount`フィールドを参照 → **常にNone**（API仕様変更）
+  - 新: `fsr/=/campaign/1/` ページを girls/bl/girls-pro/bl-pro の4フロアで巡回
+  - ページネーション対応（最大10ページ）で全セール作品を取得
+- 修正後: 本番テストで16件のセール作品を正常検知
+
+### 🐛 修正: 大文字/小文字不統一（全突合が0件になるバグ）
+- `get_all_published_product_ids`: `product_id` に `.lower()` を追加（DBは`RJ01xxxxx`等大文字保存）
+- `fetch_dlsite_ranking_product_ids`: 正規表現を`RJ`のみ→`RJ|BJ|VJ`に拡張、`.lower()`で統一
+- `fetch_digiket_ranking_product_ids`: `ITM{数字}`→`itm{数字}`に統一
+
+### 📊 本番テスト結果（修正後）
+| 検知 | 結果 |
+|:--|:--|
+| FANZAランキング | published 25件中 **6件一致** |
+| DLsiteセール | **16件検知**（セールページから正常取得） |
+| DLsiteランキング | published中 **4件一致** |
+| DigiKetランキング | published中 **2件一致** |
+| FANZAセール | 0件一致（新着主体のため正常：まだセール対象になっていない） |
+
+---
+
 # Changelog
 
 > **⚠️ 必読 ⚠️ `CLAUDE.md` と `SPECIFICATIONS.md` も必ず読むこと。過去のバグと教訓はこのファイルに記録されている。同じ過ちを繰り返すな。**
