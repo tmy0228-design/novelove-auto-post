@@ -39,13 +39,54 @@ from novelove_writer import _call_deepseek_raw
 
 # === ランキング記事 ===
 def fetch_ranking_dmm_fanza(site, genre):
-    """v11.2.0: 漫画(comic)と小説(novel)を統合して取得"""
-    results = []
+    """v15.0: Lovecal対応 ＆ アナログな交互表示(偏り)の廃止。
+    らぶカルは統合ランキングをそのまま取得。
+    FANZA/DMMは漫画3枠・小説2枠を取得し、1位は漫画固定、残りはシャッフル。
+    """
     is_bl = (genre == "BL")
     
-    # 漫画と小説の両方を取得してマージ
-    for dtype in ["comic", "novel"]:
+    if site == "Lovecal":
         items = []
+        params = {
+            "api_id": DMM_API_ID, "affiliate_id": DMM_AFFILIATE_API_ID,
+            "site": "FANZA", "service": "doujin", 
+            "floor": "digital_doujin_bl" if is_bl else "digital_doujin_tl",
+            "hits": 10, "sort": "rank", "output": "json",
+        }
+        try:
+            r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
+            if r.status_code == 200:
+                for item in r.json().get("result", {}).get("items", []):
+                    title = item.get("title", "")
+                    if _is_noise_content(title, ""): continue
+                    items.append(item)
+                    if len(items) >= 5: break
+        except Exception as e:
+            logger.error(f"Lovecal API Fetch Error ({genre}): {e}")
+            
+        final_items = []
+        for item in items:
+            title = item.get("title", "")
+            base_url = item.get("URL", "")
+            encoded_url = urllib.parse.quote(base_url, safe="")
+            af_id = DMM_AFFILIATE_LINK_ID or "novelove-001"
+            aff_url = f"https://al.fanza.co.jp/?lurl={encoded_url}&af_id={af_id}&ch=toolbar&ch_id=text"
+            desc = scrape_description(item.get("URL", ""), site=site, genre=genre)
+            if _is_noise_content(title, desc): continue
+            
+            final_items.append({
+                "title": title, "url": aff_url,
+                "image_url": item.get("imageURL", {}).get("large", ""),
+                "description": desc,
+                "content_id": item.get("content_id", "")
+            })
+        return final_items
+
+    # --- FANZA / DMM.com の場合 ---
+    comic_items = []
+    novel_items = []
+    
+    for dtype in ["comic", "novel"]:
         params = {
             "api_id": DMM_API_ID, "affiliate_id": DMM_AFFILIATE_API_ID,
             "hits": 10, "sort": "rank", "output": "json",
@@ -66,37 +107,46 @@ def fetch_ranking_dmm_fanza(site, genre):
                 for item in r.json().get("result", {}).get("items", []):
                     title = item.get("title", "")
                     if _is_noise_content(title, ""): continue
-                    items.append(item)
+                    if dtype == "comic":
+                        comic_items.append(item)
+                    else:
+                        novel_items.append(item)
         except Exception as e:
             logger.error(f"DMM API Fetch Error ({site}/{genre}/{dtype}): {e}")
-        
-        results.append(items)
 
-    # インターリーブ（交互）または単純マージして上位5件
+    # 漫画3枠、小説2枠を抽出してシャッフル
+    selected = []
+    if comic_items:
+        selected.append(comic_items[0]) # 1位固定
+    
+    pool = []
+    for c in comic_items[1:3]: pool.append(c)
+    for n in novel_items[:2]:  pool.append(n)
+    random.shuffle(pool)
+    
+    selected.extend(pool)
+    
     final_items = []
-    # 漫画上位、小説上位を混ぜて各サイトの「総合ランキング」を再構築
-    for i in range(10):
-        for sub_list in results:
-            if i < len(sub_list):
-                item = sub_list[i]
-                title = item.get("title", "")
-                base_url = item.get("URL", "")
-                encoded_url = urllib.parse.quote(base_url, safe="")
-                af_id = DMM_AFFILIATE_LINK_ID or "novelove-001"
-                ch_params = "&ch=toolbar&ch_id=text"
-                aff_url = (f"https://al.fanza.co.jp/?lurl={encoded_url}&af_id={af_id}{ch_params}"
-                           if site == "FANZA" else
-                           f"https://al.dmm.com/?lurl={encoded_url}&af_id={af_id}{ch_params}")
-                desc = scrape_description(item.get("URL", ""), site=site, genre=genre)
-                if _is_noise_content(title, desc): continue
-                
-                final_items.append({
-                    "title": title, "url": aff_url,
-                    "image_url": item.get("imageURL", {}).get("large", ""),
-                    "description": desc,
-                    "content_id": item.get("content_id", "")
-                })
-                if len(final_items) >= 5: return final_items
+    for item in selected:
+        title = item.get("title", "")
+        base_url = item.get("URL", "")
+        encoded_url = urllib.parse.quote(base_url, safe="")
+        af_id = DMM_AFFILIATE_LINK_ID or "novelove-001"
+        ch_params = "&ch=toolbar&ch_id=text"
+        aff_url = (f"https://al.fanza.co.jp/?lurl={encoded_url}&af_id={af_id}{ch_params}"
+                   if site == "FANZA" else
+                   f"https://al.dmm.com/?lurl={encoded_url}&af_id={af_id}{ch_params}")
+        desc = scrape_description(item.get("URL", ""), site=site, genre=genre)
+        if _is_noise_content(title, desc): continue
+        
+        final_items.append({
+            "title": title, "url": aff_url,
+            "image_url": item.get("imageURL", {}).get("large", ""),
+            "description": desc,
+            "content_id": item.get("content_id", "")
+        })
+        if len(final_items) >= 5: break
+        
     return final_items
 
 def fetch_ranking_dlsite(genre):
@@ -286,18 +336,18 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
     # 2人の関係性テキストを取得
     relationship = get_relationship(reviewer["id"], guest["id"])
 
-    # 挨拶パターンのランダム制御（v14.9.0: 10%のみ身の上話、90%はランキングへのフレッシュなリアクション）
     if random.random() < 0.1:
         mc_intro_rule   = f"{reviewer['name']}は冒頭で自分の身の上話（例: {reviewer.get('greeting', '')}）を自然に絡めて語り出すこと。"
         guest_intro_rule = f"{guest['name']}は自分の日常のエピソードや近況で自然に返すこと。"
     else:
-        mc_intro_rule   = f"{reviewer['name']}は身の上話・自己紹介は一切禁止。今週のランキングへの期待感や驚きを口調そのままで語り出すこと。毎回違う切り口で始めること。"
+        mc_intro_rule   = f"{reviewer['name']}は身の上話・自己紹介は一切禁止。今週のピックアップ作品への期待感や驚きを口調そのままで語り出すこと。毎回違う切り口で始めること。"
         guest_intro_rule = f"{guest['name']}も同様に、身の上話・自己紹介は一切禁止。2人の関係性に沿った自然なリアクションで返すこと。毎回違うリアクションにすること。"
 
     # 今週の感情モード（会話全体のトーンを決める）
     weekly_mood = random.choice(MOOD_PATTERNS)
 
-    return f'''今回は「{reviewer["name"]}」（メインMC）と「{guest["name"]}」（ゲスト）の2人の対話形式で、今週の{site_name}における{genre}総合人気ランキング（漫画＋小説）TOP5を紹介するアフィリエイト記事を執筆してください。
+    # v15.0: 全サイト「厳選ピックアップ」コンセプトへ統一
+    return f'''今回は「{reviewer["name"]}」（メインMC）と「{guest["name"]}」（ゲスト）の2人の対話形式で、今週の{site_name}における{genre}の中から、ノベラブ編集部が特におすすめしたい厳選ピックアップ5作品を、独自のランキング形式で紹介するアフィリエイト記事を執筆してください。
 【今週の会話トーン】
 {weekly_mood}
 【メインMC: {reviewer["name"]}】
@@ -323,7 +373,7 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 {mc_intro_rule}
 {guest_intro_rule}
 【記事の構成】
-- 冒頭：2人のオープニングトーク（お互いに挨拶し、今週のランキングへの期待を語る。合計4〜6往復。）
+- 冒頭：2人のオープニングトーク（お互いに挨拶し、今週ピックアップされた注目作品への期待を語る。合計4〜6往復。）
 - 第5位〜第2位：各作品ごとに、あらすじ説明（MC主導）→ゲストのリアクション→推しポイントの掘り下げ（最低3往復）
   ・各作品の前後に必ず HTML プレースホルダーを置くこと:
     [IMAGE_{{rank}}]
@@ -376,7 +426,7 @@ def get_ranking_slug(site, genre):
     return f"{site.lower()}-{genre.lower()}-ranking-{now.strftime('%Y')}-{now.strftime('%m')}-w{week}"
 
 def process_ranking_articles():
-    from auto_post import post_to_wordpress, _check_global_cooldown  # 循環import回避
+    from auto_post import post_to_wordpress  # 循環import回避
 
     # ★ 緊急停止チェック
     if is_emergency_stop():
@@ -384,13 +434,6 @@ def process_ranking_articles():
 
     logger.info("=" * 60)
     logger.info("ランキング記事自動生成モード開始")
-    
-    # クールダウンチェック (ランキング投稿: 12時間 = 720分)
-    # v11.4.13: post_type='ranking' を指定して独立判定
-    is_ready, elapsed = _check_global_cooldown(720, post_type='ranking')
-    if not is_ready:
-        logger.info(f"🕒 ランキングクールダウン中（{elapsed:.1f}分経過/720分）。終了します。")
-        return
 
     try:
         with open(RANK_LOCK_FILE, "w") as f:
@@ -399,10 +442,10 @@ def process_ranking_articles():
         logger.error(f"ランキングロック作成失敗: {e}")
         return
     try:
-        # 曜日判定 (0=月, 1=火, 2=水, ... 6=日)
+        # 曜日判定 (0=月, 1=火, 2=水, 3=木, 4=金, 5=土, 6=日)
         weekday = datetime.now().weekday()
-        # スケジュール: 日=FANZA, 月=DLsite, 火=DMM, 水=DigiKet
-        schedule = {6: "FANZA", 0: "DLsite", 1: "DMM", 2: "DigiKet"}
+        # スケジュール: 水=DigiKet, 木=DMM, 金=DLsite, 土=FANZA, 日=Lovecal
+        schedule = {2: "DigiKet", 3: "DMM", 4: "DLsite", 5: "FANZA", 6: "Lovecal"}
         
         target_site = schedule.get(weekday)
         if not target_site:
@@ -411,13 +454,25 @@ def process_ranking_articles():
 
         sites = [target_site]
         medals = {1: "🥇 1位", 2: "🥈 2位", 3: "🥉 3位", 4: "4位", 5: "5位"}
-        site_labels = {"FANZA": "FANZA", "DMM": "DMM.com", "DLsite": "DLsite", "DigiKet": "DigiKet"}
+        site_labels = {"FANZA": "FANZA", "DMM": "DMM.com", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "らぶカル"}
         
         for i, site in enumerate(sites):
             logger.info(f"--- ランキング処理: {site} ---")
             for genre in ["BL", "TL"]:
                 logger.info(f"  [{genre}総合] 取得開始...")
-                if site in ("FANZA", "DMM"):
+                
+                # --- v15.0: DB確認によるクールダウンロジック ---
+                slug = get_ranking_slug(site, genre)
+                db_path = get_db_path(site)
+                conn = db_connect(db_path)
+                c = conn.cursor()
+                row = c.execute("SELECT published_at FROM novelove_posts WHERE product_id=? AND status='published'", (slug,)).fetchone()
+                conn.close()
+                if row:
+                    logger.info(f"  [{genre}総合] 今週の {site} {genre} は既に投稿済み（{slug}）。スキップします。")
+                    continue
+
+                if site in ("FANZA", "DMM", "Lovecal"):
                     items = fetch_ranking_dmm_fanza(site, genre)
                 elif site == "DLsite":
                     items = fetch_ranking_dlsite(genre)
@@ -567,11 +622,13 @@ def process_ranking_articles():
                 title_date = f"{_now.year}年{_now.month}月第{_wk}週"
                 genre_label_map = {"BL": "BL総合", "TL": "TL総合"}
                 genre_full = genre_label_map.get(genre, genre)
-                post_title = f"【{site_labels[site]}】今週の{genre_full}ランキング TOP5！（{title_date}）"
-                meta_desc = f"【{site_labels[site]}】今週の{genre_full}総合ランキング（漫画＋小説）TOP5を{reviewer['name']}が熱く紹介！"
+                disp_site = site_labels.get(site, site)
+                
+                # v15.0: 全サイト統一で「厳選おすすめピックアップ」コンセプトに
+                post_title = f"【{disp_site}】今週の{genre_full}おすすめピックアップ5選！ノベラブ厳選ランキング（{title_date}）"
+                meta_desc = f"【{disp_site}】今週の{genre_full}の中から、ノベラブ編集部が厳選したおすすめ作品TOP5を{reviewer['name']}が熱く紹介！"
                 
                 final_content = content_html
-                disp_site = site_labels.get(site, site)
                 
                 # 相互リンク (BL <=> TL)
                 other_genre = "TL" if genre == "BL" else "BL"
@@ -582,13 +639,13 @@ def process_ranking_articles():
                 cross_link = (
                     f'<div style="border:1px solid #f0c0c0; border-radius:8px; padding:15px; margin:20px 0; background:#fff8f8;">\n'
                     f'<p style="margin:0 0 8px; font-weight:bold; color:#c0607f;">📚 あわせて読みたい</p>\n'
-                    f'<p><a href="{other_url}">【{disp_site}】{other_genre}総合ランキング（{_now2.year}年{_now2.month}月第{_wk2}週）はこちら</a></p>\n'
+                    f'<p><a href="{other_url}">【{disp_site}】{other_genre}ピックアップ5選！厳選ランキング（{_now2.year}年{_now2.month}月第{_wk2}週）はこちら</a></p>\n'
                     f'</div>\n'
                 )
                 final_content += cross_link
                 
-                # クレジット
-                if "FANZA" in disp_site:
+                # クレジット: らぶカルはFANZA同人APIなのでFANZAバナーを使用
+                if "FANZA" in disp_site or site == "Lovecal":
                     ranking_credit = f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;"><a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/r18_135_17.gif" width="135" height="17" alt="WEB SERVICE BY FANZA" style="border:none;"></a></div>'
                 elif "DMM" in disp_site:
                     ranking_credit = f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;"><a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/com_135_17.gif" width="135" height="17" alt="WEB SERVICE BY DMM.com" style="border:none;"></a></div>'
