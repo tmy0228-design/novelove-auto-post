@@ -206,8 +206,6 @@ def fetch_fanza_sale_product_ids():
     # BL/TL × 同人/商業 の全フロアを巡回
     floors = [
         {"site": "FANZA", "service": "doujin", "floor": "digital_doujin"},
-        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_bl"},  # らぶカルBL
-        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_tl"},  # らぶカルTL
         {"site": "FANZA", "service": "ebook",  "floor": "bl"},
         {"site": "FANZA", "service": "ebook",  "floor": "tl"},
         {"site": "DMM.com", "service": "ebook", "floor": "comic"},
@@ -232,6 +230,8 @@ def fetch_fanza_sale_product_ids():
                 "sort": "rank",
                 "output": "json",
             }
+            if fl.get("keyword"):
+                params["keyword"] = fl["keyword"]
             r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
             if r.status_code != 200:
                 continue
