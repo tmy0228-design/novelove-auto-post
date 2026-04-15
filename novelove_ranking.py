@@ -13,7 +13,7 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 
-from novelove_soul import REVIEWERS, get_relationship
+from novelove_soul import REVIEWERS, get_relationship, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS
 
 from novelove_core import (
     logger, notify_discord,
@@ -244,6 +244,7 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
     v12.0.0: ランキング記事を2名の掛け合い形式で生成するプロンプトを作成。
     reviewer = メインMC（専門担当者）
     guest    = ゲスト（別ジャンル担当者）。Noneの場合は1名形式にフォールバック。
+    v14.9.0: 挨拶ランダム化・吹き出しクラス厳格化・FACT_GUARD/NG_PHRASES/成人向け表現規制を追加。
     """
     items_xml = ""
     for idx, item in enumerate(items):
@@ -255,23 +256,87 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
     mc_close = '</div></div>'
 
     if guest is None:
-        # フォールバック: 旧来の1名形式
+        # フォールバック: 旧来の1名形式（v14.9.0: 挨拶ランダム化・ガード追加）
+        if random.random() < 0.1:
+            intro_rule = f"冒頭の挨拶では、あなたのキャラクター設定にある身の上話（例: {reviewer.get('greeting', '')}）を自然に絡めてください。"
+        else:
+            intro_rule = "冒頭の挨拶では、身の上話・自己紹介は一切しないこと。今週のランキングへの期待感や驚きを、あなたの口調だけで語り出すこと。毎回違う切り口で始めること。"
         return f'''あなたは「{reviewer["name"]}」として、今週の{site_name}における{genre}総合人気ランキング（漫画＋小説）TOP5を紹介するアフィリエイト記事を執筆してください。
 【キャラクター設定: {reviewer["name"]}】
 ・性格: {reviewer["personality"]}
 ・文体: {reviewer["tone"]}
-・挨拶: {reviewer["greeting"]}
 【執筆ルール】HTML形式で出力してください。
+・直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
 ※当サイトは漫画・小説専門です。「聴く」「イヤホン」などの音声表現は避け、「読む・見る」体験として紹介してください。
 1. 冒頭キャラコメント
-{mc_open}（{reviewer["name"]}の口調による挨拶と期待感。60〜80字以内）{mc_close}
+{mc_open}（{intro_rule} 60〜80字以内）{mc_close}
 2. ランキングTOP5（各作品につき紹介文＋推しポイント吹き出し）
 [IMAGE_{{rank}}] [RANK_BADGE_{{rank}}] [TITLE_{{rank}}] [REVIEW_LINK_{{rank}}]
 3. 締めキャラコメント
 {mc_open}（振り返りと読者への呼びかけ。100〜120字以内）{mc_close}
 【ランキングデータ】
 {items_xml}
+{FACT_GUARD}{NG_PHRASES}
 '''
+
+    # ゲスト（右）の吹き出し
+    guest_open  = f'<div class="speech-bubble-right"><img src="/wp-content/uploads/icons/{guest["face_image"]}.png" alt="{guest["name"]}" /><div class="speech-text">'
+    guest_close = '</div></div>'
+
+    # 2人の関係性テキストを取得
+    relationship = get_relationship(reviewer["id"], guest["id"])
+
+    # 挨拶パターンのランダム制御（v14.9.0: 10%のみ身の上話、90%はランキングへのフレッシュなリアクション）
+    if random.random() < 0.1:
+        mc_intro_rule   = f"{reviewer['name']}は冒頭で自分の身の上話（例: {reviewer.get('greeting', '')}）を自然に絡めて語り出すこと。"
+        guest_intro_rule = f"{guest['name']}は自分の日常のエピソードや近況で自然に返すこと。"
+    else:
+        mc_intro_rule   = f"{reviewer['name']}は身の上話・自己紹介は一切禁止。今週のランキングへの期待感や驚きを口調そのままで語り出すこと。毎回違う切り口で始めること。"
+        guest_intro_rule = f"{guest['name']}も同様に、身の上話・自己紹介は一切禁止。2人の関係性に沿った自然なリアクションで返すこと。毎回違うリアクションにすること。"
+
+    # 今週の感情モード（会話全体のトーンを決める）
+    weekly_mood = random.choice(MOOD_PATTERNS)
+
+    return f'''今回は「{reviewer["name"]}」（メインMC）と「{guest["name"]}」（ゲスト）の2人の対話形式で、今週の{site_name}における{genre}総合人気ランキング（漫画＋小説）TOP5を紹介するアフィリエイト記事を執筆してください。
+【今週の会話トーン】
+{weekly_mood}
+【メインMC: {reviewer["name"]}】
+・性格: {reviewer["personality"]}
+・文体: {reviewer["tone"]}
+【ゲスト: {guest["name"]}】
+・性格: {guest["personality"]}
+・文体: {guest["tone"]}
+【2人の関係性】
+{relationship}
+【執筆の最重要ルール（必ず守ること）】
+1. 地の文は一切書かないこと。すべての文章を以下のどちらかの吹き出しHTMLで表現すること。
+2. {reviewer["name"]}の発言には必ず「メインMC吹き出し（左）」を使用すること:
+{mc_open}（セリフ）{mc_close}
+3. {guest["name"]}の発言には必ず「ゲスト吹き出し（右）」を使用すること:
+{guest_open}（セリフ）{guest_close}
+4. 【絶対禁止】{guest["name"]}の発言に speech-bubble-left クラスを使うことは絶対禁止。{reviewer["name"]}の発言に speech-bubble-right クラスを使うことも絶対禁止。
+5. 2人の性格の違いと関係性に基づいた自然なテンポで会話を進めること。
+6. raw HTMLのみを出力。```やコードブロックは使わないこと。
+7. 直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
+8. 当サイトは漫画・小説専門です。「聴く」「イヤホン」などの音声表現は避け、「読む・見る」体験として紹介してください。
+【冒頭の挨拶ルール】
+{mc_intro_rule}
+{guest_intro_rule}
+【記事の構成】
+- 冒頭：2人のオープニングトーク（お互いに挨拶し、今週のランキングへの期待を語る。合計4〜6往復。）
+- 第5位〜第2位：各作品ごとに、あらすじ説明（MC主導）→ゲストのリアクション→推しポイントの掘り下げ（最低3往復）
+  ・各作品の前後に必ず HTML プレースホルダーを置くこと:
+    [IMAGE_{{rank}}]
+    <div class="ranking-badge" style="font-size:1.6em;font-weight:bold;margin-bottom:15px;color:#ff4785;">[RANK_BADGE_{{rank}}]</div>
+    <h3 style="margin-top:20px;font-size:1.3em;">[TITLE_{{rank}}]</h3>
+    [REVIEW_LINK_{{rank}}]
+- 第1位：2人で熱量MAXに語り倒す（最低5往復）。プレースホルダーは同様に配置。
+- 締め：2人で今週の感想と読者へのメッセージを語る（合計3〜4往復）。
+【ランキングデータ】
+{items_xml}
+{FACT_GUARD}{NG_PHRASES}
+'''
+
 
     # ゲスト（右）の吹き出し
     guest_open  = f'<div class="speech-bubble-right"><img src="/wp-content/uploads/icons/{guest["face_image"]}.png" alt="{guest["name"]}" /><div class="speech-text">'
