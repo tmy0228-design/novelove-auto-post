@@ -559,6 +559,8 @@ def render_detail_panel(detail_pid, df, key_prefix="list"):
                             _db.close()
                             st.success(f"✅ {row['product_id']} を {_new_status} に変更しました。")
                             st.cache_data.clear()
+                            st.session_state["_restore_data_tab"] = True
+                            st.rerun()
                         except Exception as e:
                             st.error(f"❌ 変更失敗: {e}")
 
@@ -630,7 +632,8 @@ def render_detail_panel(detail_pid, df, key_prefix="list"):
                                     _db.close()
                                     st.success(f"✅ {msg}　DB: deleted に更新しました。")
                                     st.cache_data.clear()
-                                    st.info("ℹ️ ページをリロードすると一覧が更新されます。")
+                                    st.session_state["_restore_data_tab"] = True
+                                    st.rerun()
                                 except Exception as e:
                                     st.error(f"⚠️ WPゴミ箱移動は成功しましたが、DB更新に失敗: {e}")
                             else:
@@ -1117,6 +1120,18 @@ def main():
     # =====================================================================
     tab_kpi, tab_list = st.tabs(["📊 KPIサマリー ＆ GSC", "📋 データ一覧"])
 
+    # アクション後に「データ一覧」タブを自動復元するJS注入 (v15.0)
+    if st.session_state.pop("_restore_data_tab", False):
+        import streamlit.components.v1 as stc
+        stc.html("""
+        <script>
+        setTimeout(() => {
+            const tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
+            if (tabs.length > 1) tabs[1].click();
+        }, 120);
+        </script>
+        """, height=0)
+
     with tab_kpi:
         # =====================================================================
         # あらすじ更新検知パネル
@@ -1524,7 +1539,8 @@ def main():
                                     if del_fail > 0:
                                         st.warning(f"⚠️ {del_fail} 件はWPゴミ箱移動に失敗しました。")
                                     st.cache_data.clear()
-                                    st.info("ℹ️ ページをリロードすると一覧が更新されます。")
+                                    st.session_state["_restore_data_tab"] = True
+                                    st.rerun()
 
                 # --- 👇 従来の下部詳細パネルへの選択情報渡し ---
                 try:
