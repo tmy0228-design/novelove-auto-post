@@ -337,48 +337,6 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 {FACT_GUARD}{NG_PHRASES}
 '''
 
-
-    # ゲスト（右）の吹き出し
-    guest_open  = f'<div class="speech-bubble-right"><img src="/wp-content/uploads/icons/{guest["face_image"]}.png" alt="{guest["name"]}" /><div class="speech-text">'
-    guest_close = '</div></div>'
-
-    # 2人の関係性テキストを取得
-    relationship = get_relationship(reviewer["id"], guest["id"])
-
-    return f'''今回は「{reviewer["name"]}」（メインMC）と「{guest["name"]}」（ゲスト）の2人の対話形式で、今週の{site_name}における{genre}総合人気ランキング（漫画＋小説）TOP5を紹介するアフィリエイト記事を執筆してください。
-【メインMC: {reviewer["name"]}】
-・性格: {reviewer["personality"]}
-・文体: {reviewer["tone"]}
-・挨拶: {reviewer["greeting"]}
-【ゲスト: {guest["name"]}】
-・性格: {guest["personality"]}
-・文体: {guest["tone"]}
-・挨拶: {guest["greeting"]}
-【2人の関係性】
-{relationship}
-【執筆の最重要ルール（必ず守ること）】
-1. 地の文は一切書かないこと。すべての文章を以下のどちらかの吹き出しHTMLで表現すること。
-2. {reviewer["name"]}の発言には必ず「メインMC吹き出し」を使用すること:
-{mc_open}（セリフ）{mc_close}
-3. {guest["name"]}の発言には必ず「ゲスト吹き出し」を使用すること:
-{guest_open}（セリフ）{guest_close}
-4. 2人の性格の違いと関係性に基づいた自然なテンポで会話を進めること。
-5. raw HTMLのみを出力。```やコードブロックは使わないこと。
-6. ※当サイトは漫画・小説専門です。「聴く」「イヤホン」などの音声表現は避け、「読む・見る」体験として紹介してください。
-【記事の構成】
-- 冒頭：2人のオープニングトーク（お互いに挨拶し、今週のランキングへの期待を語る。合計4〜6往復。）
-- 第5位〜第2位：各作品ごとに、あらすじ説明（MC主導）→ゲストのリアクション→推しポイントの掘り下げ（最低3往復）
-  ・各作品の前後に必ず HTML プレースホルダーを置くこと:
-    [IMAGE_{{rank}}]
-    <div class="ranking-badge" style="font-size:1.6em;font-weight:bold;margin-bottom:15px;color:#ff4785;">[RANK_BADGE_{{rank}}]</div>
-    <h3 style="margin-top:20px;font-size:1.3em;">[TITLE_{{rank}}]</h3>
-    [REVIEW_LINK_{{rank}}]
-- 第1位：2人で熱量MAXに語り倒す（最低5往復）。プレースホルダーは同様に配置。
-- 締め：2人で今週の感想と読者へのメッセージを語る（合計3〜4往復）。
-【ランキングデータ】
-{items_xml}
-'''
-
 def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_image_url="", excerpt="", reviewer_name="", guest_name=""):
     from auto_post import post_to_wordpress  # 循環import回避
     now = datetime.now()
