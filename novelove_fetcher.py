@@ -595,39 +595,48 @@ def scrape_description(product_url, site="FANZA", genre=""):
         if any(kw in text for kw in ["カテゴリー</th><td>写真集", "カテゴリー</th><td>グラビア", "カテゴリー</th><td>文芸・小説", "カテゴリー</th><td>ライトノベル"]):
             logger.warning(f"[FANZA] 禁止カテゴリーを検知: {product_url}")
             return "__EXCLUDED_TYPE__"
-        # === あらすじ抽出（JSON-LD優先・全サイト共通ロジック） ===
-        # 第一優先: JSON-LD (Schema.org構造化データ) から取得
-        # - SPA/非SPA/セーフモード画面に関わらず、常にGoogleクローラー向けの
-        #   公式データが埋め込まれており、純粋なあらすじのみが格納されている
-        # - style_content__ 等の画面上の枠から取得しないことで汚染事故を根絶
-        best_desc = ""
+        # === あらすじ抽出（MAX文字数採用型ハイブリッド） ===
+        # JSON-LD と HTMLクラスの「両方」から取得し、文字数が多い方を自動採用する。
+        # - DMMブックス: HTMLクラスが存在しない(React SPA)ため JSON-LD が唯一の情報源（全文格納）
+        # - FANZA同人/らぶカル: JSON-LDは110文字に省略されるため HTMLクラスが唯一の全文情報源
+        # どちらか片方だけに依存すると、サイトによって全文が取れなくなるため必ず両方走らせる。
+
+        # ソース1: JSON-LD (Schema.org構造化データ)
+        ld_desc = ""
         for ld_match in re.finditer(r'<script type="application/ld\+json">(.*?)</script>', text, re.DOTALL):
             try:
                 ld_data = json.loads(ld_match.group(1))
                 items = ld_data if isinstance(ld_data, list) else [ld_data]
                 for item in items:
                     if isinstance(item, dict) and "description" in item and isinstance(item["description"], str):
-                        if len(item["description"]) > len(best_desc):
-                            best_desc = item["description"]
+                        if len(item["description"]) > len(ld_desc):
+                            ld_desc = item["description"]
             except Exception:
                 pass
 
-        # 第二優先（フォールバック）: 安全な固定クラス要素から取得
-        # - JSON-LDが存在しない旧システムページ（古い同人作品等）の対応
-        # - 固定クラス名のため、セーフモード等の変なテキストが入り込む心配がない
-        if len(best_desc) < 50:
-            for selector in [".summary__txt", ".mg-b20", ".common-description", ".product-description__text"]:
-                el = soup.select_one(selector)
-                if el:
-                    t = el.get_text(separator="\n", strip=True)
-                    if len(t) > len(best_desc):
-                        best_desc = t
+        # ソース2: HTMLの固定クラス要素（FANZA同人/らぶカルの全文はここにしかない）
+        html_desc = ""
+        for selector in [".summary__txt", ".mg-b20", ".common-description", ".product-description__text"]:
+            el = soup.select_one(selector)
+            if el:
+                t = el.get_text(separator="\n", strip=True)
+                if len(t) > len(html_desc):
+                    html_desc = t
+
+        # MAX判定: 文字数が多い方を採用（全文が取れる方が自動的に勝つ）
+        best_desc = ld_desc if len(ld_desc) > len(html_desc) else html_desc
+
+        # 省略検知フィルター: DMM側が省略した切り詰め文（末尾「…」等）だけを掴まされた場合を検出
+        # サイト構造変更で全文が取れなくなった際のサイレントエラーを防止する
+        if len(best_desc) < 150 and best_desc.rstrip().endswith(("…", "...")):
+            logger.warning(f"  [省略検知] 取得テキストが省略文のみ({len(best_desc)}文字): {product_url}")
+            best_desc = ""  # 省略文を破棄してAI修復へフォールスルー
 
         # 結果判定
         if len(best_desc) > 50:
             return best_desc.strip()
 
-        # 取得失敗 → 緊急AI修復（JSON-LDも固定クラスも存在しない = 新仕様変更の可能性が高いため通知）
+        # 取得失敗 → 緊急AI修復（JSON-LDもHTMLクラスも不十分 = サイト構造変更の可能性が高いため通知）
         ai_desc = _run_emergency_ai_extraction(product_url, site_type="FANZA/DMM")
         if ai_desc:
             return ai_desc
