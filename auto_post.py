@@ -324,9 +324,9 @@ def _run_main_logic():
         logger.info("🚨 緊急停止中のためスキップ。解除: rm emergency_stop.lock")
         return
 
-    # クールダウンチェック (通常投稿: 55分)
+    # クールダウンチェック (通常投稿: 25分) - v15.2: 1日48件ペースへ引き上げ
     # v11.4.12: 何よりも先に判定を行い、負荷をゼロにする
-    is_ready, elapsed = _check_global_cooldown(55)
+    is_ready, elapsed = _check_global_cooldown(25)
     if not is_ready:
         logger.info(f"🕒 クールダウン中（{elapsed:.1f}分経過）。0.1秒で終了します。")
         return
@@ -556,8 +556,8 @@ def _execute_posting_flow(row, cursor, conn):
     eval_score = _evaluate_article_potential(title, desc_str, original_tags=_orig_tags_for_eval)
     logger.info(f"  -> AI品質スコア: {eval_score}/5点")
     
-    # スコア2以下は破棄（中身がスッカスカ、ノイズのみ）
-    if eval_score <= 2:
+    # スコア3以下は破棄 - v15.2: 高品質記事のみ投稿してサイト評価を保護
+    if eval_score <= 3:
         logger.warning(f"  -> 内容が不十分（スコア{eval_score}点）のため執筆スキップ")
         cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='low_score' WHERE product_id=?", (pid,))
         conn.commit()
