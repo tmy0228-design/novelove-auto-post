@@ -681,6 +681,12 @@ def _classify_digiket_genre(genre_tags, target_id):
     TL_KEYWORDS = ["ティーンズラブ", "TL", "乙女"]
     BL_KEYWORDS = ["ボーイズラブ", "BL"]
     if target_id == "8":
+        # ★v15.3.1修正: target=8はBL・TL混在チャンネル。TLキーワードがある作品はcomic_tlに振り分け。
+        # ★影響調査用メモ: このfix以前にDBへ保存されたDigiKetのcomic_bl記事の中に
+        #   TL誤分類が混在している。後日 genre='comic_bl' AND site LIKE 'DigiKet%' のレコードを
+        #   product_urlで再スクレイプして genre_tagsを確認し、TLキーワードが含まれるものをリライト対象とすること。
+        if any(kw in tags_str for kw in TL_KEYWORDS):
+            return "comic_tl"
         return "comic_bl"
     elif target_id == "6":
         if "女性コミック" not in tags_str:

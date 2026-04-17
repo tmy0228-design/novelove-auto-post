@@ -196,6 +196,7 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 {f'9. 見どころの3点は、この作品ならではの魅力を優先順に並べること。毎回「ストーリー→ビジュアル→キャラクター」の同じ順番にしないこと。' + chr(10) + '10. 「こんな人におすすめ」は、具体的な設定に基づくこと。「BL/TLが好きな方」のような汎用表現は禁止。' if ai_score >= 4 else '9. 見どころは必ずあらすじに書かれている事実のみから書くこと。推測・補完・創作は絶対禁止。最大2点まで。書ける事実が1点しかなければ1点で完結させること。絶対に3点書かないこと。' + chr(10) + '10. 「こんな人におすすめ」はHTML指定の<ul>タグ内に<li>✅ ...</li>形式で、あらすじから読み取れる対象者のみを書くこと。書けない点数は書かなくてOK。'}
 【対象作品情報】
 タイトル: {safe_title}
+作品ジャンル: {_genre_label(target.get("genre", ""))}（※このジャンルを絶対に間違えないこと。BL・TLの誤記は最大の禁止事項です）
 あらすじ: {safe_desc}
 {f"公式属性タグ: {original_tags}" if original_tags else ""}
 {f"販売形態: {str(target.get('site', '')).split(':')[0]}専売（他サービスでは購入できない限定作品）" if is_exclusive else ""}
