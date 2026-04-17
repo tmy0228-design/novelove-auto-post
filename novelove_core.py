@@ -61,7 +61,7 @@ MAIN_LOCK_FILE  = os.path.join(SCRIPT_DIR, "main.lock")
 RANK_LOCK_FILE  = os.path.join(SCRIPT_DIR, "ranking.lock")
 INDEX_FILE      = os.path.join(SCRIPT_DIR, "genre_index.txt")
 EMERGENCY_LOCK_FILE = os.path.join(SCRIPT_DIR, "emergency_stop.lock")
-WP_SITE_URL     = "https://novelove.jp"
+WP_SITE_URL     = os.environ.get("WP_SITE_URL", "https://novelove.jp")  # C-2: テスト環境切り替えを.envで制御可能に
 
 # === 環境変数（一元管理） ===
 DEEPSEEK_API_KEY      = os.environ.get("DEEPSEEK_API_KEY", "")

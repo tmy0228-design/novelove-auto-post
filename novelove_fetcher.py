@@ -114,14 +114,8 @@ def mask_input(text, level=0):
 
 
 # === AI振り分けタグ ホワイトリスト ===
-AI_TAG_WHITELIST = {
-    "オメガバース", "ヤンデレ", "スパダリ", "執着", "年下攻め",
-    "幼なじみ", "ケンカップル", "主従", "サラリーマン", "年の差",
-    "転生", "契約", "再会", "一途", "運命",
-    "溺愛", "身分差", "契約結婚", "御曹司", "騎士",
-    "オフィスラブ", "腹黒", "同居", "嫉妬", "強引",
-    "独占欲", "初恋", "記憶喪失", "年の差", "ハッピーエンド",
-}
+# C-4: 定義は novelove_soul.py へ移動。このファイルでも参照できるよう import する。
+from novelove_soul import AI_TAG_WHITELIST  # noqa: E402（循環import回避のため位置はここ）
 
 # v11.3.0: 「単話・分冊版」など内容の薄い作品を個別紹介から除外するヘルパー
 # ※ランキング記事には適用しない。キーワードとページ数の両方が揃った場合のみ除外。
@@ -535,7 +529,8 @@ def scrape_digiket_description(url):
                             break
 
                 # 戻り値: (description, og_img_url, pages, official_format, release_date, is_exclusive)
-                # ※将来拡張時は NamedTuple 化を検討すること（6要素タプルは unpack エラーの温床: v13.7.2参照）
+                # A-5: 6要素タプルは unpack エラーの温床（過去 v13.7.2/v13.7.3 で2回発生）。
+                #      要素を増やす際は必ず全呼び出し箇所を更新し、NamedTuple化も検討すること。
                 return description, og_img_url, pages, official_format, release_date, is_exclusive
             logger.warning(f"  [DigiKet] あらすじ特定失敗: {url}")
             # 最終フォールバック（完全0文字ならAI起動）

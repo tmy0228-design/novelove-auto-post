@@ -252,6 +252,14 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
                             logger.warning(f"  [ROLLBACK] 画像設定失敗のため投稿を削除しました: ID={wp_post_id}")
                     except Exception as rollback_err:
                         logger.error(f"  [ROLLBACK] 致命的失敗: {rollback_err}")
+                        # S-4: 削除も下書き化も両方失敗した場合はDiscordへ通知（ゾンビ公開記事の見落とし防止）
+                        notify_discord(
+                            f"🚨 **ROLLBACKが致命的に失敗しました**\n"
+                            f"WP投稿ID: `{wp_post_id}` が公開されたままの可能性があります。\n"
+                            f"**エラー**: {rollback_err}\n"
+                            f"手動で確認・削除してください。",
+                            username="🚨 ロールバック失敗通知"
+                        )
                         # 最終手段として下書き変更を試行
                         try: requests.post(f"{WP_SITE_URL}/wp-json/wp/v2/posts/{wp_post_id}", auth=auth, json={"status": "draft"}, timeout=10)
                         except: pass
@@ -324,7 +332,7 @@ def _run_main_logic():
         logger.info("🚨 緊急停止中のためスキップ。解除: rm emergency_stop.lock")
         return
 
-    # クールダウンチェック (通常投稿: 25分) - v15.2: 1日48件ペースへ引き上げ
+    # クールダウンチェック (通常投稿: 25分間隔 = 1日最大57件ペース)
     # v11.4.12: 何よりも先に判定を行い、負荷をゼロにする
     is_ready, elapsed = _check_global_cooldown(25)
     if not is_ready:
@@ -398,6 +406,7 @@ def _run_main_logic():
             (genre,)
         ).fetchone()
         if row:
+            pid = row['product_id']  # S-3: try外で確保し、except内でも確実に参照できるようにする
             try:
                 # ★ 全体をtry-exceptで囲む（想定外の例外も捕捉）
                 success, reason = _execute_posting_flow(row, c, conn)
@@ -405,7 +414,7 @@ def _run_main_logic():
                 logger.error(f"  [想定外エラー] {e}")
                 # pendingのまま放置されないようにexcludedに変更
                 try:
-                    c.execute("UPDATE novelove_posts SET status='excluded', last_error='unexpected_error' WHERE product_id=?", (row['product_id'],))
+                    c.execute("UPDATE novelove_posts SET status='excluded', last_error='unexpected_error' WHERE product_id=?", (pid,))
                     conn.commit()
                 except Exception:
                     pass

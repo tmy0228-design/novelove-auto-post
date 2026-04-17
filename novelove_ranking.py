@@ -409,7 +409,9 @@ def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_ima
             db_path = get_db_path(site_name)
             conn = db_connect(db_path)
             c = conn.cursor()
-            c.execute("""INSERT OR REPLACE INTO novelove_posts
+            # INSERT OR IGNORE: 同一スラグが既に存在する場合は上書きしない。
+            # INSERT OR REPLACE だと DELETE+INSERT になり ai_tags 等が消失するリスクがある。
+            c.execute("""INSERT OR IGNORE INTO novelove_posts
                 (product_id, title, genre, site, status, post_type, wp_post_url, published_at, reviewer)
                 VALUES (?, ?, ?, ?, 'published', 'ranking', ?, datetime('now', 'localtime'), ?)""",
                 (slug, title, genre, site_name, wp_url, reviewer_name))

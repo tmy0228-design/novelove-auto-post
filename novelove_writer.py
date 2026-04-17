@@ -9,7 +9,7 @@ import re
 import time
 import requests
 
-from novelove_soul import REVIEWERS, MOOD_PATTERNS, FACT_GUARD, NG_PHRASES, get_relationship
+from novelove_soul import REVIEWERS, MOOD_PATTERNS, FACT_GUARD, NG_PHRASES, get_relationship, AI_TAG_WHITELIST
 
 from novelove_core import (
     logger, ArticleResult,
@@ -19,7 +19,6 @@ from novelove_core import (
 )
 
 from novelove_fetcher import (
-    AI_TAG_WHITELIST,
     mask_input,
     _check_image_ok,
 )
@@ -59,8 +58,8 @@ def _evaluate_article_potential(title, description, original_tags=""):
         {"role": "system", "content": "あなたはプロの編集者です。情報量と面白さだけで厳密に審査してください。"},
         {"role": "user", "content": prompt}
     ]
-    # トークンを極限まで絞って即座に結果を返す（AIの無駄話で数字が途切れないようマージンを取る）
-    content, err = _call_deepseek_raw(messages, max_tokens=50, temperature=0.3)
+    # A-2: 50は切れすぎるリスクがあるため100に増やしてマージンを確保（コスト増は微小）
+    content, err = _call_deepseek_raw(messages, max_tokens=100, temperature=0.3)
     if err != "ok" or not content:
         return 0
 
@@ -281,9 +280,7 @@ def call_deepseek(prompt):
         if stripped in ("0", "1", "2"):
             logger.warning(f"  [DeepSeek] AIスコア{stripped}点 → 投稿スキップ")
             return "", f"ai_score_{stripped}", DEEPSEEK_MODEL, proc_time
-        cleaned = re.sub(r'^[3-5]\s*\n+', '', stripped)
-        if cleaned != stripped:
-            stripped = cleaned.strip()
+        # A-4: 旧仕様「先頭にSCORE数字を出力」は撤廃済みのため除去ロジックも削除
         if len(stripped) > 50:
             logger.info(f"  [DeepSeek] 執筆完了（{len(stripped)}文字 / {proc_time}秒）")
             return stripped, "ok", DEEPSEEK_MODEL, proc_time
@@ -388,6 +385,10 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
                     ai_tags_from_ai = list(dict.fromkeys(ai_tags_from_ai))[:3]
 
             # === スコア3：タグ不足チェック（タグ2以下は情報薄と判定してキャンセル） ===
+            # A-3: この判定はホワイトリスト絞り込み後のタグ数を参照しているため、
+            #      AIが3タグ出しても統合で2個に減るとボツになる論理矛盾がある。
+            #      ただし v15.2.0 以降スコア3はauto_post.py側で事前足切りされるため、
+            #      現在このブロックには到達しない。足切りラインを戻す際は必ず修正すること。
             if ai_score <= 3 and len(ai_tags_from_ai) <= 2:
                 logger.warning(f"  [スコア3 タグ不足] タグ{len(ai_tags_from_ai)}個（2以下）のため執筆キャンセル → thin_score3")
                 return ArticleResult(status="thin_score3", model=model_name, level=level_name, proc_time=proc_time)
@@ -506,6 +507,10 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             )
         if error_type == "rate_limit":
             logger.warning("  レート制限 → フィルター試行を中断")
+            break
+        if error_type == "api_error":
+            # A-1: サーバーエラー/タイムアウトはマスクレベルと無関係のため即中断（無駄なAPI課金を防止）
+            logger.warning("  APIエラー（サーバー側障害） → フィルター試行を中断")
             break
         logger.warning(f"  [{level_name}] 失敗 → 次のフィルターレベルへ")
     return ArticleResult(status=final_error, model=final_model, level="None", proc_time=final_proc_time)
