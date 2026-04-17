@@ -428,9 +428,15 @@ def scrape_digiket_description(url):
             if r.status_code != 200:
                 logger.warning(f"  [DigiKet] HTTPエラー {r.status_code}: {url}")
                 return "", "", None, None, ""
-            # v12.9: エンコーディング自動判定を強化（文字化け防止）
-            # v13.9.0: エンコーディング自動判別 — BS4のUnicodeDammitに委任（サイレント文字化け対策）
-            soup = BeautifulSoup(r.content, 'html.parser')
+            # v15.3.3: エンコーディング自動判別 — DigiKetはUTF-8が増加中のため、UTF-8から優先的に試す
+            try:
+                html_text = r.content.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    html_text = r.content.decode('euc-jp')
+                except Exception:
+                    html_text = r.content.decode('cp932', errors='replace')
+            soup = BeautifulSoup(html_text, 'html.parser')
 
             # v11.3.1: ページ数の抽出ｗ
             pages = None
@@ -500,19 +506,36 @@ def scrape_digiket_description(url):
                 description = _clean_description(description)
 
                 # v11.3.2: 詳細ページの「カテゴリー」ラベルから公式メディア種別を確定
+                # v15.3.3: DigiKetの構造変更(table -> div/dd)に伴う「ジャンル：」表示への対応
                 official_format = None
-                for tbl in soup.find_all("table"):
-                    if "カテゴリー" in tbl.get_text():
-                        for tr in tbl.find_all("tr"):
-                            tr_text = tr.get_text()
-                            if "カテゴリー" in tr_text:
-                                if any(x in tr_text for x in ["コミック", "マンガ", "漫画"]):
-                                    official_format = "comic"
-                                elif any(x in tr_text for x in ["小説", "ノベル", "ライトノベル"]):
-                                    official_format = "novel"
-                                break
-                        if official_format:
+                
+                # 1. 新構造対応 (dl/dd等による「ジャンル：」表示)
+                for tag in soup.find_all(string=re.compile(r"ジャンル[：:]")):
+                    parent = tag.find_parent()
+                    if parent:
+                        parent_dl = parent.find_parent("dl")
+                        t = parent_dl.get_text() if parent_dl else parent.parent.get_text()
+                        if any(x in t for x in ["コミック", "マンガ", "漫画"]):
+                            official_format = "comic"
                             break
+                        elif any(x in t for x in ["小説", "ノベル", "ライトノベル"]):
+                            official_format = "novel"
+                            break
+                
+                # 2. 旧構造対応 (tableによる「カテゴリー」表示)
+                if not official_format:
+                    for tbl in soup.find_all("table"):
+                        if "カテゴリー" in tbl.get_text():
+                            for tr in tbl.find_all("tr"):
+                                tr_text = tr.get_text()
+                                if "カテゴリー" in tr_text:
+                                    if any(x in tr_text for x in ["コミック", "マンガ", "漫画"]):
+                                        official_format = "comic"
+                                    elif any(x in tr_text for x in ["小説", "ノベル", "ライトノベル"]):
+                                        official_format = "novel"
+                                    break
+                            if official_format:
+                                break
                 
                 # 専売・限定 判定 (v13.5.1 改修: 厳格なDOM・画像判定)
                 is_exclusive = False
@@ -648,7 +671,7 @@ def _extract_digiket_genre_tags(content_encoded):
     if not content_encoded:
         return []
     tags = []
-    m = re.search(r'ジャンル[：:]\\s*</strong>(.*?)(?:</td>|</div>|</p>|</li>|</span>)', content_encoded, re.S)
+    m = re.search(r'<strong>\s*ジャンル[：:](.*?)</strong>', content_encoded, re.S)
     if m:
         tag_html = m.group(1)
         tags = re.findall(r'<a[^>]*>([^<]+)</a>', tag_html)
@@ -679,13 +702,16 @@ def _classify_digiket_genre(genre_tags, target_id):
     """
     tags_str = " ".join(genre_tags)
     TL_KEYWORDS = ["ティーンズラブ", "TL", "乙女"]
-    BL_KEYWORDS = ["ボーイズラブ", "BL"]
+    NOVEL_KEYWORDS = ["小説", "ノベル", "ライトノベル"]
     if target_id == "8":
-        # ★v15.3.1修正: target=8はBL・TL混在チャンネル。TLキーワードがある作品はcomic_tlに振り分け。
-        # ★影響調査用メモ: このfix以前にDBへ保存されたDigiKetのcomic_bl記事の中に
-        #   TL誤分類が混在している。後日 genre='comic_bl' AND site LIKE 'DigiKet%' のレコードを
-        #   product_urlで再スクレイプして genre_tagsを確認し、TLキーワードが含まれるものをリライト対象とすること。
-        if any(kw in tags_str for kw in TL_KEYWORDS):
+        # ★v15.3.3修正: target=8はBL・TL混在(小説も含む)チャンネル。タグを元にcomic/novelとTL/BLを振り分け
+        is_tl = any(kw in tags_str for kw in TL_KEYWORDS)
+        is_novel = any(kw in tags_str for kw in NOVEL_KEYWORDS)
+        if is_tl and is_novel:
+            return "novel_tl"
+        elif is_novel:
+            return "novel_bl"
+        elif is_tl:
             return "comic_tl"
         return "comic_bl"
     elif target_id == "6":
