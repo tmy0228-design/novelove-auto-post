@@ -702,6 +702,7 @@ def _classify_digiket_genre(genre_tags, target_id):
     """
     tags_str = " ".join(genre_tags)
     TL_KEYWORDS = ["ティーンズラブ", "TL", "乙女"]
+    BL_KEYWORDS = ["ボーイズラブ", "BL", "腐向け"]
     NOVEL_KEYWORDS = ["小説", "ノベル", "ライトノベル"]
     if target_id == "8":
         # ★v15.3.3修正: target=8はBL・TL混在(小説も含む)チャンネル。タグを元にcomic/novelとTL/BLを振り分け
