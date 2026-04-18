@@ -413,17 +413,8 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             if not ai_tags_from_ai:
                 ai_tags_from_ai = list(db_ai_tags)
 
-            # 専売タグをWPタグリストに追加
-            _site_raw = str(target.get("site", "")).split(":")[0]
-            _is_excl = bool(target.get("is_exclusive", 0))
-            _url = str(target.get("product_url", "")) or str(target.get("affiliate_url", ""))
-            
-            # loveculドメインのものは、DBのsiteがFANZAとなっていても強制的にらぶカル扱いにする
-            if "lovecul.dmm.co.jp" in _url:
-                _site_raw = "Lovecal"
-
-            # 専売タグの付与は auto_post.py 側で安全かつ完全に処理されるため、
-            # ここでの二重実装（DMM書き漏れ等のバグの温床）は削除。
+            # 専売タグの付与は auto_post.py 側で安全かつ完全に処理される。
+            # (v15.4.1: 二重実装削除時に残存した未使用変数も同時に整理済み)
             
             tags_for_seo = ai_tags_from_ai
             tag_str = "・".join(tags_for_seo[:2]) if tags_for_seo else ""

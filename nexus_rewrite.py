@@ -238,6 +238,10 @@ def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected
             allowed.append(site_name)
         if reviewer_name and reviewer_name in tag_names:
             allowed.append(reviewer_name)
+        # ゲストタグの救済 (v15.4.2: auto_post.pyと同一ルールに統一)
+        for t in (ai_tags or []):
+            if t in tag_names and t not in allowed:
+                allowed.append(t)
         tag_names = allowed
 
     # 不要タグ除外フィルタ（post_to_wordpress と同一）
@@ -373,6 +377,10 @@ def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
             allowed.append(site_name)
         if rev_name and rev_name in wp_tags_parts:
             allowed.append(rev_name)
+        # ゲストタグの救済 (v15.4.2: auto_post.pyと同一ルールに統一)
+        for t in ai_tags_list:
+            if t in wp_tags_parts and t not in allowed:
+                allowed.append(t)
         wp_tags_parts = allowed
     wp_tags_parts = [t for t in wp_tags_parts if t not in EXCLUDE_TAG_NAMES]
 
@@ -461,11 +469,8 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     latest_score = _evaluate_article_potential(title, desc_str, original_tags=row["original_tags"])
     logger.info(f"  [評価] 元のスコア: {row['desc_score'] or 0} -> 最新スコア: {latest_score}")
 
-    # 🌟 URLにloveculが含まれていたら、DBのsiteがFANZA等でも強制的にLovecal扱いにする
+    # 取得時にDBのSiteカラムに正しくLovecalが記録されるため、URLによるフォールバックは廃止 (v15.4.2)
     _product_url_val = row["product_url"] or row["affiliate_url"] or ""
-    if "lovecul.dmm.co.jp" in _product_url_val:
-        site_raw = "Lovecal:r18=1"
-        site_label = "Lovecal"
 
     target = {
         "product_id":    row["product_id"],
