@@ -1015,7 +1015,7 @@ def fetch_and_stock_all():
                     original_tags, is_exclusive)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (pid, item.get("title"), author, save_genre,
-                 f"{site}:r18={is_r18}", final_status, rdate, desc,
+                 f"{'Lovecal' if 'lovecul.dmm' in p_url else site}:r18={is_r18}", final_status, rdate, desc,
                  aff_url, image_url, item.get("URL", ""), "regular", final_score, last_error, ai_tags_str, "",
                  _orig_tags, _is_excl)
             )
