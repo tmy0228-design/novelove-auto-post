@@ -694,11 +694,12 @@ def _extract_digiket_genre_tags(content_encoded):
 
 def _classify_digiket_genre(genre_tags, target_id):
     """
-    DigiKetのジャンルタグからBL/TLを判定する。
-    target=8（商業BL・TLチャンネル）: BL優勢のため全件comic_bl扱い
+    DigiKetのジャンルタグからBL/TL/小説を判定する。
+    target=8（商業BL・TLチャンネル）: タグを元にcomic/novelとTL/BLを振り分け（v15.3.3改修）
+        - TL + 小説 → novel_tl / 小説のみ → novel_bl / TLのみ → comic_tl / それ以外 → comic_bl
     target=6（商業電子書籍全般）: 女性コミック＋TL語ありのみcomic_tl、それ以外スキップ
-    target=2（同人全般）: BL/TLタグで振り分け、どちらもなければスキップ（男性向け除外）
-    戻り値: "comic_bl" / "comic_tl" / "doujin_bl" / "doujin_tl" / None（スキップ）
+    target=2（同人全般）: TLタグ → doujin_tl / BLタグ → doujin_bl / どちらもなければスキップ（男性向け除外）
+    戻り値: "comic_bl" / "comic_tl" / "novel_bl" / "novel_tl" / "doujin_bl" / "doujin_tl" / None（スキップ）
     """
     tags_str = " ".join(genre_tags)
     TL_KEYWORDS = ["ティーンズラブ", "TL", "乙女"]
@@ -899,6 +900,7 @@ def fetch_and_stock_all():
         scrape_fail_count = 0  # 構造変化検知用カウンター
         for item, desc in scraped_data:
             pid = item.get("content_id")
+            p_url = item.get("URL") or item.get("url") or ""  # スコープ明示: ループ内で毎回再取得
             last_error = ""
             final_status = "excluded"
             final_score = 0
@@ -1088,8 +1090,14 @@ def fetch_digiket_items():
                     try:
                         _dk_r = _fetch_with_retry(product_url, headers=HEADERS, timeout=10, label="DigiKet詳細(キータグ取得)")
                         if _dk_r is None: raise Exception("DigiKet詳細取得失敗")
-                        _dk_r.encoding = _dk_r.apparent_encoding or "utf-8"
-                        _dk_text = _dk_r.text
+                        # scrape_digiket_description と同じ3段階エンコーディング判定に統一
+                        try:
+                            _dk_text = _dk_r.content.decode('utf-8')
+                        except UnicodeDecodeError:
+                            try:
+                                _dk_text = _dk_r.content.decode('euc-jp')
+                            except Exception:
+                                _dk_text = _dk_r.content.decode('cp932', errors='replace')
                         _key_m = re.search(r"キー\s*[：:]\s*(.+)", _dk_text)
                         _dk_keys = []
                         if _key_m:
