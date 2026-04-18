@@ -365,7 +365,7 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
                     raw_tags = [t.strip() for t in tag_line.replace("/", ",").split(",") if t.strip()]
                     for t in raw_tags:
                         for allowed in AI_TAG_WHITELIST:
-                            if allowed in t or t in allowed:
+                            if allowed in t or (len(t) >= 2 and t in allowed):
                                 ai_tags_from_ai.append(allowed)
                                 break
                     ai_tags_from_ai = list(dict.fromkeys(ai_tags_from_ai))[:3]
@@ -422,15 +422,8 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             if "lovecul.dmm.co.jp" in _url:
                 _site_raw = "Lovecal"
 
-            if _is_excl:
-                if "DLsite" in _site_raw and "DLsite専売" not in ai_tags_from_ai:
-                    ai_tags_from_ai.append("DLsite専売")
-                elif "Lovecal" in _site_raw and "らぶカル独占" not in ai_tags_from_ai:
-                    ai_tags_from_ai.append("らぶカル独占")
-                elif "FANZA" in _site_raw and "FANZA独占" not in ai_tags_from_ai:
-                    ai_tags_from_ai.append("FANZA独占")
-                elif "DigiKet" in _site_raw and "DigiKet限定" not in ai_tags_from_ai:
-                    ai_tags_from_ai.append("DigiKet限定")
+            # 専売タグの付与は auto_post.py 側で安全かつ完全に処理されるため、
+            # ここでの二重実装（DMM書き漏れ等のバグの温床）は削除。
             
             tags_for_seo = ai_tags_from_ai
             tag_str = "・".join(tags_for_seo[:2]) if tags_for_seo else ""

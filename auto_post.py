@@ -203,6 +203,11 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         allowed_ranking_tags = []
         if site_name and site_name in tag_names: allowed_ranking_tags.append(site_name)
         if reviewer and reviewer in tag_names: allowed_ranking_tags.append(reviewer)
+        # 👇 ゲストタグの救済を追加
+        if ai_tags:
+            for t in ai_tags:
+                if t in tag_names and t not in allowed_ranking_tags:
+                    allowed_ranking_tags.append(t)
         tag_names = allowed_ranking_tags
 
 
@@ -585,11 +590,8 @@ def _execute_posting_flow(row, cursor, conn):
     # A+C方式: FIFUには軽量サムネ、記事本文には大きいURLを使う
     thumb_url = _get_thumbnail_url(img_url)
 
-    # 🌟 URLにloveculが含まれていたら、DBのsiteがFANZA等でも強制的にLovecal扱いにする
+    # 取得時に完全にLovecalか判定されるため、URLによる強制置換フォールバックは廃止 (v15.4.1)
     _product_url_val = row["product_url"] or ""
-    if "lovecul.dmm.co.jp" in _product_url_val:
-        site_raw = "Lovecal:r18=1"
-        site_label = "Lovecal"
 
     target = {
         "product_id":    pid,
@@ -699,6 +701,10 @@ def _execute_posting_flow(row, cursor, conn):
                 _allowed.append(_site_name_for_wp)
             if rev_name and rev_name in _wp_tags_parts:
                 _allowed.append(rev_name)
+            # 👇 ゲストタグの救済を追加
+            for t in final_ai_tags:
+                if t in _wp_tags_parts and t not in _allowed:
+                    _allowed.append(t)
             _wp_tags_parts = _allowed
         # exclude_list フィルタ（post_to_wordpress L777-778 と同一）
         _exclude = ("BL", "TL", "コミック", "小説", "漫画", "BLコミック", "TLコミック", "BL同人", "TL同人", "商業BL", "同人BL", "商業TL", "同人TL", "商業BL小説", "商業TL小説")

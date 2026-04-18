@@ -127,7 +127,7 @@ THIN_CONTENT_KEYWORDS = ["分冊版", "単話", "単話版", "【マイクロ】
 def _is_r18_item(item, site=None):
     r18_keywords = {"R18", "18禁", "成人向け", "18歳未満", "アダルト", "sexually explicit"}
     title = item.get("title", "")
-    genres = item.get("genre", []) or []
+    genres = item.get("genre", []) or item.get("iteminfo", {}).get("genre", []) or []
     cat = item.get("category_name", "") or ""
     target_text = str(title) + str(cat)
     for g in genres:
@@ -980,8 +980,10 @@ def fetch_and_stock_all():
                 fc = str(item.get("floor_code", "")).lower()
                 fn = str(item.get("floor_name", ""))
                 g_ids = [g.get("id") for g in item.get("iteminfo", {}).get("genre", []) if isinstance(g, dict)]
+                is_target_novel = "novel_" in target["genre"]
                 is_novel_official = (
-                    fc == "novel"
+                    is_target_novel
+                    or fc == "novel"
                     or 115 in g_ids
                     or any(x in fn for x in ("ノベル", "小説"))
                 )
@@ -1000,17 +1002,28 @@ def fetch_and_stock_all():
                 badge_str = " ".join(item.get("dr_wg_links", [])).upper()
                 floor_str = target.get("floor", "")
                 is_pro_floor = str(floor_str).endswith("-pro")
-                if "/WORK_TYPE/MNG" in badge_str:
+                
+                is_target_novel = "novel_" in target["genre"]
+                has_novel_badge = any(x in badge_str for x in ("/WORK_TYPE/NRE", "/WORK_TYPE/TOW", "/WORK_TYPE/NVL"))
+                has_comic_badge = "/WORK_TYPE/MNG" in badge_str
+
+                if is_target_novel and has_novel_badge:
+                    save_genre = save_genre.replace("doujin_", "novel_").replace("comic_", "novel_")
+                elif has_comic_badge:
                     if is_pro_floor:
                         save_genre = save_genre.replace("novel_", "comic_")
                     else:
                         save_genre = save_genre.replace("novel_", "doujin_").replace("comic_", "doujin_")
-                elif any(x in badge_str for x in ("/WORK_TYPE/NRE", "/WORK_TYPE/TOW", "/WORK_TYPE/NVL")):
+                elif has_novel_badge:
                     save_genre = save_genre.replace("doujin_", "novel_").replace("comic_", "novel_")
 
             ai_tags_str = ",".join(ai_tags)
             _orig_tags = item.get("_original_tags", "")
             _is_excl = item.get("_is_exclusive", 0)
+            
+            is_lovecal = target.get("floor") in ("digital_doujin_bl", "digital_doujin_tl") or "らぶカル" in target.get("label", "")
+            save_site = "Lovecal" if is_lovecal else site
+
             c.execute(
                 """INSERT INTO novelove_posts
                     (product_id, title, author, genre, site, status, release_date, description,
@@ -1018,7 +1031,7 @@ def fetch_and_stock_all():
                     original_tags, is_exclusive)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (pid, item.get("title"), author, save_genre,
-                 f"{'Lovecal' if 'lovecul.dmm' in p_url else site}:r18={is_r18}", final_status, rdate, desc,
+                 f"{save_site}:r18={is_r18}", final_status, rdate, desc,
                  aff_url, image_url, item.get("URL", ""), "regular", final_score, last_error, ai_tags_str, "",
                  _orig_tags, _is_excl)
             )
