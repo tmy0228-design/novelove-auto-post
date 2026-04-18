@@ -1,3 +1,37 @@
+## v15.4.0 — 超緊急8項目パッチ: セキュリティ・DB破壊・Cronゾンビ化の完全排除 (2026-04-18)
+
+### 🔐 修正: WP-CLI eval による OSコマンドインジェクション脆弱性（RCE）の完全排除
+- **問題**: `auto_post.py` の WP-CLI アイキャッチ設定処理にて、外部サイトから取得した画像URLを直接 PHP の `eval` 引数として文字列結合していた。URLにクォートや `;` が含まれていた場合、任意のOSコマンドを実行可能なサーバー乗っ取りリスク（RCE脆弱性）が存在した。
+- **解決**: Python側でURLを `base64.b64encode()` してからPHPへ渡し、PHP側で `$url = base64_decode('...')` と変数に展開してから `fifu_dev_set_image()` を呼ぶ方式に変更。クォートのネストによる構文エラーリスクも同時に排除。
+
+### 🚨 修正: `wp_post_id` カラム欠落による投稿直後のDBクラッシュ（ゾンビ記事化）
+- **問題**: `novelove_core.py` の `init_db()` にて、SQLiteのテーブル定義（`CREATE TABLE`）に `wp_post_id` カラムの一行が丸ごと漏れていた。新規DBが作られた場合、WP投稿成功直後の `UPDATE novelove_posts SET ... wp_post_id=?` で `OperationalError: no such column` が発生し、記事がゾンビ化（WPには公開済みだがDB上はエラー扱い）した。
+- **解決**: `CREATE TABLE` と `ALTER TABLE` マイグレーションループの両方に `wp_post_id INTEGER DEFAULT NULL` を追加。
+
+### 🔒 修正: `RANK_LOCK_FILE` の永久ロック（デッドロック）問題
+- **問題**: `auto_post.py` のランキングロック判定に、メインロックには実装済みの「2時間経過で強制解除」安全装置が存在しなかった。ランキングスクリプトがAPIエラー等でクラッシュした場合、ロックファイルが永遠に残り通常投稿とランキング投稿が完全停止した。
+- **解決**: ランキングロック判定に `mtime` チェックを追加し、2時間超過で自動強制解除するロジックを実装。メインロックと完全に同仕様に統一。
+
+### 🔗 修正: らぶカル（Lovecal）ランキング記事のアフィリエイトリンク全滅バグ
+- **問題**: `novelove_ranking.py` の `fetch_ranking_dmm_fanza()` にて、Lovecalのアフィリエイトリンクを `https://al.fanza.co.jp/...` と直接文字列結合で生成していた。`novelove_core.py` の `generate_affiliate_url()` には「lovecul.dmm.co.jp はDMM用URLに自動置換する」特別処理が存在するが、ランキングモジュールはそれを使っておらず、らぶカルランキング記事のリンクが全件 FANZA仕様のリンク（動作しない）になっていた。
+- **解決**: 自前URL結合を廃止し、Lovecal・FANZA・DMM.com の全3系統を `generate_affiliate_url(site, base_url)` 呼び出しに統一。
+
+### ⚡ 修正: `time.sleep(1800)` によるCronゾンビ化とサーバーダウンリスク
+- **問題**: `novelove_ranking.py` の BL投稿直後に `time.sleep(1800)`（30分プロセス停止）で TL との投稿を分散させていた。Cron環境でのプロセス長期占有はタイムアウトKillや次回Cronとの重複起動によるメモリ枯渇・サーバーダウンのリスクがあった。
+- **解決**: `time.sleep(1800)` を完全廃止。BL投稿完了後に即 `return` してプロセスを安全終了するステートレス設計に変更。TLは次回Cron起動時に「BLは投稿済み」と自動判定されて処理される。ランキング処理日はCronを2回以上設定することで同等の分散が実現される。
+
+### 🔤 修正: `AI_TAG_WHITELIST` の Set型起因による部分一致誤爆バグ
+- **問題**: `novelove_soul.py` の `AI_TAG_WHITELIST` が `set()` 型（`{...}`）で定義されていたため、ループ順序がPython実行毎にランダムになっていた。AIが「契約結婚」タグを出力した場合でも、偶然「契約」が先にループで評価されるとWhitelistの部分一致チェック `allowed in t or t in allowed` で「契約」として誤爆登録された。
+- **解決**: `list()` 型（`[...]`）に変更し「文字数が長い複合タグを先頭」に配置。「契約結婚」が常に「契約」より先に評価されるため誤爆が物理的に不可能になった。
+
+### 🏎 修正: Fuzzy Matching の O(N)計算量爆発によるCPU100%張り付き問題
+- **問題**: `auto_post.py` の `is_cross_db_duplicate()` にて、重複チェック時に全公開済み記事をDBから取得して `difflib` で比較していた。記事が数千件規模になるとCPU使用率が100%に張り付きタイムアウトした。
+- **解決**: SQL に `ORDER BY published_at DESC LIMIT 500` を追加し、最新500件のみを比較対象にすることで計算量を定数化。
+
+### 🧹 改善: スコア3足切りによるデッドコードの完全削除
+- **問題**: `novelove_writer.py` `build_prompt()` 内にあるスコア3用HTMLテンプレート（`else:` ブロック）と、`_inject_score3_osusume()` 関数は、v15.2.0 以降 `auto_post.py` 側でスコア3以下が事前足切りされるため絶対に実行されない「デッドコード（到達不能コード）」と化していた。これにより無駄なトークンがDeepSeek APIに毎回送信されコストとレスポンス遅延が発生していた。
+- **解決**: スコア3用 `else:` ブロック（約20行）と `_inject_score3_osusume` 関数全体（約60行）を完全削除。コードの可読性が大幅に向上。
+
 ## v15.3.4 — GSC連携の復旧と取得ロジックのマイナーバグ修正 (2026-04-18)
 
 ### 🐛 修正: Google Search Console (GSC) 連携バッチのクラッシュ修正
