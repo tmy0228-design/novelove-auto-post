@@ -157,24 +157,9 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 </ul>
 {chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
 """
-    else:
-        # スコア3：500文字規模のショート記事（嘘・捏造・想像を一切禁止の厳格構成）
-        html_structure = f"""
-{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
-<h2>（あらすじから抽出したキャッチーで目を引く見出し）</h2>
-<p>（標準語で執筆）あらすじ・ツカミ。少ない情報をきれいに整理し、250〜500字程度で魅力的に書き直す。既にある設定の魅力を別の角度から掘り下げたり、読者の期待を煽る表現で膨らませること。
-【重要禁止事項】あらすじに書かれていないキャラクターの心理・後半の展開・存在しない設定を一切書かないこと。事実だけで完結させること。）</p>
-<h2>見どころ</h2>
-<ul>
-  <li>（あらすじに明記されている事実から1点目。推測・補完・創作は絶対禁止。）</li>
-  <!--もう1点書ける事実があれば: <li>（2点目）</li>。書けない場合はこの行ごと削除すること。最大2点まで。絶対に3点書かないこと。-->
-</ul>
-<h2>こんな人におすすめ</h2>
-<ul style="list-style-type: none; padding-left: 0;">
-  （あらすじから自然に読み取れる対象者を✅マーク付きで1〜3点書くこと。「BL/TLが好きな方」のような汎用表現は禁止。書ける点数だけ書いてOK。足りない分はシステムが自動補完するので無理に水増ししないこと。）
-</ul>
-{chat_open}（50〜70字程度。「こういうシチュエーション最高ですよね！」など、明らかになっている設定に対する純粋な興奮・オススメ感を短く語る。想像の展開を語ることは禁止。）{chat_close}
-"""
+    # score 3は auto_post.py 側の事先足切り(eval_score<=3)により到達不能
+    # スコイ4以上のみここに届く。
+    # 将来足切りラインを戻す際は下記まで展開すること。
 
 
 
@@ -385,19 +370,6 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
                                 break
                     ai_tags_from_ai = list(dict.fromkeys(ai_tags_from_ai))[:3]
 
-            # === スコア3：タグ不足チェック（タグ2以下は情報薄と判定してキャンセル） ===
-            # A-3: この判定はホワイトリスト絞り込み後のタグ数を参照しているため、
-            #      AIが3タグ出しても統合で2個に減るとボツになる論理矛盾がある。
-            #      ただし v15.2.0 以降スコア3はauto_post.py側で事前足切りされるため、
-            #      現在このブロックには到達しない。足切りラインを戻す際は必ず修正すること。
-            if ai_score <= 3 and len(ai_tags_from_ai) <= 2:
-                logger.warning(f"  [スコア3 タグ不足] タグ{len(ai_tags_from_ai)}個（2以下）のため執筆キャンセル → thin_score3")
-                return ArticleResult(status="thin_score3", model=model_name, level=level_name, proc_time=proc_time)
-
-            # === スコア3：こんな人におすすめのハイブリッド補完 ===
-            if ai_score <= 3 and ai_tags_from_ai:
-                content = _inject_score3_osusume(content, ai_tags_from_ai)
-
             if not _check_image_ok(target["image_url"]):
                 logger.warning(f"  [画像NG] 投稿直前チェックで無効: {target['image_url']}")
                 return ArticleResult(status="image_missing", model=model_name, level=level_name, proc_time=proc_time)
@@ -516,67 +488,5 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
         logger.warning(f"  [{level_name}] 失敗 → 次のフィルターレベルへ")
     return ArticleResult(status=final_error, model=final_model, level="None", proc_time=final_proc_time)
 
-
-def _inject_score3_osusume(content: str, tags: list) -> str:
-    """
-    スコア3記事の「こんな人におすすめ」をAI出力 + タグ補完のハイブリッドで完成させる。
-    AIが書いたli要素を数え、不足分だけタグから補完して最大3点にする。
-    """
-    # AIが「こんな人におすすめ」セクションに書いたli要素を数える
-    osusume_match = re.search(
-        r'<h2>こんな人におすすめ</h2>\s*<ul[^>]*>(.+?)</ul>',
-        content, re.DOTALL
-    )
-    existing_items = []
-    if osusume_match:
-        ul_inner = osusume_match.group(1)
-        existing_items = re.findall(r'<li>.*?</li>', ul_inner, re.DOTALL)
-
-    ai_count = len(existing_items)
-    needed = max(0, 3 - ai_count)
-
-    if needed == 0:
-        # AIが3点書けていれば補完不要
-        return content
-
-    # 補完するタグを選ぶ（AIが既に書いたテキストに含まれているものは除外）
-    existing_text = osusume_match.group(0) if osusume_match else ""
-    supplement_items = []
-    for tag in tags:
-        if tag in existing_text:
-            continue  # 既にAIが言及済み
-        supplement_items.append(
-            f'  <li>✅ <strong>{tag}</strong>系の作品が好きな方</li>'
-        )
-        if len(supplement_items) >= needed:
-            break
-
-    if not supplement_items:
-        return content
-
-    if osusume_match:
-        # 既存のulに補完liを追記
-        new_ul = osusume_match.group(0).rstrip()
-        if new_ul.endswith('</ul>'):
-            new_ul = new_ul[:-5] + '\n' + '\n'.join(supplement_items) + '\n</ul>'
-        content = content[:osusume_match.start()] + new_ul + content[osusume_match.end():]
-    else:
-        # おすすめセクション自体がなければ末尾に追加
-        items_html = '\n'.join(supplement_items)
-        osusume_html = (
-            f'\n<h2>こんな人におすすめ</h2>\n'
-            f'<ul style="list-style-type: none; padding-left: 0;">\n'
-            f'{items_html}\n</ul>\n'
-        )
-        # 末尾の吹き出し直前に挿入（speech-bubble-leftの最後の出現位置）
-        sb_positions = [m.start() for m in re.finditer(r'<div class="speech-bubble-left">', content)]
-        if sb_positions:
-            insert_pos = sb_positions[-1]  # 最後の吹き出し（総評）の前に挿入
-            content = content[:insert_pos] + osusume_html + content[insert_pos:]
-        else:
-            content += osusume_html
-
-    logger.info(f"  [スコア3 補完] AI:{ai_count}点 + タグ補完:{len(supplement_items)}点 = 合計{ai_count + len(supplement_items)}点")
-    return content
 
 # === A+C方式: サムネURL生成ヘルパー ===

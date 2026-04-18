@@ -24,6 +24,7 @@ from novelove_core import (
     is_emergency_stop,
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
     DLSITE_AFFILIATE_ID, DIGIKET_AFFILIATE_ID,
+    generate_affiliate_url,
 )
 
 from novelove_fetcher import (
@@ -68,9 +69,8 @@ def fetch_ranking_dmm_fanza(site, genre):
         for item in items:
             title = item.get("title", "")
             base_url = item.get("URL", "")
-            encoded_url = urllib.parse.quote(base_url, safe="")
-            af_id = DMM_AFFILIATE_LINK_ID or "novelove-001"
-            aff_url = f"https://al.fanza.co.jp/?lurl={encoded_url}&af_id={af_id}&ch=toolbar&ch_id=text"
+            # generate_affiliate_url が lovecul.dmm.co.jp を検知し自動でDMM用URLに変換する
+            aff_url = generate_affiliate_url("FANZA", base_url)
             desc = scrape_description(item.get("URL", ""), site=site, genre=genre)
             if _is_noise_content(title, desc): continue
             
@@ -130,12 +130,8 @@ def fetch_ranking_dmm_fanza(site, genre):
     for item in selected:
         title = item.get("title", "")
         base_url = item.get("URL", "")
-        encoded_url = urllib.parse.quote(base_url, safe="")
-        af_id = DMM_AFFILIATE_LINK_ID or "novelove-001"
-        ch_params = "&ch=toolbar&ch_id=text"
-        aff_url = (f"https://al.fanza.co.jp/?lurl={encoded_url}&af_id={af_id}{ch_params}"
-                   if site == "FANZA" else
-                   f"https://al.dmm.com/?lurl={encoded_url}&af_id={af_id}{ch_params}")
+        # generate_affiliate_url が FANZA/DMM.com を自動判定してURLを生成する
+        aff_url = generate_affiliate_url(site, base_url)
         desc = scrape_description(item.get("URL", ""), site=site, genre=genre)
         if _is_noise_content(title, desc): continue
         
@@ -660,10 +656,12 @@ def process_ranking_articles():
                 guest_n = guest["name"] if guest else ""
                 _post_ranking_article_to_wordpress(post_title, final_content, genre, site, top_image_url, excerpt=meta_desc, reviewer_name=reviewer["name"], guest_name=guest_n)
                 
-                # 記事間の待機 (30分)
+                # BL投稿完了後はプロセスを即時終了する（ステートレス設計）
+                # TLは次回のCron起動時に「BLは投稿済み」と判定されて自動処理される
+                # ⚠️ Cron設定注意: ランキング処理日はBL・TL各1回ずつ合計2回以上スクリプトを起動すること
                 if genre == "BL":
-                    logger.info("次のカテゴリ投稿まで30分待機します...")
-                    time.sleep(1800)
+                    logger.info("BLランキング投稿完了。TLは次回のCron起動で自動処理されます。")
+                    return
     finally:
         if os.path.exists(RANK_LOCK_FILE):
             try:

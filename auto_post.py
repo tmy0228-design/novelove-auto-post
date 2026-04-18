@@ -50,6 +50,7 @@ import urllib.parse
 import sqlite3
 import time
 import re
+import base64
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 import argparse
@@ -238,7 +239,10 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
             # 1. アイキャッチ画像の設定 (v13.2.3: A+C方式 — 軽量サムネURLを使用)
             if fifu_url:
                 try:
-                    subprocess.run([php_path, wp_path, "eval", f'fifu_dev_set_image({wp_post_id}, "{fifu_url}");', doc_root, "--allow-root"], capture_output=True, text=True, timeout=60, check=True)
+                    # v15.4.0: Base64エンコードでRCE脆弱性を完全排除
+                    b64_url = base64.b64encode(fifu_url.encode('utf-8')).decode('utf-8')
+                    php_code = f"$url = base64_decode('{b64_url}'); fifu_dev_set_image({wp_post_id}, $url);"
+                    subprocess.run([php_path, wp_path, "eval", php_code, doc_root, "--allow-root"], capture_output=True, text=True, timeout=60, check=True)
                 except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
                     std_err_msg = e.stderr if hasattr(e, "stderr") else str(e)
                     logger.error(f"  [WP-CLI] 画像設定失敗 (タイムアウトまたはエラー): {std_err_msg}")
@@ -520,7 +524,7 @@ def is_cross_db_duplicate(new_title, current_pid, threshold=0.90):
             c2 = db_connect(db_p)
             c2.row_factory = sqlite3.Row
             rows = c2.execute(
-                "SELECT product_id, title FROM novelove_posts WHERE status='published' AND product_id!=?",
+                "SELECT product_id, title FROM novelove_posts WHERE status='published' AND product_id!=? ORDER BY published_at DESC LIMIT 500",
                 (current_pid,)
             ).fetchall()
             c2.close()
@@ -780,8 +784,16 @@ def main():
 
     # ランキングロックチェック
     if os.path.exists(RANK_LOCK_FILE):
-        logger.info("🕒 ランキング処理が実行中です。通常投稿はスキップします。")
-        return
+        mtime = os.path.getmtime(RANK_LOCK_FILE)
+        if time.time() - mtime > 7200:
+            logger.warning("🚨 ランキングロックが2時間を超えています。強制解除して続行します。")
+            try:
+                os.remove(RANK_LOCK_FILE)
+            except Exception as e:
+                logger.error(f"ランキングロック解除失敗: {e}")
+        else:
+            logger.info("🕒 ランキング処理が実行中です。通常投稿はスキップします。")
+            return
 
     try:
         with open(MAIN_LOCK_FILE, "w") as f:

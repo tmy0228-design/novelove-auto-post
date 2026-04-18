@@ -360,6 +360,7 @@ def init_db():
             image_url     TEXT DEFAULT '',
             product_url   TEXT DEFAULT '',
             wp_post_url   TEXT DEFAULT '',
+            wp_post_id    INTEGER DEFAULT NULL,
             last_error    TEXT DEFAULT '',
             inserted_at   TIMESTAMP DEFAULT (datetime('now', 'localtime')),
             published_at  TIMESTAMP,
@@ -397,6 +398,8 @@ def init_db():
             ("gsc_last_checked",  "TIMESTAMP DEFAULT NULL"),  # GSC最終チェック日時
             # === リライト日時追跡 (S6) ===
             ("last_rewritten_at", "TIMESTAMP DEFAULT NULL"),  # 最終リライト実行日時
+            # === WP投稿ID（マイグレーション互換） ===
+            ("wp_post_id",        "INTEGER DEFAULT NULL"),    # WP投稿記事ID
         ]:
             try:
                 c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
