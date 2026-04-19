@@ -666,9 +666,9 @@ def _execute_posting_flow(row, cursor, conn):
     if is_exclusive:
         _normalized = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "Lovecal"}
         _sn = _normalized.get(site_label, site_label)
-        excl_tag = {"DLsite": "DLsite専売", "FANZA": "FANZA独占", "DMM": "DMM独占", "DigiKet": "DigiKet限定", "Lovecal": "らぶカル独占"}.get(_sn, "")
+        excl_tag = {"DLsite": "DLsite専売", "FANZA": "FANZA専売", "DMM": "DMM独占", "DigiKet": "DigiKet限定", "Lovecal": "らぶカル専売"}.get(_sn, "")
         if not excl_tag and "らぶカル" in str(site_label):
-            excl_tag = "らぶカル独占"
+            excl_tag = "らぶカル専売"
         if excl_tag and excl_tag not in final_ai_tags:
             final_ai_tags.append(excl_tag)
     link, wp_post_id = post_to_wordpress(

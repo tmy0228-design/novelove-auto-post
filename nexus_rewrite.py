@@ -206,7 +206,7 @@ def _wp_get_protected_tag_ids(current_tag_ids):
     return protected
 
 
-def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected_ids):
+def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected_ids, is_exclusive=False):
     """
     新しいタグ名リストを構築し、WP上のタグID（なければ作成）に変換する。
     post_to_wordpress() の L730-L792 と同一ルールで構築。
@@ -230,6 +230,16 @@ def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected
     # ライター名タグ
     if reviewer_name and reviewer_name not in tag_names:
         tag_names.append(reviewer_name)
+
+    # 専売タグの付与（auto_post.py _execute_posting_flow と同一ルール）
+    if is_exclusive:
+        _sn_map = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "Lovecal"}
+        _sn = _sn_map.get(site_label, site_label)
+        excl_tag = {"DLsite": "DLsite専売", "FANZA": "FANZA専売", "DMM": "DMM独占", "DigiKet": "DigiKet限定", "Lovecal": "らぶカル専売"}.get(_sn, "")
+        if not excl_tag and "らぶカル" in str(site_label):
+            excl_tag = "らぶカル専売"
+        if excl_tag and excl_tag not in tag_names:
+            tag_names.append(excl_tag)
 
     # ランキング記事特例（サイト名とライター名のみに絞る）
     if is_ranking:
@@ -522,6 +532,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     logger.info(f"  [タグ] {ai_tags_from_ai}")
 
     is_ranking = "ranking" in str(product_id).lower() or "ランキング" in title
+    is_exclusive = bool(row["is_exclusive"]) if row["is_exclusive"] is not None else False
 
     if not execute:
         # DRY-RUN: WP・DB には一切触れない
@@ -532,6 +543,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         logger.info(f"   SEO      : {seo_title}")
         logger.info(f"   ライター : {rev_name}")
         logger.info(f"   AIタグ   : {ai_tags_from_ai}")
+        logger.info(f"   専売フラグ: {is_exclusive}")
         logger.info(f"   記事文字数: {words}文字")
         logger.info(f"   本番実行するには --execute を付けて再実行してください")
         logger.info("=" * 60)
@@ -559,6 +571,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         reviewer_name=rev_name,
         is_ranking=is_ranking,
         protected_ids=protected_ids,
+        is_exclusive=is_exclusive,
     )
     if not _wp_update_tags(wp_post_id, new_tag_ids):
         logger.warning("  ⚠️ タグ更新に失敗しました（記事本文は更新済み）")
