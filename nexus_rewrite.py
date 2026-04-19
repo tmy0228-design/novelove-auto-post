@@ -328,7 +328,7 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
         # これを実行することで RankMath(Google等) へのPing通知が走る
         # さらに、再執筆内容が即座に反映されるよう本番サーバーのキャッシュを全クリアする
         cmd_update = f"cd {doc_root} && wp post update {wp_post_id} --allow-root"
-        cmd_cache_clear = f"cd {doc_root} && wp cache flush --allow-root && kusanagi bcache clear && kusanagi fcache clear"
+        cmd_cache_clear = f"cd {doc_root} && wp cache flush --allow-root && kusanagi bcache clear myblog && kusanagi fcache clear myblog"
         
         # 連続実行
         stdin, stdout, stderr = ssh.exec_command(f"{cmd_update} && {cmd_cache_clear}")

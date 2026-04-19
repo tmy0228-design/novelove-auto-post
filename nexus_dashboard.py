@@ -404,7 +404,7 @@ def _ssh_clear_wp_cache() -> tuple[bool, str]:
         doc_root = os.environ.get("WP_DOC_ROOT", "/home/kusanagi/myblog/DocumentRoot")
         
         cmd_wp = f"cd {doc_root} && wp cache flush --allow-root"
-        cmd_ks = "kusanagi bcache clear && kusanagi fcache clear"
+        cmd_ks = "kusanagi bcache clear myblog && kusanagi fcache clear myblog"
         
         # WPキャッシュをクリア
         _, stdout1, stderr1 = ssh.exec_command(cmd_wp)
