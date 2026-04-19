@@ -829,14 +829,17 @@ def fetch_and_stock_all():
     failed_titles = []
     for target in FETCH_TARGETS:
         site = target.get("site", "FANZA")
+        # v15.5.1: 通知・ログ表示用のサイト名（APIに渡す site とは別に管理）
+        _is_lovecal_target = target.get("floor") in ("digital_doujin_bl", "digital_doujin_tl") or "らぶカル" in target.get("label", "")
+        disp_site = "らぶカル" if _is_lovecal_target else site
         if site == "DigiKet": continue
         db_path = get_db_path(site)
         api_items = []
         if site == "DLsite":
-            logger.info(f"--- [新着取得] {site} ({target['label']}) ---")
+            logger.info(f"--- [新着取得] {disp_site} ({target['label']}) ---")
             api_items = _fetch_dlsite_items(target)
         else:
-            logger.info(f"--- [新着取得] {site} ({target['label']}) ---")
+            logger.info(f"--- [新着取得] {disp_site} ({target['label']}) ---")
             params = {
                 "api_id": DMM_API_ID, "affiliate_id": DMM_AFFILIATE_API_ID,
                 "site": site, "service": target["service"], "floor": target["floor"],
@@ -852,11 +855,11 @@ def fetch_and_stock_all():
                     headers=HEADERS, params=params, timeout=15, label=f"DMM API/{target['label']}"
                 )
                 if r is None:
-                    logger.warning(f"  [スキップ] {site}/{target['label']}: DMM APIへの接続が失敗しました（次回フェッチで再試行）")
+                    logger.warning(f"  [スキップ] {disp_site}/{target['label']}: DMM APIへの接続が失敗しました（次回フェッチで再試行）")
                     continue
                 api_items = r.json().get("result", {}).get("items", [])
             except Exception as e:
-                logger.error(f"API エラー ({site}/{target['label']}): {e}")
+                logger.error(f"API エラー ({disp_site}/{target['label']}): {e}")
                 continue
         if not api_items:
             logger.info(f"  -> 新着なし")
@@ -929,11 +932,11 @@ def fetch_and_stock_all():
                 # あらすじは存在するが文字数が少なすぎる商品（サイト構造変化ではない）
                 last_error = "desc_too_short"
                 desc = ""
-                notify_discord(f"ℹ️ [{site}] あらすじ短すぎスキップ: {item.get('title','')[:40]}\nURL: {item.get('URL', '')}", username="スクレイピング監視")
+                notify_discord(f"ℹ️ [{disp_site}] あらすじ短すぎスキップ: {item.get('title','')[:40]}\nURL: {item.get('URL', '')}", username="スクレイピング監視")
             elif not desc:
                 last_error = "no_description"
                 failed_titles.append(item.get("title", "不明"))
-                notify_discord(f"⚠️ [{site}] スクレイピング失敗: {item.get('title','')[:40]}\nURL: {item.get('URL', '')}", username="スクレイピング監視")
+                notify_discord(f"⚠️ [{disp_site}] スクレイピング失敗: {item.get('title','')[:40]}\nURL: {item.get('URL', '')}", username="スクレイピング監視")
             elif _is_noise_content(item.get("title", ""), desc):
                 last_error = "excluded_foreign"
             else:
@@ -950,7 +953,7 @@ def fetch_and_stock_all():
             if last_error in ("no_description", "no_image", "no_desc_or_image"):
                 scrape_fail_count += 1
                 if scrape_fail_count >= SCRAPE_FAIL_THRESHOLD:
-                    trigger_emergency_stop(f"[{site}/{target['label']}] スクレイピング異常検知: 画像/あらすじ取得失敗が{SCRAPE_FAIL_THRESHOLD}件連続。HTML構造変更の可能性あり")
+                    trigger_emergency_stop(f"[{disp_site}/{target['label']}] スクレイピング異常検知: 画像/あらすじ取得失敗が{SCRAPE_FAIL_THRESHOLD}件連続。HTML構造変更の可能性あり")
                     break
             else:
                 scrape_fail_count = 0
@@ -1027,11 +1030,11 @@ def fetch_and_stock_all():
                  aff_url, image_url, item.get("URL", ""), "regular", final_score, last_error, ai_tags_str, "",
                  _orig_tags, _is_excl)
             )
-            logger.info(f"[{site}] [{final_status}] {item.get('title','')[:40]}")
+            logger.info(f"[{disp_site}] [{final_status}] {item.get('title','')[:40]}")
             added += 1
         conn.commit()
         conn.close()
-        if added > 0: logger.info(f"{site}/{target['label']}: {added}件処理")
+        if added > 0: logger.info(f"{disp_site}/{target['label']}: {added}件処理")
 
 def fetch_digiket_items():
     """DigiKet XML APIから新着を取得し、スクリプトフィルタでpending保存"""
