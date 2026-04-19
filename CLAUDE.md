@@ -15,7 +15,7 @@
 
 ## 🗺️ このプロジェクトについて
 
-**Novelove（ノベラブ）** は、FANZAやDLsite等の同人・電子書籍作品を自動収集し、AIで記事を生成してWordPressに自動投稿するシステムです。
+**Novelove（ノベラブ）** は、FANZAやらぶカル、DLsite等の同人・電子書籍作品を自動収集し、AIで記事を生成してWordPressに自動投稿するシステムです。
 
 - **投稿サイト**: novelove.jp（WordPress / KUSANAGIサーバー）
 - **ダッシュボード**: nexus (/nexus) でStreamlitが稼働（要Basic認証）
