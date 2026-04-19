@@ -94,7 +94,6 @@ from novelove_writer import (
     call_deepseek,
     make_excerpt,
     generate_article,
-    _inject_score3_osusume,
     DEEPSEEK_API_URL,
     DEEPSEEK_MODEL,
 )
