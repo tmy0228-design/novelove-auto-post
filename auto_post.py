@@ -342,7 +342,7 @@ def _run_main_logic():
 
     # クールダウンチェック (通常投稿: 25分間隔 = 1日最大57件ペース)
     # v11.4.12: 何よりも先に判定を行い、負荷をゼロにする
-    is_ready, elapsed = _check_global_cooldown(25)
+    is_ready, elapsed = _check_global_cooldown(20)
     if not is_ready:
         logger.info(f"🕒 クールダウン中（{elapsed:.1f}分経過）。0.1秒で終了します。")
         return
