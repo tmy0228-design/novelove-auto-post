@@ -157,9 +157,19 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 </ul>
 {chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
 """
-    # score 3は auto_post.py 側の事先足切り(eval_score<=3)により到達不能
-    # スコイ4以上のみここに届く。
-    # 将来足切りラインを戻す際は下記まで展開すること。
+    else:
+        # スコア3以下：コンパクト記事
+        # 通常投稿では足切りされるが、リライトエンジン等で低スコア判定された際のセーフティネット
+        html_structure = f"""
+{chat_open}（40〜60字程度。{intro_rule}）{chat_close}
+<h2>（作品の魅力を一言で表す見出し）</h2>
+<p>（標準語で執筆）あらすじ・世界観を200〜400字程度で簡潔に解説。情報が限られているため、推測を交えず事実のみを魅力的に伝えること。</p>
+<h2>見どころ</h2>
+<ul>
+  <li><strong>（魅力ポイント1）</strong>：（標準語で執筆）魅力を簡潔に。</li>
+</ul>
+{chat_open}（60〜80字程度の総評）{chat_close}
+"""
 
 
 
