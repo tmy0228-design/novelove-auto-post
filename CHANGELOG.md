@@ -1,3 +1,9 @@
+## v15.4.4 — キャッシュクリア機能修正 (2026-04-19)
+
+### 🚨 修正: `kusanagi bcache/fcache clear` が完全に空振りしていたバグ
+- **問題**: `nexus_dashboard.py` の「すべてのキャッシュをクリア」ボタン、および `nexus_rewrite.py` のリライト後のキャッシュクリア処理で、`kusanagi bcache clear` / `kusanagi fcache clear` コマンドにプロファイル名の指定がなかった。KUSANAGI v9.xではこのコマンドに必ずプロファイル名の記載が必要なため、`error: current directory is not KUSANAGI profile` というエラーが発生しページキャッシュが一切消えていなかった。WPオブジェクトキャッシュのみ消え、成功の表示だけは出る状態になっていた。
+- **解決**: `kusanagi bcache clear myblog` / `kusanagi fcache clear myblog` とプロファイル名 (myblog) を明示。修正ファイルは `nexus_dashboard.py`・`nexus_rewrite.py` の2ファイル。
+
 ## v15.4.3 — 緊急ホットフィックス (2026-04-19)
 
 ### 🚨 修正: 起動直後の `ImportError` クラッシュ修正
