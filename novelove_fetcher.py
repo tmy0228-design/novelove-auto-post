@@ -574,6 +574,7 @@ def scrape_description(product_url, site="FANZA", genre=""):
         desc, _, _, _, _, _excl = scrape_digiket_description(product_url)
         return desc
     session = _make_fanza_session()
+    _any_desc_found = False  # あらすじテキストが何らか存在したか（短くても）
     try:
         r = session.get(
             product_url,
@@ -643,6 +644,7 @@ def scrape_description(product_url, site="FANZA", genre=""):
 
         # MAX判定: 文字数が多い方を採用（全文が取れる方が自動的に勝つ）
         best_desc = ld_desc if len(ld_desc) > len(html_desc) else html_desc
+        _any_desc_found = bool(ld_desc) or bool(html_desc)  # フィルター前に「何か存在」をフラグ保存
 
         # 省略検知フィルター: DMM側が省略した切り詰め文（末尾「…」等）だけを掴まされた場合を検出
         # サイト構造変更で全文が取れなくなった際のサイレントエラーを防止する
@@ -661,7 +663,8 @@ def scrape_description(product_url, site="FANZA", genre=""):
 
     except Exception as e:
         logger.warning(f"スクレイピング失敗 ({product_url}): {e}")
-    return ""
+    # あらすじが見つかったが短すぎた場合と、そもそも何も見つからなかった場合を区別する
+    return "__DESC_TOO_SHORT__" if _any_desc_found else ""
 
 
 # === DigiKet ジャンル解析ヘルパー ===
@@ -925,6 +928,11 @@ def fetch_and_stock_all():
             if desc == "__EXCLUDED_TYPE__":
                 last_error = "excluded_type"
                 desc = ""
+            elif desc == "__DESC_TOO_SHORT__":
+                # あらすじは存在するが文字数が少なすぎる商品（サイト構造変化ではない）
+                last_error = "desc_too_short"
+                desc = ""
+                notify_discord(f"ℹ️ [{site}] あらすじ短すぎスキップ: {item.get('title','')[:40]}\nURL: {item.get('URL', '')}", username="スクレイピング監視")
             elif not desc:
                 last_error = "no_description"
                 failed_titles.append(item.get("title", "不明"))
