@@ -40,9 +40,6 @@ SCRAPE_FAIL_THRESHOLD = 5
 
 # === 取得対象ジャンル定義 ===
 FETCH_TARGETS = [
-    # FANZA 同人
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_bl", "label": "FANZA同人_BL", "keyword": "ボーイズラブ"},
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "doujin_tl", "label": "FANZA同人_TL", "keyword": "乙女向け"},
     # らぶカル（FANZA同人 BL/TL 専用フロア）
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "doujin_bl", "label": "らぶカル_BL", "keyword": None},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "doujin_tl", "label": "らぶカル_TL", "keyword": None},
@@ -70,9 +67,9 @@ FETCH_TARGETS = [
     # FANZA 商業（小説）
     {"site": "FANZA",   "service": "ebook",  "floor": "bl",             "genre": "novel_bl",  "label": "FANZA商業_BL小説",    "keyword": "小説"},
     {"site": "FANZA",   "service": "ebook",  "floor": "tl",             "genre": "novel_tl",  "label": "FANZA商業_TL小説",    "keyword": "小説"},
-    # FANZA 同人（小説）
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "novel_bl",  "label": "FANZA同人_BL小説",    "keyword": "ボーイズラブ ノベル"},
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin", "genre": "novel_tl",  "label": "FANZA同人_TL小説",    "keyword": "乙女向け ノベル"},
+    # らぶカル 同人（小説）—— v15.5.0: 旧FANZA同人小説フロアをらぶカル専用フロアに統一
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "novel_bl",  "label": "らぶカル同人_BL小説", "keyword": "ノベル"},
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "novel_tl",  "label": "らぶカル同人_TL小説", "keyword": "ノベル"},
     # DigiKet（fetch_digiket_items()で処理するためsite=DigiKetのみ記載）
     {"site": "DigiKet", "service": None,     "floor": None,             "genre": "comic_bl",  "label": "DigiKet商業_BL",      "keyword": None},
     {"site": "DigiKet", "service": None,     "floor": None,             "genre": "comic_tl",  "label": "DigiKet商業_TL",      "keyword": None},
@@ -939,20 +936,6 @@ def fetch_and_stock_all():
                 notify_discord(f"⚠️ [{site}] スクレイピング失敗: {item.get('title','')[:40]}\nURL: {item.get('URL', '')}", username="スクレイピング監視")
             elif _is_noise_content(item.get("title", ""), desc):
                 last_error = "excluded_foreign"
-            elif site == "FANZA" and target.get("genre") == "doujin_tl":
-                item_genres = item.get("iteminfo", {}).get("genre", []) or []
-                genre_names = [g.get("name", "") if isinstance(g, dict) else str(g) for g in item_genres]
-                if any("男性向け" in g for g in genre_names):
-                    last_error = "excluded_male_target"
-                    logger.info(f"[FANZA同人TL] 男性向けタグ検知のため除外: {item.get('title','')[:30]}")
-                else:
-                    image_url_tmp = item.get("imageURL", {}).get("large", "")
-                    if not _check_image_ok(image_url_tmp):
-                        last_error = "no_image"
-                    else:
-                        # v11.4.0: AI審査を廃止、スクリプトフィルタ通過で即pending
-                        final_status = "pending"
-                        final_score = calculate_local_priority(item_title, desc, original_tags=item_original_tags, release_date_raw=item.get("date", ""), is_exclusive=_is_excl_bool)
             else:
                 image_url_tmp = item.get("imageURL", {}).get("large", "")
                 if not _check_image_ok(image_url_tmp):
@@ -961,6 +944,7 @@ def fetch_and_stock_all():
                     # v11.4.0: AI審査を廃止、スクリプトフィルタ通過で即pending
                     final_status = "pending"
                     final_score = calculate_local_priority(item_title, desc, original_tags=item_original_tags, release_date_raw=item.get("date", ""), is_exclusive=_is_excl_bool)
+
 
             # 構造変化検知: 画像なし or あらすじなし が連続したらスクレイピング異常
             if last_error in ("no_description", "no_image", "no_desc_or_image"):

@@ -1,3 +1,32 @@
+## v15.5.0 — FANZA同人コード大掃除: 旧フロアをらぶカル専用フロアに完全統一 (2026-04-19)
+
+### 🧹 改善: FETCH_TARGETS から旧 `digital_doujin` フロアを完全削除
+- **対象 (`novelove_fetcher.py`)**:
+  - `FANZA同人_BL`（floor=digital_doujin, keyword=ボーイズラブ）を削除。
+  - `FANZA同人_TL`（floor=digital_doujin, keyword=乙女向け）を削除。
+  - `FANZA同人_BL小説`（floor=digital_doujin, keyword=ボーイズラブ ノベル）を削除。
+  - `FANZA同人_TL小説`（floor=digital_doujin, keyword=乙女向け ノベル）を削除。
+  - 代替として `らぶカル同人_BL小説`（floor=digital_doujin_bl, keyword=ノベル）を追加。
+  - 代替として `らぶカル同人_TL小説`（floor=digital_doujin_tl, keyword=ノベル）を追加。
+  - 漫画用エントリ（`らぶカル_BL`/`らぶカル_TL`）はv13.6.0から既存のためそのまま維持。
+- **理由**: 旧 `digital_doujin` フロアは2025年3月のらぶカル移行後も残存しており、男性向け作品の混入やらぶカル専用フロアとの二重取得による無駄なAPIコールが発生していた。
+
+### 🧹 改善: 男性向けタグ除外ロジックを削除
+- **対象 (`novelove_fetcher.py`)**: `elif site == "FANZA" and target.get("genre") == "doujin_tl":` のブロック全体を削除し、直下の `else:` に合流。
+- **理由**: `digital_doujin_tl`（らぶカル専用フロア）は女性向けが保証されているため、男性向け除外if文は不要。旧 `digital_doujin` + 乙女向けキーワード検索への対症療法的コードだった。
+
+### 🧹 改善: セール・ランキング巡回から旧フロアを削除
+- **対象 (`nexus_revive.py`)**:
+  - `fetch_fanza_sale_product_ids`: 旧フロア3エントリ（`digital_doujin` bare + BL/TLキーワード）削除。巡回フロア: 9→6。
+  - `fetch_fanza_ranking_product_ids`: 旧フロア2エントリ（BL/TLキーワード）削除。巡回フロア: 8→6。
+- **理由**: らぶカル専用フロア（`digital_doujin_bl`/`_tl`）が全同人作品を網羅するため、旧フロアの重複巡回は不要。APIコール削減によりDMM APIのレート制限（HTTP 429）リスクが低減。
+
+### 📊 期待効果
+- 毎巡回のAPIコール: セール −3回、ランキング −2回 の合計 **−5回削減**。
+- 男性向けノイズ作品の混入を根本解消。
+- 新規同人作品が最初から「Lovecal」として正しくDB保存される。
+- 過去記事（FANZA同人ラベルの同人17件）への影響なし（セール検知はらぶカルフロア経由で継続動作）。
+
 ## v15.4.6 — クールダウンの最適化 (2026-04-19)
 
 ### ⏱️ バグ修正: 定期投稿がスキップされる問題の修正

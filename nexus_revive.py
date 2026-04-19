@@ -202,20 +202,17 @@ def fetch_fanza_sale_product_ids():
         logger.warning("  [FANZA] DMM API IDが設定されていません。セール取得をスキップします。")
         return sale_ids
 
-    # BL/TL × 同人/商業 の全フロアを巡回
+    # 商業フロア + らぶカルBL/TL（v15.5.0: 旧digital_doujinフロアを削除）
     floors = [
-        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin"},
         {"site": "FANZA", "service": "ebook",  "floor": "bl"},
         {"site": "FANZA", "service": "ebook",  "floor": "tl"},
         {"site": "DMM.com", "service": "ebook", "floor": "comic"},
         {"site": "DMM.com", "service": "ebook", "floor": "novel"},
-        # 同人BL/TL（v14.6.0追加: DBのd_IDと突合するために必須）
-        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin", "keyword": "ボーイズラブ"},
-        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin", "keyword": "乙女向け"},
-        # らぶカルBL/TL（v14.6.0追加）
+        # らぶカルBL/TL（専用フロアがすべての同人作品を網羅する）
         {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_bl"},
         {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_tl"},
     ]
+
 
     for fl in floors:
         try:
@@ -263,10 +260,7 @@ def fetch_fanza_ranking_product_ids():
         {"site": "FANZA", "service": "ebook",  "floor": "tl"},
         {"site": "DMM.com", "service": "ebook", "floor": "comic"},
         {"site": "DMM.com", "service": "ebook", "floor": "novel"},
-        # 同人BL/TL（v14.6.0追加: DBのd_IDと突合するために必須）
-        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin", "keyword": "ボーイズラブ"},
-        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin", "keyword": "乙女向け"},
-        # らぶカルBL/TL（v14.6.0追加）
+        # らぶカルBL/TL（専用フロアがすべての同人作品を網羅する）
         {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_bl"},
         {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_tl"},
     ]
