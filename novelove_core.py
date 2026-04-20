@@ -42,6 +42,7 @@ class ArticleResult:
     reviewer_name: str            = ""
     ai_tags:       list           = field(default_factory=list)
     ai_score:      int            = 0
+    article_pattern: str          = ""    # v16.0.0: 使用されたHTML骨格パターン (A/B/C/D/R)
 
 
 # === .env 読み込み（全モジュール共通、ここで1回だけ行う） ===
@@ -400,6 +401,8 @@ def init_db():
             ("last_rewritten_at", "TIMESTAMP DEFAULT NULL"),  # 最終リライト実行日時
             # === WP投稿ID（マイグレーション互換） ===
             ("wp_post_id",        "INTEGER DEFAULT NULL"),    # WP投稿記事ID
+            # === HTML骨格パターン記録 (v16.0.0) ===
+            ("article_pattern",   "TEXT DEFAULT ''"),          # 使用されたHTML骨格パターン (A/B/C/D/R)
         ]:
             try:
                 c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")

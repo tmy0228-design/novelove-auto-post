@@ -651,6 +651,7 @@ def _execute_posting_flow(row, cursor, conn):
     rev_name    = res.reviewer_name
     ai_tags_from_ai = res.ai_tags
     ai_score    = res.ai_score
+    article_pattern = res.article_pattern or "A"  # v16.0.0: 使用HTMLパターン
 
     # AI執筆完了時に、取得できたあらすじの文字数をログに出力（スクレイピング品質の検証証明）
     desc_c_len = len(str(target.get("description", "")))
@@ -716,8 +717,8 @@ def _execute_posting_flow(row, cursor, conn):
         # v14.2.0: wp_post_id を書き戻すよう修正（wp_post_idが保存されない致命的バグを修正）
         # v14.6.0: site カラムも書き戻し（らぶカル等、投稿時に修正されたsiteがDBに反映されないバグを修正）
         cursor.execute(
-            "UPDATE novelove_posts SET status='published', site=?, wp_post_id=?, wp_post_url=?, published_at=datetime('now', 'localtime'), reviewer=?, ai_tags=?, wp_tags=?, last_error=NULL, desc_score=? WHERE product_id=?",
-            (site_raw, wp_post_id, link, rev_name, ai_tags_str, wp_tags_str, ai_score, pid)
+            "UPDATE novelove_posts SET status='published', site=?, wp_post_id=?, wp_post_url=?, published_at=datetime('now', 'localtime'), reviewer=?, ai_tags=?, wp_tags=?, last_error=NULL, desc_score=?, article_pattern=? WHERE product_id=?",
+            (site_raw, wp_post_id, link, rev_name, ai_tags_str, wp_tags_str, ai_score, article_pattern, pid)
         )
         conn.commit()
 
@@ -754,7 +755,7 @@ def _execute_posting_flow(row, cursor, conn):
         notify_discord(
             f"✅ **[{site_label}] [{_genre_label(row['genre'])}] 投稿成功！**\n"
             f"**タイトル**: {wp_title}\n"
-            f"**統計**: 今日 {total_daily}件目 / スコア{ai_score} / あらすじ{desc_c_len}文字 / 記事{words}文字 / ライター: {rev_name}\n"
+            f"**統計**: 今日 {total_daily}件目 / スコア{ai_score} / パターン{article_pattern} / あらすじ{desc_c_len}字 / 記事{words}字 / ライター: {rev_name}\n"
             f"**投稿待ち在庫**: {inventory_str}\n"
             f"**URL**: {link}",
             username="ノベラブ通知くん"

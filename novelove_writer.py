@@ -68,8 +68,38 @@ def _evaluate_article_potential(title, description, original_tags=""):
         return int(match.group())
     return 0
 
+# === v16.0.0: HTML骨格パターン選択関数 ===
+def _select_html_pattern(ai_score, desc_length, has_tags):
+    """
+    記事のHTML骨格パターンを重み付きランダムで選択する。
+    A: リスト型（橙来のノベラブ基本形式）
+    B: 深掴り型（h3見出し＋段落）
+    C: Q&A型（問答形式）
+    D: 引用型（blockquote＋熱いリアクション）
+    """
+    # タグなしの場合はBを除外（属性タグがないと深掴り多觓的に書きにくい）
+    if ai_score >= 5:
+        if has_tags:
+            pattern = random.choices(["A", "B", "C", "D"], weights=[15, 25, 25, 35])[0]
+        else:
+            pattern = random.choices(["A", "C", "D"], weights=[20, 35, 45])[0]
+    elif desc_length >= 300:
+        # スコイ4 + あらすじ300字以上: Dも使用可
+        if has_tags:
+            pattern = random.choices(["A", "B", "C", "D"], weights=[35, 25, 25, 15])[0]
+        else:
+            pattern = random.choices(["A", "C", "D"], weights=[40, 30, 30])[0]
+    else:
+        # スコイ4 + あらすじ300字未満: Dは封印
+        if has_tags:
+            pattern = random.choices(["A", "B", "C"], weights=[40, 30, 30])[0]
+        else:
+            pattern = random.choices(["A", "C"], weights=[50, 50])[0]
+    logger.info(f"  [Pattern] {pattern} selected (score={ai_score}, desc={desc_length}字, tags={'yes' if has_tags else 'no'})")
+    return pattern
+
 # === AI執筆 ===
-def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False, mood="", ai_score=4, original_tags="", is_exclusive=False):
+def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False, mood="", ai_score=4, original_tags="", is_exclusive=False, pattern="A"):
     safe_title = mask_input(target["title"], mask_level)
     safe_desc  = mask_input(target["description"], mask_level)
     chat_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
@@ -98,7 +128,7 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 
     mood_note = f"\n今回の感情モード: {mood}" if mood else ""
     _tag_rule_nl = "\n"
-    _tag_rule_str = (_tag_rule_nl + "[公式属性タグの活用]" + _tag_rule_nl +
+    _tag_rule_str = (_tag_rule_nl + "[公式属性タグ的活用]" + _tag_rule_nl +
         "作品には以下の公式属性タグが設定されています: " + original_tags + _tag_rule_nl +
         "これらを活かして、具体的で読者に刺さる紹介文・おすすめコメントを書いてください。" +
         "ファイル形式等の形式情報は無視し、内容・属性に関わる情報のみを参考にしてください。"
@@ -111,10 +141,77 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
         intro_rule = "冒頭の挨拶では、あなたの年齢や職業等といった自己紹介・身の上話をするのは【絶対に禁止】します。" \
                      "あなたの【キャラクターの口調や口癖だけ】を維持したまま、作品のあらすじに対する新鮮なリアクションだけで書き出してください。"
 
-    # === スコア別構成制御ロジック ===
     if ai_score >= 5:
-        # スコア5：2000文字規模の特大フルダイブ記事
-        html_structure = f"""
+        if pattern == "B":
+            allowed_tags = "<h2>, <h3>, <p>"
+            pattern_rules = (
+                "9. h3見出しの属性テーマは必ずあらすじに書かれている事実に基づくこと。存在しない属性・設定を創作した見出しを付けることは絶対禁止。\n"
+                "10. 各h3セクションの本文は、そのh3見出しに対応するあらすじ内の事実のみで書くこと。他のセクションの情報を混在させないこと。"
+            )
+            html_structure = f"""
+{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
+<h2>（作品の世界観や魅力を引き出すキャッチーな見出し）</h2>
+<p>（標準語で執筆）あらすじ・世界観・作品の属性情報。提供されたすべての有用な情報を深く噛み砕いて400〜700字程度でリッチに解説。</p>
+{chat_open}（50〜70字程度。設定への熱いリアクション）{chat_close}
+<h2>キャラクターの魅力と関係性</h2>
+<p>（標準語で執筆）キャラクターの性格、2人の関係性がどう変化するかなど、深い分析を400〜700字程度で執筆。</p>
+{chat_open}（50〜70字程度。キャラ愛や尊さへのリアクション）{chat_close}
+<h3>（この作品の決定的魅力ポイント1。事実に基づく具体的な見出し）</h3>
+<p>（標準語で執筆）この魅力ポイントを、あらすじの情報のみに基づき200〜350字程度で深掘りする。</p>
+<h3>（この作品の決定的魅力ポイント2。事実に基づく具体的な見出し）</h3>
+<p>（標準語で執筆）この魅力ポイントを、あらすじの情報のみに基づき200〜350字程度で深掘りする。</p>
+{chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
+"""
+        elif pattern == "C":
+            allowed_tags = "<h2>, <h3>, <p>"
+            pattern_rules = (
+                "9. Q&Aの質問は読者が実際にGoogle検索しそうな自然な疑問のみを設定すること。あらすじにない内容を質問してはならない。\n"
+                "10. 各Aパートの回答はあらすじの事実のみで書くこと。推測・補完・創作は絶対禁止。"
+            )
+            html_structure = f"""
+{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
+<h2>（作品の世界観や魅力を引き出すキャッチーな見出し）</h2>
+<p>（標準語で執筆）あらすじ・世界観・作品の属性情報。提供されたすべての有用な情報を深く噛み砕いて400〜700字程度でリッチに解説。</p>
+{chat_open}（50〜70字程度。設定への熱いリアクション）{chat_close}
+<h2>キャラクターの魅力と関係性</h2>
+<p>（標準語で執筆）キャラクターの性格、2人の関係性がどう変化するかなど、深い分析を400〜700字程度で執筆。</p>
+{chat_open}（50〜70字程度。キャラ愛や尊さへのリアクション）{chat_close}
+<h3>Q. （読者が検索しそうな自然な疑問1。あらすじから答えられるものに限る）</h3>
+<p>A. （標準語で執筆）あらすじの事実のみで答える。創作・補完禁止。200〜300字程度。</p>
+<h3>Q. （読者が検索しそうな自然な疑問2。あらすじから答えられるものに限る）</h3>
+<p>A. （標準語で執筆）あらすじの事実のみで答える。創作・補完禁止。200〜300字程度。</p>
+<h3>Q. （読者が検索しそうな自然な疑問3。あらすじから答えられるものに限る）</h3>
+<p>A. （標準語で執筆）あらすじの事実のみで答える。創作・補完禁止。200〜300字程度。</p>
+{chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
+"""
+        elif pattern == "D":
+            allowed_tags = "<h2>, <p>, blockquote"
+            pattern_rules = (
+                "9. blockquoteの引用はあらすじ原文からそのまま抜粋すること。言い換え・改変・創作は絶対禁止。あらすじに存在しない一文を作ることは最大の禁止事項。\n"
+                "10. 引用後のpタグの感想パートも、あらすじの事実のみに基づき書くこと。存在しない設定・展開を語ることは禁止。"
+            )
+            html_structure = f"""
+{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
+<h2>（作品の世界観や魅力を引き出すキャッチーな見出し）</h2>
+<p>（標準語で執筆）あらすじ・世界観・作品の属性情報。提供されたすべての有用な情報を深く噛み砕いて400〜700字程度でリッチに解説。</p>
+{chat_open}（50〜70字程度。設定への熱いリアクション）{chat_close}
+<h2>キャラクターの魅力と関係性</h2>
+<p>（標準語で執筆）キャラクターの性格、2人の関係性がどう変化するかなど、深い分析を400〜700字程度で執筆。</p>
+{chat_open}（50〜70字程度。キャラ愛や尊さへのリアクション）{chat_close}
+<h2>（この作品で一番心に刺さった一文を辿るキャッチーな見出し）</h2>
+<blockquote style="border-left:4px solid #d81b60; padding:12px 20px; margin:20px 0; background:#fff5f9; color:#555; font-style:italic;">
+（あらすじの原文からそのまま引用。貼り付けや言い換え禁止。あらすじに存在しない一文を創作することは絶対禁止。）
+</blockquote>
+<p>（標準語で執筆）上記の引用について、あらすじの事実のみに基づき、なぜこの一文が読者の心を捉えるのかを300〜500字程度で熱く語る。</p>
+{chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
+"""
+        else:  # pattern == "A"
+            allowed_tags = "<h2>, <p>, <ul>, <li>"
+            pattern_rules = (
+                "9. 見どころの3点は、この作品ならではの魅力を優先順に並べること。毎回「ストーリー→ビジュアル→キャラクター」の同じ順番にしないこと。\n"
+                "10. 「こんな人におすすめ」は、具体的な設定に基づくこと。「BL/TLが好きな方」のような汎用表現は禁止。"
+            )
+            html_structure = f"""
 {chat_open}（60〜80字程度。{intro_rule}）{chat_close}
 <h2>（作品の世界観や魅力を引き出すキャッチーな見出し）</h2>
 <p>（標準語で執筆）あらすじ・世界観・作品の属性情報。提供されたすべての有用な情報（シチュエーション・キャラ属性・プレイ内容の箇条書きを含む）を深く噛み砕いて400〜700字程度でリッチに解説。既にある設定の魅力を別の角度から掘り下げたり、読者の期待を煽る表現で膨らませること。</p>
@@ -137,8 +234,68 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 {chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
 """
     elif ai_score == 4:
-        # スコア4：1000文字規模の標準安定記事
-        html_structure = f"""
+        # スコア4：1000文字規模の標準安定記事（v16.0.0: A/B/C/D 4パターン分岐）
+        if pattern == "B":
+            allowed_tags = "<h2>, <h3>, <p>"
+            pattern_rules = (
+                "9. h3見出しの属性テーマは必ずあらすじに書かれている事実に基づくこと。存在しない属性・設定を創作した見出しを付けることは絶対禁止。\n"
+                "10. 各h3セクションの本文は、そのh3見出しに対応するあらすじ内の事実のみで書くこと。他のセクションの情報を混在させないこと。"
+            )
+            html_structure = f"""
+{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
+<h2>（作品の世界観や魅力を引き出すキャッチーな見出し）</h2>
+<p>（標準語で執筆）あらすじ・世界観・作品の属性情報。提供されたすべての有用な情報を300〜600字程度で解説。既にある設定の魅力を別の角度から掘り下げたり、読者の期待を煽る表現で膨らませること。</p>
+{chat_open}（50〜70字程度の紹介への反応）{chat_close}
+<h3>（この作品の決定的魅力ポイント1。事実に基づく具体的な見出し）</h3>
+<p>（標準語で執筆）この魅力ポイントを、あらすじの情報のみに基づき150〜250字程度で深掘りする。</p>
+<h3>（この作品の決定的魅力ポイント2。事実に基づく具体的な見出し）</h3>
+<p>（標準語で執筆）この魅力ポイントを、あらすじの情報のみに基づき150〜250字程度で深掘りする。</p>
+{chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
+"""
+        elif pattern == "C":
+            allowed_tags = "<h2>, <h3>, <p>"
+            pattern_rules = (
+                "9. Q&Aの質問は読者が実際にGoogle検索しそうな自然な疑問のみを設定すること。あらすじにない内容を質問してはならない。\n"
+                "10. 各Aパートの回答はあらすじの事実のみで書くこと。推測・補完・創作は絶対禁止。"
+            )
+            html_structure = f"""
+{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
+<h2>（作品の世界観や魅力を引き出すキャッチーな見出し）</h2>
+<p>（標準語で執筆）あらすじ・世界観・作品の属性情報。提供されたすべての有用な情報を300〜600字程度で解説。既にある設定の魅力を別の角度から掘り下げたり、読者の期待を煽る表現で膨らませること。</p>
+{chat_open}（50〜70字程度の紹介への反応）{chat_close}
+<h3>Q. （読者が検索しそうな自然な疑問1。あらすじから答えられるものに限る）</h3>
+<p>A. （標準語で執筆）あらすじの事実のみで答える。創作・補完禁止。150〜250字程度。</p>
+<h3>Q. （読者が検索しそうな自然な疑問2。あらすじから答えられるものに限る）</h3>
+<p>A. （標準語で執筆）あらすじの事実のみで答える。創作・補完禁止。150〜250字程度。</p>
+<h3>Q. （読者が検索しそうな自然な疑問3。あらすじから答えられるものに限る）</h3>
+<p>A. （標準語で執筆）あらすじの事実のみで答える。創作・補完禁止。150〜250字程度。</p>
+{chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
+"""
+        elif pattern == "D":
+            allowed_tags = "<h2>, <p>, blockquote"
+            pattern_rules = (
+                "9. blockquoteの引用はあらすじ原文からそのまま抜粋すること。言い換え・改変・創作は絶対禁止。あらすじに存在しない一文を作ることは最大の禁止事項。\n"
+                "10. 引用後のpタグの感想パートも、あらすじの事実のみに基づき書くこと。存在しない設定・展開を語ることは禁止。"
+            )
+            html_structure = f"""
+{chat_open}（60〜80字程度。{intro_rule}）{chat_close}
+<h2>（作品の世界観や魅力を引き出すキャッチーな見出し）</h2>
+<p>（標準語で執筆）あらすじ・世界観・作品の属性情報。提供されたすべての有用な情報を300〜600字程度で解説。既にある設定の魅力を別の角度から掘り下げたり、読者の期待を煽る表現で膨らませること。</p>
+{chat_open}（50〜70字程度の紹介への反応）{chat_close}
+<h2>（この作品で一番心に刺さった一文を辿るキャッチーな見出し）</h2>
+<blockquote style="border-left:4px solid #d81b60; padding:12px 20px; margin:20px 0; background:#fff5f9; color:#555; font-style:italic;">
+（あらすじの原文からそのまま引用。言い換え・改変・創作した一文の使用は絶対禁止。）
+</blockquote>
+<p>（標準語で執筆）上記の引用について、あらすじの事実のみに基づき、なぜこの一文が読者の心を捉えるのかを200〜350字程度で熱く語る。</p>
+{chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
+"""
+        else:  # pattern == "A"
+            allowed_tags = "<h2>, <p>, <ul>, <li>"
+            pattern_rules = (
+                "9. 見どころの3点は、この作品ならではの魅力を優先順に並べること。毎回「ストーリー→ビジュアル→キャラクター」の同じ順番にしないこと。\n"
+                "10. 「こんな人におすすめ」は、具体的な設定に基づくこと。「BL/TLが好きな方」のような汎用表現は禁止。"
+            )
+            html_structure = f"""
 {chat_open}（60〜80字程度。{intro_rule}）{chat_close}
 <h2>（作品の世界観や魅力を引き出すキャッチーな見出し）</h2>
 <p>（標準語で執筆）あらすじ・世界観・作品の属性情報。提供されたすべての有用な情報（シチュエーション・キャラ属性・プレイ内容の箇条書きを含む）を300〜600字程度で解説。既にある設定の魅力を別の角度から掘り下げたり、読者の期待を煽る表現で膨らませること。</p>
@@ -158,8 +315,12 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 {chat_open}（100〜120字程度の熱い総評・布教）{chat_close}
 """
     else:
-        # スコア3以下：コンパクト記事
-        # 通常投稿では足切りされるが、リライトエンジン等で低スコア判定された際のセーフティネット
+        # スコア3以下：コンパクト記事（変更なし・セーフティネット）
+        allowed_tags = "<h2>, <p>, <ul>, <li>"
+        pattern_rules = (
+            "9. 見どころは必ずあらすじに書かれている事実のみから書くこと。推測・補完・創作は絶対禁止。最大2点まで。書ける事実が1点しかなければ1点で完結させること。絶対に3点書かないこと。\n"
+            "10. 「こんな人におすすめ」はHTML指定の<ul>タグ内に<li>✅ ...</li>形式で、あらすじから読み取れる対象者のみを書くこと。書けない点数は書かなくてOK。"
+        )
         html_structure = f"""
 {chat_open}（40〜60字程度。{intro_rule}）{chat_close}
 <h2>（作品の魅力を一言で表す見出し）</h2>
@@ -181,14 +342,14 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 今回の紹介の注目点（{medium_label}）: {focus}{mood_note}{guest_hint}{novel_rules}
 【執筆ルール】
 1. キャラクターコメント（吹き出し）と記事本文（HTMLタグ部分）を完全に書き分けること。
-2. 記事本文（<h2>, <p>, <ul>, <li>タグの中身）は**「標準的で丁寧な日本語（ですます調）」**で、客観的な紹介文として執筆すること。担当ライターの口調や一人称を混ぜないこと。
+2. 記事本文（{allowed_tags}タグの中身）は**「標準的で丁寧な日本語（ですます調）」**で、客観的な紹介文として執筆すること。担当ライターの口調や一人称を混ぜないこと。このパターンで許可されるタグ以外（百条書きなど）は一切使用禁止。
 3. 直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
 4. キャラクターコメント（吹き出し）の中身のみ、{reviewer["name"]}の個性を全開にした口調で執筆すること。
 5. 吹き出しコメントではキャラ設定に合ったオタク用語や口癖を自然に使うこと。ただし記事本文（ですます調パート）には使用しないこと。
 6. {voice_hint}
 7. 記事本文（<p>タグ）では、あらすじ情報から「存在しない設定やキャラクター」を創作（ハルシネーション）して文字を水増しすることは絶対禁止。
 8. h2見出しは毎回異なる切り口で書くこと。「○○に迫る」「○○が紡ぐ」のようなテンプレ表現は避けること。
-{f'9. 見どころの3点は、この作品ならではの魅力を優先順に並べること。毎回「ストーリー→ビジュアル→キャラクター」の同じ順番にしないこと。' + chr(10) + '10. 「こんな人におすすめ」は、具体的な設定に基づくこと。「BL/TLが好きな方」のような汎用表現は禁止。' if ai_score >= 4 else '9. 見どころは必ずあらすじに書かれている事実のみから書くこと。推測・補完・創作は絶対禁止。最大2点まで。書ける事実が1点しかなければ1点で完結させること。絶対に3点書かないこと。' + chr(10) + '10. 「こんな人におすすめ」はHTML指定の<ul>タグ内に<li>✅ ...</li>形式で、あらすじから読み取れる対象者のみを書くこと。書けない点数は書かなくてOK。'}
+{pattern_rules}
 【対象作品情報】
 タイトル: {safe_title}
 作品ジャンル: {_genre_label(target.get("genre", ""))}（※このジャンルを絶対に間違えないこと。BL・TLの誤記は最大の禁止事項です）
@@ -329,13 +490,18 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
     if target.get("ai_tags"):
         db_ai_tags = [t.strip() for t in target["ai_tags"].split(",") if t.strip()]
 
+    # v16.0.0: HTML骨格パターンを1回だけ決定（リトライ中も同じパターンを維持）
+    _desc_len = len(str(target.get("description", "")))
+    _has_tags = bool(str(target.get("original_tags", "")).strip())
+    article_pattern = _select_html_pattern(target.get("desc_score", 4), _desc_len, _has_tags)
+
     final_error = "content_block"
     final_model = DEEPSEEK_MODEL
     final_proc_time = 0.0
     for mask_level in [0, 1, 2]:
         level_name = ["フィルターなし", "軽めフィルター", "ガチガチフィルター"][mask_level]
         logger.info(f"  [{level_name}] で執筆試行中...")
-        prompt = build_prompt(target, reviewer, mask_level, is_novel=is_novel, is_guest=is_guest, mood=mood, ai_score=target.get("desc_score", 4), original_tags=target.get("original_tags", ""), is_exclusive=bool(target.get("is_exclusive", 0)))
+        prompt = build_prompt(target, reviewer, mask_level, is_novel=is_novel, is_guest=is_guest, mood=mood, ai_score=target.get("desc_score", 4), original_tags=target.get("original_tags", ""), is_exclusive=bool(target.get("is_exclusive", 0)), pattern=article_pattern)
         content, error_type, model_name, proc_time = call_deepseek(prompt)
         final_error = error_type
         final_model = model_name
@@ -471,6 +637,7 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
                 reviewer_name=reviewer_name,
                 ai_tags=ai_tags_from_ai,
                 ai_score=ai_score,
+                article_pattern=article_pattern,  # v16.0.0
             )
         if error_type == "rate_limit":
             logger.warning("  レート制限 → フィルター試行を中断")
