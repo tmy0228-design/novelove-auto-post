@@ -210,20 +210,27 @@ def fetch_fanza_sale_product_ids():
         ]
         for fl in api_floors:
             try:
-                params = {
-                    "api_id": DMM_API_ID,
-                    "affiliate_id": DMM_AFFILIATE_API_ID,
-                    "site": fl["site"],
-                    "service": fl["service"],
-                    "floor": fl["floor"],
-                    "hits": 100,
-                    "sort": "rank",
-                    "output": "json",
-                }
-                if fl.get("keyword"): params["keyword"] = fl["keyword"]
-                r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
-                if r.status_code == 200:
-                    for item in r.json().get("result", {}).get("items", []):
+                # offset で 100件ずつ最大1,000件まで取得（人気上位作品のセールを網羅）
+                for offset in range(1, 1001, 100):
+                    params = {
+                        "api_id": DMM_API_ID,
+                        "affiliate_id": DMM_AFFILIATE_API_ID,
+                        "site": fl["site"],
+                        "service": fl["service"],
+                        "floor": fl["floor"],
+                        "hits": 100,
+                        "sort": "rank",
+                        "offset": offset,
+                        "output": "json",
+                    }
+                    if fl.get("keyword"): params["keyword"] = fl["keyword"]
+                    r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
+                    if r.status_code != 200:
+                        break
+                    items = r.json().get("result", {}).get("items", [])
+                    if not items:
+                        break  # これ以上作品がなければ終了
+                    for item in items:
                         if item.get("campaign"):
                             cid = item.get("content_id", "")
                             if cid: sale_ids.add(cid.lower())
@@ -234,10 +241,10 @@ def fetch_fanza_sale_product_ids():
     # 理由: 商業作品はAPIで「campaign」フラグが出力されない仕様のため、
     # 50%OFF以上のセール一覧ページを直接スクレイピングしてIDを網羅取得する。
     scrape_targets = [
-        "https://book.dmm.com/list/?floor=Gbl&sale=discount&discount_rate=50",
-        "https://book.dmm.com/list/?floor=Gtl&sale=discount&discount_rate=50",
-        "https://book.dmm.co.jp/list/?category=670008&sale=discount&discount_rate=50",
-        "https://book.dmm.co.jp/list/?category=670009&sale=discount&discount_rate=50"
+        "https://book.dmm.com/list/?floor=Gbl&sale=discount&discount_rate=50&sort=ranking",    # DMM BL（人気順）
+        "https://book.dmm.com/list/?floor=Gtl&sale=discount&discount_rate=50&sort=ranking",    # DMM TL（人気順）
+        "https://book.dmm.co.jp/list/?category=670008&sale=discount&discount_rate=50&sort=ranking",  # FANZA BL（人気順）
+        "https://book.dmm.co.jp/list/?category=670009&sale=discount&discount_rate=50&sort=ranking"   # FANZA TL（人気順）
     ]
     
     session = requests.Session()
@@ -251,8 +258,8 @@ def fetch_fanza_sale_product_ids():
     })
 
     for base_url in scrape_targets:
-        # ユーザー要望により「終わるまで」取得するため、安全リミットとして最大200ページ（約24,000件分）まで深掘りループ
-        for page in range(1, 201):
+        # 人気順ソート済みのため、上位10ページ（約1,200件）で人気作品は十分カバーできる
+        for page in range(1, 11):
             url = f"{base_url}&page={page}"
             try:
                 r = session.get(url, timeout=15)
@@ -310,7 +317,7 @@ def fetch_fanza_ranking_product_ids():
                 "site": fl["site"],
                 "service": fl["service"],
                 "floor": fl["floor"],
-                "hits": 20,
+                "hits": 30,  # 全サイト統一: 30件
                 "sort": "rank",
                 "output": "json",
             }
@@ -346,10 +353,11 @@ def fetch_dlsite_sale_product_ids(published_pids):
 
     # 4フロアのセール検索ページ
     sale_search_urls = [
-        "https://www.dlsite.com/girls/fsr/=/campaign/1/order/trend/per_page/100/",      # 女性向け同人
-        "https://www.dlsite.com/bl/fsr/=/campaign/1/order/trend/per_page/100/",          # BL同人
-        "https://www.dlsite.com/girls-pro/fsr/=/campaign/1/order/trend/per_page/100/",   # 女性向け商業
-        "https://www.dlsite.com/bl-pro/fsr/=/campaign/1/order/trend/per_page/100/",      # BL商業
+        # フィルター: 日本語作品のみ / 50%OFF以上 / マンガ+ノベル系（タテヨミ・官能小説含む）/ ゲーム・ASMR・ドラマCD除外
+        "https://www.dlsite.com/girls/fsr/=/language/jp/discount_rate_min/50/work_type_category[0]/manga/work_type_category[1]/novel/order/trend/per_page/100/",      # 女性向け同人
+        "https://www.dlsite.com/bl/fsr/=/language/jp/discount_rate_min/50/work_type_category[0]/manga/work_type_category[1]/novel/order/trend/per_page/100/",          # BL同人
+        "https://www.dlsite.com/girls-pro/fsr/=/language/jp/discount_rate_min/50/work_type_category[0]/manga/work_type_category[1]/novel/order/trend/per_page/100/",   # 女性向け商業
+        "https://www.dlsite.com/bl-pro/fsr/=/language/jp/discount_rate_min/50/work_type_category[0]/manga/work_type_category[1]/novel/order/trend/per_page/100/",      # BL商業
     ]
 
     for base_url in sale_search_urls:
