@@ -25,6 +25,8 @@ import re
 import sqlite3
 import difflib
 import requests
+import time
+from bs4 import BeautifulSoup
 from datetime import datetime
 
 # 環境変数・.envの読み込みは novelove_core.py で一元管理
@@ -192,55 +194,90 @@ def get_all_published_product_ids():
 # =====================================================================
 def fetch_fanza_sale_product_ids():
     """
-    FANZA / DMM の公式APIでセール中の商品IDを取得する。
-    APIレスポンスの campaign フィールドの有無で判定する（v14.8.0刷新）。
-    DLsite/DigiKetと同じ「公式セール対象品のみ」方式に統一。
+    FANZA / DMM の公式セール中の商品IDを取得する。
+    - らぶカル（同人等）はAPIで campaign フィールドの有無で判定（確実）。
+    - 商業作品はAPIでセールフラグが出力されないため、ブラウザからセール指定URLを最大10ページスクレイピングする。
     戻り値: set of product_id (content_id)
     """
     sale_ids = set()
-    if not DMM_API_ID or not DMM_AFFILIATE_API_ID:
-        logger.warning("  [FANZA] DMM API IDが設定されていません。セール取得をスキップします。")
-        return sale_ids
 
-    # 商業フロア + らぶカルBL/TL（v15.5.0: 旧digital_doujinフロアを削除）
-    floors = [
-        {"site": "FANZA", "service": "ebook",  "floor": "bl"},
-        {"site": "FANZA", "service": "ebook",  "floor": "tl"},
-        {"site": "DMM.com", "service": "ebook", "floor": "comic"},
-        {"site": "DMM.com", "service": "ebook", "floor": "novel"},
-        # らぶカルBL/TL（専用フロアがすべての同人作品を網羅する）
-        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_bl"},
-        {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_tl"},
+    # === 1. らぶカル（同人等）のセール取得（API方式） ===
+    if DMM_API_ID and DMM_AFFILIATE_API_ID:
+        api_floors = [
+            # らぶカルBL/TL（専用フロアがすべての同人作品を網羅する）
+            {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_bl"},
+            {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_tl"},
+        ]
+        for fl in api_floors:
+            try:
+                params = {
+                    "api_id": DMM_API_ID,
+                    "affiliate_id": DMM_AFFILIATE_API_ID,
+                    "site": fl["site"],
+                    "service": fl["service"],
+                    "floor": fl["floor"],
+                    "hits": 100,
+                    "sort": "rank",
+                    "output": "json",
+                }
+                if fl.get("keyword"): params["keyword"] = fl["keyword"]
+                r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
+                if r.status_code == 200:
+                    for item in r.json().get("result", {}).get("items", []):
+                        if item.get("campaign"):
+                            cid = item.get("content_id", "")
+                            if cid: sale_ids.add(cid.lower())
+            except Exception as e:
+                logger.warning(f"  [FANZA] セール取得エラー (API / {fl.get('floor')}): {e}")
+
+    # === 2. DMM/FANZA 商業コミック セール抽出（スクレイピング方式） ===
+    # 理由: 商業作品はAPIで「campaign」フラグが出力されない仕様のため、
+    # 50%OFF以上のセール一覧ページを直接スクレイピングしてIDを網羅取得する。
+    scrape_targets = [
+        "https://book.dmm.com/list/?floor=Gbl&sale=discount&discount_rate=50",
+        "https://book.dmm.com/list/?floor=Gtl&sale=discount&discount_rate=50",
+        "https://book.dmm.co.jp/list/?category=670008&sale=discount&discount_rate=50",
+        "https://book.dmm.co.jp/list/?category=670009&sale=discount&discount_rate=50"
     ]
+    
+    session = requests.Session()
+    for domain in [".dmm.co.jp", ".book.dmm.co.jp", "book.dmm.com", "book.dmm.co.jp"]:
+        # セールページの年齢確認・初回アクセス対策
+        session.cookies.set("age_check_done", "1", domain=domain)
+        session.cookies.set("ckcy", "1", domain=domain)
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
+        "Referer": "https://book.dmm.co.jp/",
+    })
 
-
-    for fl in floors:
-        try:
-            params = {
-                "api_id": DMM_API_ID,
-                "affiliate_id": DMM_AFFILIATE_API_ID,
-                "site": fl["site"],
-                "service": fl["service"],
-                "floor": fl["floor"],
-                "hits": 100,
-                "sort": "rank",
-                "output": "json",
-            }
-            if fl.get("keyword"):
-                params["keyword"] = fl["keyword"]
-            r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
-            if r.status_code != 200:
-                continue
-            items = r.json().get("result", {}).get("items", [])
-            for item in items:
-                # v14.8.0: campaignフィールドの有無で公式セール判定
-                campaign = item.get("campaign")
-                if campaign:  # None/空リストでなければ公式セール対象
-                    cid = item.get("content_id", "")
-                    if cid:
-                        sale_ids.add(cid.lower())
-        except Exception as e:
-            logger.warning(f"  [FANZA] セール取得エラー ({fl.get('floor')}): {e}")
+    for base_url in scrape_targets:
+        # ユーザー要望により「終わるまで」取得するため、安全リミットとして最大200ページ（約24,000件分）まで深掘りループ
+        for page in range(1, 201):
+            url = f"{base_url}&page={page}"
+            try:
+                r = session.get(url, timeout=15)
+                if r.status_code != 200:
+                    break
+                soup = BeautifulSoup(r.text, "html.parser")
+                all_links = [a.get("href") for a in soup.find_all("a") if a.get("href")]
+                product_links = [l for l in all_links if "/product/" in l]
+                
+                # 正規表現で商品IDを抽出
+                found_ids = list(dict.fromkeys([
+                    re.search(r'/product/([^/]+)/', l).group(1) 
+                    for l in product_links if re.search(r'/product/([^/]+)/', l)
+                ]))
+                
+                if not found_ids:
+                    break  # これ以上商品がなければ次のカテゴリへ
+                    
+                for pid in found_ids:
+                    sale_ids.add(pid.lower())
+                
+                time.sleep(1)  # サーバー負荷への配慮
+            except Exception as e:
+                logger.warning(f"  [FANZA] スクレイピングエラー ({url}): {e}")
+                break
 
     logger.info(f"  [FANZA] セール作品 {len(sale_ids)}件 検知")
     return sale_ids
