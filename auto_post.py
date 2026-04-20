@@ -340,9 +340,10 @@ def _run_main_logic():
         logger.info("🚨 緊急停止中のためスキップ。解除: rm emergency_stop.lock")
         return
 
-    # クールダウンチェック (通常投稿: 25分間隔 = 1日最大57件ペース)
+    # クールダウンチェック (通常投稿: 55分間隔 = 1日最大24件ペース)
     # v11.4.12: 何よりも先に判定を行い、負荷をゼロにする
-    is_ready, elapsed = _check_global_cooldown(20)
+    # v15.7.0: スパム判定リスク軽減のため、1時間1件ペースに調整
+    is_ready, elapsed = _check_global_cooldown(55)
     if not is_ready:
         logger.info(f"🕒 クールダウン中（{elapsed:.1f}分経過）。0.1秒で終了します。")
         return
@@ -409,8 +410,9 @@ def _run_main_logic():
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         # v11.4.7: SELECT * を廃止し、カラム名を明示的に指定 (v13.2.3: original_tags, is_exclusive 追加)
+        # v15.7.0: ORDER BY に desc_score DESC を追加し、品質スコアの高い記事を優先投稿する
         row = c.execute(
-            "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive FROM novelove_posts WHERE status='pending' AND genre=? ORDER BY inserted_at DESC LIMIT 1",
+            "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive FROM novelove_posts WHERE status='pending' AND genre=? ORDER BY desc_score DESC, inserted_at DESC LIMIT 1",
             (genre,)
         ).fetchone()
         if row:
