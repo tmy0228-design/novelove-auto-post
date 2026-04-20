@@ -28,9 +28,9 @@
 
 | サイト | 取得手法 | 取得元URL/API | 件数 | ID形式 |
 |---|---|---|---|---|
-| **DMM（一般）** | API | `api.dmm.com/v3/ItemList` sort=rank | 各フロア20件 | `b000ehftx95853` 等 |
-| **FANZA（商業）** | API | 同上 | 各フロア20件 | `b876ashkm04726` 等 |
-| **らぶカル（同人）** | API | 同上 | 各フロア20件 | `d_724719` 等 |
+| **DMM（一般）** | API | `api.dmm.com/v3/ItemList` sort=rank | 各フロア30件 | `b000ehftx95853` 等 |
+| **FANZA（商業）** | API | 同上 | 各フロア30件 | `b876ashkm04726` 等 |
+| **らぶカル（同人）** | API | 同上 | 各フロア30件 | `d_724719` 等 |
 | **DLsite** | スクレイピング | `/ranking/week` ページ | 各フロア30件 | `rj123456` / `bj123456` |
 | **DigiKet** | XML API | `api.digiket.com/xml/api/getxml.php` sort=week | 各ターゲット30件 | `itm0012345` |
 
@@ -38,10 +38,10 @@
 
 | サイト | 取得手法 | 取得元URL/API | 件数上限 | ID形式 |
 |---|---|---|---|---|
-| **DMM（一般）** | スクレイピング | `book.dmm.com/list/?floor=G{bl,tl}&sale=discount&discount_rate=50` | 最大200ページ×120件 | `b000ehftx95853` 等 |
-| **FANZA（商業）** | スクレイピング | `book.dmm.co.jp/list/?category={670008,670009}&sale=discount&discount_rate=50` | 最大200ページ×120件 | `b876ashkm04726` 等 |
-| **らぶカル（同人）** | API | `api.dmm.com/v3/ItemList` → `campaign` フィールド判定 | 各フロア100件（※上位100件のみ） | `d_724719` 等 |
-| **DLsite** | スクレイピング | `/fsr/=/campaign/1/` ページ | 最大10ページ×100件 | `rj123456` / `bj123456` |
+| **DMM（一般）** | スクレイピング | `book.dmm.com/list/?floor=G{bl,tl}&sale=discount&discount_rate=50&sort=ranking` | 上位10ページ前後想定 | `b000ehftx95853` 等 |
+| **FANZA（商業）** | スクレイピング | `book.dmm.co.jp/list/?category={670008,670009}&sale=discount&discount_rate=50&sort=ranking` | 上位10ページ前後想定 | `b876ashkm04726` 等 |
+| **らぶカル（同人）** | API | `api.dmm.com/v3/ItemList` → `campaign` フィールド判定 | 各フロア上位1,000件をoffsetページネーション | `d_724719` 等 |
+| **DLsite** | スクレイピング | `/fsr/=/language/jp/discount_rate_min/50/work_type_category[0]/manga/work_type_category[1]/novel/` ページ | 最大10ページ×100件 | `rj123456` / `bj123456` |
 | **DigiKet** | スクレイピング | `/result/_data/limit=300/camp=on/` ページ | 各フロア最大300件 | `itm0012345` |
 
 ---
@@ -55,21 +55,21 @@
 - **対象フロア**:
   - `site=DMM.com, service=ebook, floor=comic` — 一般コミック
   - `site=DMM.com, service=ebook, floor=novel` — 一般ノベル
-- **パラメータ**: `hits=20, sort=rank`
+- **パラメータ**: `hits=30, sort=rank`
 - **ID抽出方法**: レスポンスJSON → `items[].content_id`
-- **件数**: 各フロア最大20件（合計最大40件）
+- **件数**: 各フロア最大30件（合計最大60件）
 
 ### セール
 
 - **関数名**: `fetch_fanza_sale_product_ids()`（FANZA関数内のスクレイピング部分）
 - **手法**: Webスクレイピング（`requests.Session` + `BeautifulSoup`）
 - **対象URL**:
-  - `https://book.dmm.com/list/?floor=Gbl&sale=discount&discount_rate=50`（BL）
-  - `https://book.dmm.com/list/?floor=Gtl&sale=discount&discount_rate=50`（TL）
+  - `https://book.dmm.com/list/?floor=Gbl&sale=discount&discount_rate=50&sort=ranking`（BL）
+  - `https://book.dmm.com/list/?floor=Gtl&sale=discount&discount_rate=50&sort=ranking`（TL）
 - **セッション設定**:
   - Cookie: `age_check_done=1`, `ckcy=1`（年齢確認バイパス）
   - User-Agent: 標準的なブラウザUA
-- **ページネーション**: `&page=N`（1〜200ページ、商品が尽きたら自動終了）
+- **ページネーション**: `&page=N`（「人気順」でソートし、最大10ページ程度で打ち切ることで軽量化を図る）
 - **ID抽出方法**: HTMLから `<a href="/product/{ID}/">` を正規表現 `/product/([^/]+)/` で抽出
 - **sleep**: ページ間に1秒のウェイト
 - **APIでセールが取れない理由**: 商業ebookフロアでは `campaign` フィールドが常に未出力（実測確認済み）
@@ -85,18 +85,18 @@
 - **対象フロア**:
   - `site=FANZA, service=ebook, floor=bl` — FANZA BLコミック
   - `site=FANZA, service=ebook, floor=tl` — FANZA TLコミック
-- **パラメータ**: `hits=20, sort=rank`
+- **パラメータ**: `hits=30, sort=rank`
 - **ID抽出方法**: レスポンスJSON → `items[].content_id`
-- **件数**: 各フロア最大20件（合計最大40件）
+- **件数**: 各フロア最大30件（合計最大60件）
 
 ### セール
 
 - **関数名**: `fetch_fanza_sale_product_ids()`（DMM関数内のスクレイピング部分）
 - **手法**: Webスクレイピング
 - **対象URL**:
-  - `https://book.dmm.co.jp/list/?category=670008&sale=discount&discount_rate=50`（BL）
-  - `https://book.dmm.co.jp/list/?category=670009&sale=discount&discount_rate=50`（TL）
-- **仕組み**: DMM一般と完全に同じ（セッション設定・ページネーション・ID抽出すべて共通）
+  - `https://book.dmm.co.jp/list/?category=670008&sale=discount&discount_rate=50&sort=ranking`（BL）
+  - `https://book.dmm.co.jp/list/?category=670009&sale=discount&discount_rate=50&sort=ranking`（TL）
+- **仕組み**: DMM一般と完全に同じ（人気順・ページ数制限・ID抽出すべて共通）
 - **ドメインの違い**: `book.dmm.co.jp`（FANZA）vs `book.dmm.com`（DMM一般）
 - **フロア指定の違い**: `category=670008/670009`（FANZA）vs `floor=Gbl/Gtl`（DMM一般）
 
@@ -111,9 +111,9 @@
 - **対象フロア**:
   - `site=FANZA, service=doujin, floor=digital_doujin_bl` — 同人BL
   - `site=FANZA, service=doujin, floor=digital_doujin_tl` — 同人TL
-- **パラメータ**: `hits=20, sort=rank`
+- **パラメータ**: `hits=30, sort=rank`
 - **ID抽出方法**: レスポンスJSON → `items[].content_id`
-- **件数**: 各フロア最大20件（合計最大40件）
+- **件数**: 各フロア最大30件（合計最大60件）
 
 ### セール
 
@@ -131,7 +131,7 @@
 - **追加情報（APIで取得可能）**:
   - `prices.price` — 現在の販売価格（セール価格）
   - `prices.list_price` — 定価（商業では出力されないが同人では出力される）
-- **件数**: 各フロア最大100件（合計最大200件）
+- **対象と件数**: 各フロア、`hits=100`と`offset`を組み合わせて上位1,000件までページ送り取得し、セール作品の網羅性を高める。（実測: 上位100件のみでは35件のセール検出 → 1,000件で469件検出）
 - **APIだけで済む理由**: 同人フロアは出版社を経由しないため、DMMのシステム上セール情報がAPIにも公開されている
 
 ---
@@ -152,12 +152,16 @@
 ### セール
 
 - **関数名**: `fetch_dlsite_sale_product_ids(published_pids)`
-- **手法**: セール検索ページのHTMLスクレイピング
+- **手法**: 高精度フィルター付きセール検索ページのHTMLスクレイピング
 - **対象URL（計4フロア）**:
-  - `https://www.dlsite.com/girls/fsr/=/campaign/1/order/trend/per_page/100/` — 女性向け同人
-  - `https://www.dlsite.com/bl/fsr/=/campaign/1/order/trend/per_page/100/` — BL同人
-  - `https://www.dlsite.com/girls-pro/fsr/=/campaign/1/order/trend/per_page/100/` — 女性向け商業
-  - `https://www.dlsite.com/bl-pro/fsr/=/campaign/1/order/trend/per_page/100/` — BL商業
+  - `https://www.dlsite.com/girls/fsr/=/language/jp/discount_rate_min/50/work_type_category[0]/manga/work_type_category[1]/novel/order/trend/per_page/100/` — 女性向け同人
+  - `https://www.dlsite.com/bl/fsr/=/language/jp/discount_rate_min/50/work_type_category[0]/manga/work_type_category[1]/novel/order/trend/per_page/100/` — BL同人
+  - `https://www.dlsite.com/girls-pro/fsr/=/language/jp/discount_rate_min/50/work_type_category[0]/manga/work_type_category[1]/novel/order/trend/per_page/100/` — 女性向け商業
+  - `https://www.dlsite.com/bl-pro/fsr/=/language/jp/discount_rate_min/50/work_type_category[0]/manga/work_type_category[1]/novel/order/trend/per_page/100/` — BL商業
+- **フィルター詳細**:
+  - `language/jp` — 日本語作品のみ（海外翻訳版を除外）
+  - `discount_rate_min/50` — 50%OFF以上（DMM/FANZAと条件統一）
+  - `work_type_category[0]/manga/work_type_category[1]/novel` — マンガ系全般（タテヨミ含む）とノベル系全般（官能小説含む）のみ。ゲーム・ASMR・ドラマCDは自動除外
 - **ページネーション**: URLに `page/{N}/` を付加（最大10ページ = 1000件/フロア）
 - **終了判定**: 重複除去後の作品数が50件未満になったら最終ページと判断
 - **ID抽出方法**: 正規表現 `((?:RJ|BJ|VJ)\d{6,10})` でRJ/BJ/VJコードを抽出
@@ -306,9 +310,8 @@ Step 4: Discord通知（変更サマリー）
 ### らぶカル（同人）
 
 - APIの `campaign` フィールドは**同人フロアでしか機能しない**
-- `hits=100` の上限あり。APIの `sort=rank` で上位100件のみを取得
-  → セール対象が100件を超える場合は取りこぼしが発生する可能性あり
-  → しかし、APIは `offset` で追加取得が可能なため、必要なら拡張可
+- `hits=100` の上限あり。`offset` ページネーションで上位1,000件までカバーするように拡張済み（v15.6.0）
+  → 実測: 100件のみでは35件検出 → 1,000件で469件検出（13.4倍に増加）
 
 ### DLsite
 
@@ -317,9 +320,10 @@ Step 4: Discord通知（変更サマリー）
 - ページネーション終了判定は「重複除去後50件未満」というヒューリスティック
   → 本来はHTMLのページネーションリンクの有無で判定すべきだが、現状動作に問題なし
 - `girls` / `bl`（同人）と `girls-pro` / `bl-pro`（商業）の4フロアを巡回
-- **⚠ 4フロアすべてのセールIDが同一になるケースが確認された**
-  → 実測で4フロアとも `RJ01398076` 等の同一15件が返された
-  → DLsite側のキャンペーンが全フロア共通の場合にこうなる（正常動作）
+### サイト横断の懸念事項
+
+- **DLsiteのセールIDフロア重複問題は解決済み**
+  → v15.6.0で高精度フィルター（`work_type_category`、`language/jp`、`discount_rate_min/50`）を導入し、各フロアが異なる結果を返すことを確認済み（Girls vs BL 重複=31件のみ）
 
 ### DigiKet
 
@@ -346,12 +350,12 @@ Step 4: Discord通知（変更サマリー）
 
 | サイト | フロア | 取得件数 | サンプルID |
 |---|---|---|---|
-| FANZA BL | ebook/bl | 20件 | `b876ashkm04726` |
-| FANZA TL | ebook/tl | 20件 | `s540awujz01512` |
-| DMM comic | ebook/comic | 20件 | `b000ehftx95853` |
-| DMM novel | ebook/novel | 20件 | `b000ehftx96845` |
-| らぶカル BL | doujin/bl | 20件 | `d_724719` |
-| らぶカル TL | doujin/tl | 20件 | `d_690614` |
+| FANZA BL | ebook/bl | 30件 | `b876ashkm04726` |
+| FANZA TL | ebook/tl | 30件 | `s540awujz01512` |
+| DMM comic | ebook/comic | 30件 | `b000ehftx95853` |
+| DMM novel | ebook/novel | 30件 | `b000ehftx96845` |
+| らぶカル BL | doujin/bl | 30件 | `d_724719` |
+| らぶカル TL | doujin/tl | 30件 | `d_690614` |
 | DLsite Girls | ranking/week | 30件 | `RJ01538553` |
 | DLsite BL | ranking/week | 30件 | `RJ01601946` |
 | DigiKet BL | target=8 | 30件 | `itm0336189` |
@@ -362,17 +366,13 @@ Step 4: Discord通知（変更サマリー）
 
 | サイト | フロア | 取得件数 | 手法 |
 |---|---|---|---|
-| らぶカル BL | API campaign | 35/100件 | API |
-| らぶカル TL | API campaign | 64/100件 | API |
-| DMM BL | sale=discount | 118件（p1） + 102件（p2） | スクレイピング |
-| DMM TL | sale=discount | 120件（p1） + 120件（p2） | スクレイピング |
-| FANZA BL | sale=discount | 19件 | スクレイピング |
-| FANZA TL | sale=discount | 10件 | スクレイピング |
-| DLsite Girls | campaign/1 | 15件 | スクレイピング |
-| DLsite BL | campaign/1 | 15件 | スクレイピング |
-| DLsite Girls-Pro | campaign/1 | 15件 | スクレイピング |
-| DLsite BL-Pro | campaign/1 | 15件 | スクレイピング |
+| らぶカル BL | API campaign (offset 1-1000) | 469件/1000件 | API |
+| DMM BL | sale=discount&sort=ranking | 118件（p1） + 120件（p10） | スクレイピング |
+| DLsite Girls同人 | 高精度フィルター | 202件 | スクレイピング |
+| DLsite BL同人 | 高精度フィルター | 200件 | スクレイピング |
+| DLsite Girls商業 | 高精度フィルター | 169件 | スクレイピング |
+| DLsite BL商業 | 高精度フィルター | 159件 | スクレイピング |
 | DigiKet 女性向 | camp=on | 2件 | スクレイピング |
 | DigiKet BL | camp=on | 300件 | スクレイピング |
 
-> **検証結果: 46テスト中 46 PASS / 0 FAIL**
+> **検証結果: 21テスト中 21 PASS / 0 FAIL**
