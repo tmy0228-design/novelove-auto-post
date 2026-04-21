@@ -363,12 +363,13 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
 # 4. DB 更新
 # =====================================================================
 def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
-                              site_label, is_ranking, ai_score):
+                              site_label, is_ranking, ai_score, article_pattern=None):
     """
     リライト成功後に DB を更新する。
     - ai_tags, wp_tags, reviewer を最新値で上書き
     - rewrite_count を +1
     - desc_scoreを最新値（ai_score）で更新
+    - article_pattern を更新（A/B/C/D）
     - status, published_at は変更しない
     """
     # wp_tags の文字列を構築（post_to_wordpress / _execute_posting_flow と同一ルール）
@@ -407,13 +408,14 @@ def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
                    desc_score = ?,
                    rewrite_count = COALESCE(rewrite_count, 0) + 1,
                    last_rewritten_at = datetime('now', 'localtime'),
-                   is_desc_updated = 0
+                   is_desc_updated = 0,
+                   article_pattern = COALESCE(?, article_pattern)
                WHERE product_id = ?""",
-            (rev_name, ai_tags_str, wp_tags_str, ai_score, product_id),
+            (rev_name, ai_tags_str, wp_tags_str, ai_score, article_pattern, product_id),
         )
         conn.commit()
         conn.close()
-        logger.info(f"  [DB] 更新完了: ai_tags={ai_tags_str[:50]} / wp_tags={wp_tags_str[:50]}")
+        logger.info(f"  [DB] 更新完了: ai_tags={ai_tags_str[:50]} / wp_tags={wp_tags_str[:50]} / pattern={article_pattern}")
     except Exception as e:
         logger.error(f"  [DB] 更新失敗: {e}")
 
@@ -526,6 +528,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     rev_name        = res.reviewer_name
     ai_tags_from_ai = res.ai_tags
     ai_score        = res.ai_score
+    article_pattern = res.article_pattern
 
     desc_c_len = len(desc_str)
     logger.info(f"  [完了] AI執筆成功！ (あらすじ{desc_c_len}文字 → 記事{words}文字 / ライター: {rev_name})")
@@ -585,6 +588,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         site_label=site_label,
         is_ranking=is_ranking,
         ai_score=ai_score,
+        article_pattern=article_pattern,
     )
 
     # Discord 通知

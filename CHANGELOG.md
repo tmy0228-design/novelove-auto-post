@@ -1,3 +1,27 @@
+## v16.0.1 — リライトパターン記録漏れ修正 & サーバーパフォーマンス最適化 (2026-04-21)
+
+### 🐛 修正: リライト後の `article_pattern` がDBに保存されない漏れ
+- **対象 (`nexus_rewrite.py`)**: `_db_update_after_rewrite()` の `UPDATE` 文に `article_pattern = COALESCE(?, article_pattern)` を追加。
+- **背景**: `auto_post.py` における通常投稿では `article_pattern`（A/B/C/D）がDB保存されていたが、Nexusダッシュボードからの手動リライト時はこのフィールドが更新されない漏れが存在していた。
+- **修正内容**:
+  - `_db_update_after_rewrite()` の引数に `article_pattern=None` を追加。
+  - `run_rewrite()` 内で `article_pattern = res.article_pattern` を取り出し、関数へ渡すよう修正。
+  - `COALESCE` 利用により、万が一 `None` が渡された場合も既存のDB値を上書きしない安全設計。
+- **効果**: リライト後もA/B/C/Dどのパターンで再執筆されたかが正しくDBに記録され、将来のA/Bテスト分析に活用できる。
+
+### 🚀 インフラ: KUSANAGI bcache を有効化
+- **対象（サーバー設定）**: `kusanagi bcache on` コマンドを実行し、Nginx fastcgiキャッシュを有効化。
+- **効果**: 1回目のリクエストで生成したHTMLをNginxがキャッシュし、2回目以降（別ユーザー含む）はPHP・MariaDBを一切起動せずにレスポンスを返す。GSC計測の平均応答時間（~2,800ms）の大幅改善を見込む。
+- **補足**: Nexusダッシュボードの「キャッシュクリア」ボタンは `kusanagi bcache clear myblog && kusanagi fcache clear myblog` を実行するため、bcacheも含め全キャッシュを一括消去できる。
+
+### 🚀 インフラ: WP-Cron を外部cron化
+- **対象（サーバー設定）**:
+  - `wp-config.php` に `define('DISABLE_WP_CRON', true);` を追加。
+  - サーバーcrontabに `*/5 * * * *` で `wp cron event run --due-now` を独立実行するジョブを追加。
+- **背景**: デフォルトのWP-Cronはユーザーのリクエストに「相乗り」してcronタスクを処理するため、ページ応答速度の遅延原因になる。外部化することでユーザーリクエストとcron処理を完全分離する。
+- **効果**: bcacheキャッシュミス時のPHP処理からcron負荷を排除。記事数1,000件超えでも安定した応答速度を維持。
+- **確認**: `wp cron event list` で15件のイベント正常登録を確認。手動実行テスト（`do_pings` 2.3秒で完了）も成功。
+
 ## v16.0.0 — HTML骨格パターン多様化: Scaled Content Abuse 対策 (2026-04-20)
 
 ### 🚀 新機能: 4パターン HTML骨格ランダム選択システム
