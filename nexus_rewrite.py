@@ -481,8 +481,11 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     latest_score = _evaluate_article_potential(title, desc_str, original_tags=row["original_tags"])
     logger.info(f"  [評価] 元のスコア: {row['desc_score'] or 0} -> 最新スコア: {latest_score}")
 
-    # 取得時にDBのSiteカラムに正しくLovecalが記録されるため、URLによるフォールバックは廃止 (v15.4.2)
     _product_url_val = row["product_url"] or row["affiliate_url"] or ""
+    # v15.4.2で一度削除したが、DB修正漏れの過去記事で「FANZAタグが付いてしまう」事故が起きたため緊急復活
+    if "lovecul.dmm.co.jp" in _product_url_val:
+        site_label = "Lovecal"
+        logger.info("  [補正] URLかららぶカル(Lovecal)と判定し、site_labelを強制上書きしました")
 
     target = {
         "product_id":    row["product_id"],
