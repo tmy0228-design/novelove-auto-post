@@ -13,7 +13,7 @@
 
 ## 🧭 第1章：システム・アーキテクチャ概要
 
-Noveloveは、5大配信プラットフォーム（FANZA / DLsite / DMM / DigiKet / Lovecal）から新着コンテンツをリアルタイムに収集し、OpenRouter経由のGrok AI（通常: grok-4.1-fast / 特大: grok-4.20）による審査と執筆を経て、WordPressへ自動投稿する自律型エンジンです。
+Noveloveは、5大配信プラットフォーム（FANZA / DLsite / DMM / DigiKet / Lovecal）から新着コンテンツをリアルタイムに収集し、OpenRouter経由のGrok AI（grok-4.1-fast）による審査と執筆を経て、WordPressへ自動投稿する自律型エンジンです。
 
 - **取得と審査の完全分離**: 取得した作品はすべて在庫（`watching`）として確保し、投稿ループの直前に品質判定と執筆・タグ生成を同時に行うことでAPIコストを抑えます。
 - **2択の厳密な判定**: 作品は「合格（投稿）」か「除外（不採用）」のみで判断し、保留ステータスは設けません。情報の薄い作品（スコア3未満）やノイズは自動で除外されます。
@@ -45,7 +45,7 @@ Noveloveは、5大配信プラットフォーム（FANZA / DLsite / DMM / DigiKe
 
 ## 🖋 第3章：AI執筆エンジンと生成ロジック (Writer)
 
-`novelove_writer.py` と `novelove_soul.py` にて、OpenRouter経由のGrok AIによる「生きた言葉」での記事作成を行います。0〜5 段階のスコアを算出し、スコア4以上のみを執筆対象とします。スコア5の特大記事ではGrok 4.20（MODEL_PREMIUM）を使用し、それ以外はGrok 4.1 Fast（MODEL_ECONOMY）でコスト最適化します。
+`novelove_writer.py` と `novelove_soul.py` にて、OpenRouter経由のGrok AIによる「生きた言葉」での記事作成を行います。0〜5 段階のスコアを算出し、スコア4以上のみを執筆対象とします。Grok 4.1 Fast（MODEL_ECONOMY）を全記事の審査・執筆に統一使用することで、極限のコスト最適化と高いクオリティを両立させています。
 
 ### 3-1. ライター（キャラクター設定）
 以下の5名が、ジャンルごとに異なる視点（「漫画のコマ割り」「小説の心情の機微」など）で作品を解説します。

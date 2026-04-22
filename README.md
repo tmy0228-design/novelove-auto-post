@@ -69,8 +69,7 @@ Googleの「Scaled Content Abuse（テンプレート量産）」ペナルティ
 ## 🤖 AIモデル構成
 | 役割 | モデル |
 | :--- | :--- |
-| 審査 / 通常執筆 / SEO生成 | `x-ai/grok-4.1-fast` (OpenRouter経由) |
-| 熱量MAX記事（スコア5） | `x-ai/grok-4.20` (OpenRouter経由) |
+| 全記事一括（審査 / 執筆 / SEO） | `x-ai/grok-4.1-fast` (OpenRouter経由) |
 
 ## 🔄 作業フロー
 1. ローカルで修正・検証を行う。

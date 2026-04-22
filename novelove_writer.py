@@ -351,8 +351,9 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 4. キャラクターコメント（吹き出し）の中身のみ、{reviewer["name"]}の個性を全開にした口調で執筆すること。
 5. 吹き出しコメントでは、キャラ設定に合ったオタク用語・スラングを積極的かつ自然に使うこと（例：「神」「沼」「尊い」「しんどい」「解釈一致」「限界」「萌え」「地雷」「ガチ恋」「解像度が高い」「性癖に刺さる」、属性語ならスパダリ・ヤンデレ・腐・TL沼・推し・語彙力消失、など）。これらはキャラに合ったものを選んで自然に使うこと。ただし記事本文（ですます調パート）には使用しないこと。
 6. {voice_hint}
-7. 記事本文（<p>タグ）では、あらすじ情報から「存在しない設定やキャラクター」を創作（ハルシネーション）して文字を水増しすることは絶対禁止。
-8. h2見出しは毎回異なる切り口で書くこと。「○○に迫る」「○○が紡ぐ」のようなテンプレ表現は避けること。
+7. 「〜文字で書きます」「布教します」「タスク完了」のようなAIのメタ発言や指示の自己申告は絶対に禁止。最初から最後まで完全にキャラクターとして振る舞い、AIであることを悟らせないこと。
+8. 記事本文（<p>タグ）では、あらすじ情報から「存在しない設定やキャラクター」を創作（ハルシネーション）して文字を水増しすることは絶対禁止。
+9. h2見出しは毎回異なる切り口で書くこと。「○○に迫る」「○○が紡ぐ」のようなテンプレ表現は避けること。
 {pattern_rules}
 【対象作品情報】
 タイトル: {safe_title}
@@ -507,15 +508,10 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
     final_error = "content_block"
     final_model = MODEL_ECONOMY
     final_proc_time = 0.0
-    # v17.0.0: ハイブリッドモデル判定（ループの外で1回だけ決定）
-    _ai_score_for_routing = target.get("desc_score", 4)
-    _is_high_heat = "熱量が高い" in mood  # MOOD_PATTERNS[0]「いつもより熱量が高い」のトリガー
-    if _ai_score_for_routing >= 5 or _is_high_heat:
-        _selected_model = MODEL_PREMIUM
-        logger.info(f"  [🔥本気モード] Grok 4.20 発動 (score={_ai_score_for_routing}, heat={_is_high_heat})")
-    else:
-        _selected_model = MODEL_ECONOMY
-        logger.info(f"  [⚡節約モード] Grok 4.1 Fast 使用 (score={_ai_score_for_routing})")
+    # v17.1.0: 全記事 Grok 4.1 Fast 統一（4.20ハイブリッド廃止）
+    # テストにより 4.1 Fast + 6種の感情モードで十分な熱量・描き分けが確認済み
+    _selected_model = MODEL_ECONOMY
+    logger.info(f"  [⚡Grok 4.1 Fast] 全記事統一モード (score={target.get('desc_score', 4)})")
     for mask_level in [0, 1, 2]:
         level_name = ["フィルターなし", "軽めフィルター", "ガチガチフィルター"][mask_level]
         logger.info(f"  [{level_name}] で執筆試行中...")
