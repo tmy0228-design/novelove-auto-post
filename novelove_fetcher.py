@@ -33,6 +33,7 @@ from novelove_core import (
     trigger_emergency_stop, notify_discord,
     DMM_API_ID, DMM_AFFILIATE_API_ID,
     generate_affiliate_url,
+    OPENROUTER_API_KEY,
 )
 
 # スクレイピング構造変化の検知閾値（連続N回で緊急停止）
@@ -160,9 +161,9 @@ def _run_emergency_ai_extraction(product_url, site_type="FANZA"):
     成功した場合はDiscordに通知を送り、プログラム側のクラス名更新を促す。
     """
     try:
-        api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+        api_key = OPENROUTER_API_KEY
         if not api_key:
-            logger.warning("  [AI緊急修復] DEEPSEEK_API_KEY が未設定のためスキップ")
+            logger.warning("  [AI緊急修復] OPENROUTER_API_KEY が未設定のためスキップ")
             return ""
 
         # 本番と同じセッション・ヘッダーでアクセス（ボット対策回避）
@@ -196,9 +197,15 @@ def _run_emergency_ai_extraction(product_url, site_type="FANZA"):
             f"対象HTML:\n{html_segment}"
         )
         messages = [{"role": "user", "content": prompt}]
-        api_url = "https://api.deepseek.com/chat/completions"
-        api_headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        payload = {"model": "deepseek-chat", "messages": messages, "response_format": {"type": "json_object"}}
+        # v17.0.0: OpenRouter経由でGrokに統一
+        api_url = "https://openrouter.ai/api/v1/chat/completions"
+        api_headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://novelove.jp",
+            "X-Title": "Novelove",
+        }
+        payload = {"model": "x-ai/grok-4.1-fast", "messages": messages, "max_tokens": 500, "temperature": 0.1}
 
         # 最大3回リトライ
         for attempt in range(1, 4):
