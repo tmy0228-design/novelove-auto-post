@@ -502,7 +502,7 @@ def process_ranking_articles():
                         content_html = html_text
                         break
                     elif err == "rate_limit":
-                        logger.warning(f"  [ランキング] DeepSeek レート制限 → 30秒待機")
+                        logger.warning(f"  [ランキング] OpenRouter レート制限 → 30秒待機")
                         time.sleep(30)
                     else:
                         logger.warning(f"  [ランキング] 試行{attempt+1} 失敗 ({err})")
