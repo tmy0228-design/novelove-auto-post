@@ -1,3 +1,39 @@
+## v17.0.0〜v17.0.3 — DeepSeek→OpenRouter(Grokハイブリッド)完全移行＋オタク語彙強化 (2026-04-22)
+
+### 🚀 API基盤の完全刷新: DeepSeek → OpenRouter/Grok エコシステム
+- **対象**: `novelove_writer.py`, `novelove_core.py`, `auto_post.py`, `novelove_ranking.py`, `nexus_purge.py`, `novelove_fetcher.py`
+- **変更**: 全モジュールのAPI呼び出し先を `api.deepseek.com` から `openrouter.ai/api/v1` に完全移行。
+- **ハイブリッドモデル構成**:
+  - **通常記事（審査・執筆）**: `x-ai/grok-4.1-fast`（MODEL_ECONOMY）— 高速・低コスト
+  - **熱量MAX記事（スコア5）**: `x-ai/grok-4.20`（MODEL_PREMIUM）— 最高品質
+- **後方互換**: `DEEPSEEK_API_KEY` 環境変数は `OPENROUTER_API_KEY` 未設定時のフォールバックとして保持。関数名 `_call_deepseek_raw` 等は依存関係を崩さないよう維持。
+- **環境変数**: `.env` に `OPENROUTER_API_KEY` を追加。サーバー・ローカル両方に反映済み。
+
+### ✨ プロンプト「オタク化」の大規模アップデート
+- **対象 (`novelove_writer.py`)**: 全記事パターン（A/B/C/D）のプロンプトを強化。
+- **吹き出し文字数上限の緩和**:
+  - 冒頭: 80字 → 110字
+  - 中間: 70字 → 90字
+  - 総評: 120字 → 200字（布教コメント必須化）
+- **ルール5にオタクスラング具体例リストを追加**: 「神」「沼」「尊い」「解釈一致」「しんどい」「情緒」「性癖に刺さる」「天才」「布教」「供給」「優勝」等をプロンプトに明記し、AIが自然なオタク口調で執筆するよう誘導。
+- **SEO・コンバージョン強化**: 総評吹き出しで「読まないと損」と思わせる布教コメントを必須化。
+
+### 🔧 nexus_purge.py のOpenRouter移行 (v17.0.3)
+- `_call_deepseek_score_only()` のAPI呼び出しをOpenRouter経由に変更。
+- `DEEPSEEK_API_KEY` / `DEEPSEEK_API_URL` / `DEEPSEEK_MODEL` の直接定義を廃止し、`novelove_core.OPENROUTER_API_KEY` と `novelove_writer.MODEL_ECONOMY` をimport。
+
+### 🔧 novelove_fetcher.py の緊急AI修復をOpenRouter移行 (v17.0.2)
+- `_run_emergency_ai_extraction()` のAPI呼び出しを `api.deepseek.com` から `openrouter.ai` + `grok-4.1-fast` に変更。
+
+### 🔧 novelove_ranking.py のログ表記修正 (v17.0.1)
+- レート制限時のログメッセージを「DeepSeek レート制限」→「OpenRouter レート制限」に修正。
+
+### ✅ 検証結果
+- サーバーデプロイ完了（git stash → git pull）
+- 全6ファイルの `py_compile` 構文チェック: 全パス
+- `grep 'api.deepseek.com' *.py`: 0件（完全除去確認）
+- `import` 検証: `MODEL_ECONOMY`, `MODEL_PREMIUM`, `OPENROUTER_API_KEY` すべて正常読み込み確認
+
 ## v16.0.1 — リライトパターン記録漏れ修正 & サーバーパフォーマンス最適化 (2026-04-21)
 
 ### 🐛 修正: リライト後の `article_pattern` がDBに保存されない漏れ
