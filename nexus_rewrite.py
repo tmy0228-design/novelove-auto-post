@@ -485,7 +485,8 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     # v15.4.2で一度削除したが、DB修正漏れの過去記事で「FANZAタグが付いてしまう」事故が起きたため緊急復活
     if "lovecul.dmm.co.jp" in _product_url_val:
         site_label = "Lovecal"
-        logger.info("  [補正] URLかららぶカル(Lovecal)と判定し、site_labelを強制上書きしました")
+        site_raw = site_raw.replace("FANZA", "Lovecal")
+        logger.info("  [補正] URLかららぶカル(Lovecal)と判定し、site_labelとsite_rawを強制上書きしました")
 
     target = {
         "product_id":    row["product_id"],
