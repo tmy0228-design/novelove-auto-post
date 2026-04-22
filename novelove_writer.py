@@ -560,6 +560,12 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
                                 break
                     ai_tags_from_ai = list(dict.fromkeys(ai_tags_from_ai))[:3]
 
+            # 4. マークダウンのコードブロック除去 (```html 等のゴミ文字対策)
+            import re
+            content = re.sub(r'^```(?:html|xml)?\s*', '', content, flags=re.IGNORECASE)
+            content = re.sub(r'\s*```$', '', content)
+            content = content.strip()
+
             if not _check_image_ok(target["image_url"]):
                 logger.warning(f"  [画像NG] 投稿直前チェックで無効: {target['image_url']}")
                 return ArticleResult(status="image_missing", model=model_name, level=level_name, proc_time=proc_time)
