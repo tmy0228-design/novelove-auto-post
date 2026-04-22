@@ -149,8 +149,8 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
         if pattern == "B":
             allowed_tags = "<h2>, <h3>, <p>"
             pattern_rules = (
-                "9. h3見出しの属性テーマは必ずあらすじに書かれている事実に基づくこと。存在しない属性・設定を創作した見出しを付けることは絶対禁止。\n"
-                "10. 各h3セクションの本文は、そのh3見出しに対応するあらすじ内の事実のみで書くこと。他のセクションの情報を混在させないこと。"
+                "11. h3見出しの属性テーマは必ずあらすじに書かれている事実に基づくこと。存在しない属性・設定を創作した見出しを付けることは絶対禁止。\n"
+                "12. 各h3セクションの本文は、そのh3見出しに対応するあらすじ内の事実のみで書くこと。他のセクションの情報を混在させないこと。"
             )
             html_structure = f"""
 {chat_open}（60〜110字程度。{intro_rule}）{chat_close}
@@ -169,8 +169,8 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
         elif pattern == "C":
             allowed_tags = "<h2>, <h3>, <p>"
             pattern_rules = (
-                "9. Q&Aの質問は読者が実際にGoogle検索しそうな自然な疑問のみを設定すること。あらすじにない内容を質問してはならない。\n"
-                "10. 各Aパートの回答はあらすじの事実のみで書くこと。推測・補完・創作は絶対禁止。"
+                "11. Q&Aの質問は読者が実際にGoogle検索しそうな自然な疑問のみを設定すること。あらすじにない内容を質問してはならない。\n"
+                "12. 各Aパートの回答はあらすじの事実のみで書くこと。推測・補完・創作は絶対禁止。"
             )
             html_structure = f"""
 {chat_open}（60〜110字程度。{intro_rule}）{chat_close}
@@ -191,8 +191,8 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
         elif pattern == "D":
             allowed_tags = "<h2>, <p>, blockquote"
             pattern_rules = (
-                "9. blockquoteの引用はあらすじ原文からそのまま抜粋すること。言い換え・改変・創作は絶対禁止。あらすじに存在しない一文を作ることは最大の禁止事項。\n"
-                "10. 引用後のpタグの感想パートも、あらすじの事実のみに基づき書くこと。存在しない設定・展開を語ることは禁止。"
+                "11. blockquoteの引用はあらすじ原文からそのまま抜粋すること。言い換え・改変・創作は絶対禁止。あらすじに存在しない一文を作ることは最大の禁止事項。\n"
+                "12. 引用後のpタグの感想パートも、あらすじの事実のみに基づき書くこと。存在しない設定・展開を語ることは禁止。"
             )
             html_structure = f"""
 {chat_open}（60〜110字程度。{intro_rule}）{chat_close}
@@ -212,8 +212,8 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
         else:  # pattern == "A"
             allowed_tags = "<h2>, <p>, <ul>, <li>"
             pattern_rules = (
-                "9. 見どころの3点は、この作品ならではの魅力を優先順に並べること。毎回「ストーリー→ビジュアル→キャラクター」の同じ順番にしないこと。\n"
-                "10. 「こんな人におすすめ」は、具体的な設定に基づくこと。「BL/TLが好きな方」のような汎用表現は禁止。"
+                "11. 見どころの3点は、この作品ならではの魅力を優先順に並べること。毎回「ストーリー→ビジュアル→キャラクター」の同じ順番にしないこと。\n"
+                "12. 「こんな人におすすめ」は、具体的な設定に基づくこと。「BL/TLが好きな方」のような汎用表現は禁止。"
             )
             html_structure = f"""
 {chat_open}（60〜110字程度。{intro_rule}）{chat_close}
@@ -242,8 +242,8 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
         if pattern == "B":
             allowed_tags = "<h2>, <h3>, <p>"
             pattern_rules = (
-                "9. h3見出しの属性テーマは必ずあらすじに書かれている事実に基づくこと。存在しない属性・設定を創作した見出しを付けることは絶対禁止。\n"
-                "10. 各h3セクションの本文は、そのh3見出しに対応するあらすじ内の事実のみで書くこと。他のセクションの情報を混在させないこと。"
+                "11. h3見出しの属性テーマは必ずあらすじに書かれている事実に基づくこと。存在しない属性・設定を創作した見出しを付けることは絶対禁止。\n"
+                "12. 各h3セクションの本文は、そのh3見出しに対応するあらすじ内の事実のみで書くこと。他のセクションの情報を混在させないこと。"
             )
             html_structure = f"""
 {chat_open}（60〜110字程度。{intro_rule}）{chat_close}
@@ -259,8 +259,8 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
         elif pattern == "C":
             allowed_tags = "<h2>, <h3>, <p>"
             pattern_rules = (
-                "9. Q&Aの質問は読者が実際にGoogle検索しそうな自然な疑問のみを設定すること。あらすじにない内容を質問してはならない。\n"
-                "10. 各Aパートの回答はあらすじの事実のみで書くこと。推測・補完・創作は絶対禁止。"
+                "11. Q&Aの質問は読者が実際にGoogle検索しそうな自然な疑問のみを設定すること。あらすじにない内容を質問してはならない。\n"
+                "12. 各Aパートの回答はあらすじの事実のみで書くこと。推測・補完・創作は絶対禁止。"
             )
             html_structure = f"""
 {chat_open}（60〜110字程度。{intro_rule}）{chat_close}
@@ -278,8 +278,8 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
         elif pattern == "D":
             allowed_tags = "<h2>, <p>, blockquote"
             pattern_rules = (
-                "9. blockquoteの引用はあらすじ原文からそのまま抜粋すること。言い換え・改変・創作は絶対禁止。あらすじに存在しない一文を作ることは最大の禁止事項。\n"
-                "10. 引用後のpタグの感想パートも、あらすじの事実のみに基づき書くこと。存在しない設定・展開を語ることは禁止。"
+                "11. blockquoteの引用はあらすじ原文からそのまま抜粋すること。言い換え・改変・創作は絶対禁止。あらすじに存在しない一文を作ることは最大の禁止事項。\n"
+                "12. 引用後のpタグの感想パートも、あらすじの事実のみに基づき書くこと。存在しない設定・展開を語ることは禁止。"
             )
             html_structure = f"""
 {chat_open}（60〜110字程度。{intro_rule}）{chat_close}
@@ -296,8 +296,8 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
         else:  # pattern == "A"
             allowed_tags = "<h2>, <p>, <ul>, <li>"
             pattern_rules = (
-                "9. 見どころの3点は、この作品ならではの魅力を優先順に並べること。毎回「ストーリー→ビジュアル→キャラクター」の同じ順番にしないこと。\n"
-                "10. 「こんな人におすすめ」は、具体的な設定に基づくこと。「BL/TLが好きな方」のような汎用表現は禁止。"
+                "11. 見どころの3点は、この作品ならではの魅力を優先順に並べること。毎回「ストーリー→ビジュアル→キャラクター」の同じ順番にしないこと。\n"
+                "12. 「こんな人におすすめ」は、具体的な設定に基づくこと。「BL/TLが好きな方」のような汎用表現は禁止。"
             )
             html_structure = f"""
 {chat_open}（60〜110字程度。{intro_rule}）{chat_close}
@@ -354,6 +354,7 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 7. 「〜文字で書きます」「布教します」「タスク完了」のようなAIのメタ発言や指示の自己申告は絶対に禁止。最初から最後まで完全にキャラクターとして振る舞い、AIであることを悟らせないこと。
 8. 記事本文（<p>タグ）では、あらすじ情報から「存在しない設定やキャラクター」を創作（ハルシネーション）して文字を水増しすることは絶対禁止。
 9. h2見出しは毎回異なる切り口で書くこと。「○○に迫る」「○○が紡ぐ」のようなテンプレ表現は避けること。
+10. 記事本文は、スマホでの読みやすさを重視し、適宜複数の <p> タグに分割するか、<br> タグを用いて改行してください。1つの <p> タグに長文を詰め込みすぎないこと。
 {pattern_rules}
 【対象作品情報】
 タイトル: {safe_title}
