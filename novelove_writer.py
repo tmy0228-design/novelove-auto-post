@@ -196,9 +196,9 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 <p>（標準語で執筆）キャラクターの性格、キャラクター同士の関係性がどう変化するかなど、深い分析を400〜700字程度で執筆。</p>
 {chat_open}（50〜90字程度。キャラへのリアクション。キャラの性格に合った温度感で）{chat_close}
 <h2>（この作品で一番心に刺さった一文を辿るキャッチーな見出し）</h2>
-<blockquote style="border-left:4px solid #d81b60; padding:12px 20px; margin:20px 0; background:#fff5f9; color:#555; font-style:italic;">
+<div class="novelove-quote" style="border-left:4px solid #d81b60; padding:12px 20px; margin:20px 0; background:#fff5f9; color:#555;">
 （あらすじの原文から一言一句変えずにそのままコピーすること。言い換え・改変・創作した一文の使用は絶対禁止。）
-</blockquote>
+</div>
 <p>（標準語で執筆）上記の引用について、あらすじの事実のみに基づき、なぜこの一文が読者の心を捉えるのかを300〜500字程度で熱く語る。</p>
 {chat_open}（120〜200字程度の総評・おすすめコメント。この作品を絶対に読んでほしいという強い思いを、【キャラクターの性格・口調】に合った形で表現すること。テンションが高いキャラは勢いよく、落ち着いたキャラは静かに深く語ること。）{chat_close}
 """
@@ -280,9 +280,9 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 <p>（標準語で執筆）あらすじ・世界観・作品の属性情報。提供されたすべての有用な情報を300〜600字程度で解説。既にある設定の魅力を別の角度から掘り下げたり、読者の期待を煽る表現で膨らませること。</p>
 {chat_open}（50〜90字程度の紹介へのリアクション。キャラの性格に合った温度感で）{chat_close}
 <h2>（この作品で一番心に刺さった一文を辿るキャッチーな見出し）</h2>
-<blockquote style="border-left:4px solid #d81b60; padding:12px 20px; margin:20px 0; background:#fff5f9; color:#555; font-style:italic;">
+<div class="novelove-quote" style="border-left:4px solid #d81b60; padding:12px 20px; margin:20px 0; background:#fff5f9; color:#555;">
 （あらすじの原文から一言一句変えずにそのままコピーすること。言い換え・改変・創作した一文の使用は絶対禁止。）
-</blockquote>
+</div>
 <p>（標準語で執筆）上記の引用について、あらすじの事実のみに基づき、なぜこの一文が読者の心を捉えるのかを200〜350字程度で熱く語る。</p>
 {chat_open}（120〜200字程度の総評・おすすめコメント。この作品を絶対に読んでほしいという強い思いを、【キャラクターの性格・口調】に合った形で表現すること。テンションが高いキャラは勢いよく、落ち着いたキャラは静かに深く語ること。）{chat_close}
 """
@@ -347,6 +347,9 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 6. 記事本文（<p>タグ）では、あらすじ情報から「存在しない設定やキャラクター」を創作（ハルシネーション）して文字を水増しすることは絶対禁止。
 7. h2見出しは毎回異なる切り口で書くこと。「○○に迫る」「○○が紡ぐ」のようなテンプレ表現は避けること。
 8. 記事本文は、スマホでの読みやすさを重視し、適宜複数の <p> タグに分割するか、<br> タグを用いて改行してください。1つの <p> タグに長文を詰め込みすぎないこと。
+9. 【重要】あらすじ情報に含まれる「アフィリエイトURL」「X(Twitter)等の外部URL」をそのまま記事本文に出力することは絶対禁止。リンクはシステム側で自動付与するためテキストとして書かないこと。
+10. 見出しや本文中の強調に欧米式の引用符（' や '' や "）を使用しないこと。必ず日本語の鍵括弧（「」）や隅付き括弧（【】）を使用するか、装飾なしで記述すること。
+11. 【重要】「専売」「限定作品」という情報は記事全体を通じて1回のみさりげなく触れること。繰り返し強調したり、毎セクションに盛り込むことは禁止。
 {pattern_rules}
 【対象作品情報】
 タイトル: {safe_title}
@@ -557,6 +560,10 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             import re
             content = re.sub(r'^```(?:html|xml)?\s*', '', content, flags=re.IGNORECASE)
             content = re.sub(r'\s*```$', '', content)
+            # 万が一AIが「アフィリエイトURL:」や「作者のXは〜」などを出力した場合の強制サニタイズ
+            content = re.sub(r'アフィリエイトURL[：:].*?(?=<|$)', '', content)
+            content = re.sub(r'作者のX[：は].*?(?=<|$)', '', content)
+            content = re.sub(r'https?://[^\s<"]+', '', content)
             content = content.strip()
 
             if not _check_image_ok(target["image_url"]):
