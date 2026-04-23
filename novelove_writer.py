@@ -331,6 +331,19 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 
 
 
+    catchphrase_instruction = ""
+    cp = reviewer.get("catchphrases")
+    if cp and isinstance(cp, dict) and random.random() < 0.20:
+        catchphrase = random.choices(
+            [cp["main"], cp["sub"]],
+            weights=[7, 3]
+        )[0]
+        catchphrase_instruction = (
+            f"\n\n[特別指示]\n"
+            f"今回の吹き出しコメントのどこかで、自然な流れの中で「{catchphrase}」という表現を1回だけ使ってください。"
+            f"不自然にならないよう、感情が高まった箇所に自然に溶け込ませること。本文（p/ul/h2タグ）には絶対に入れないこと。\n"
+        )
+
     return f"""あなたは人気ファンブログ「Novelove」の特別ライター「{reviewer["name"]}」です。
 【キャラクター設定】
 名前: {reviewer["name"]}
@@ -371,7 +384,7 @@ SEO_META:
 seo_title=（32文字以内。**上記【対象作品情報】のあらすじに書かれた具体的な設定・属性・キーワード**を使うこと。存在しない設定・キャラ・展開は絶対に使わないこと。読者の感情を揺さぶる言葉で表現する。末尾に「| Novelove」は付けない。）
 meta_desc=（80文字程度。**あらすじに実際に書かれた内容**に基づき、誰のどんな性癖に刺さるかを具体的に断言すること。あらすじにない要素を創作することは絶対禁止。読後にどんな感情が待っているかを約束する一文で締める。）
 {("" if not original_tags else _tag_rule_str)}
-{FACT_GUARD}{NG_PHRASES}
+{FACT_GUARD}{NG_PHRASES}{catchphrase_instruction}
 """
 
 
