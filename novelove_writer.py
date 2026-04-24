@@ -499,7 +499,7 @@ def call_deepseek(prompt, model_id=None):
     for attempt in range(3):
         logger.info(f"  [DeepSeek-V4:{_model}] 執筆依頼... (試行{attempt+1}/3)")
         t_start = time.time()
-        text, error_type = _call_deepseek_raw(messages, max_tokens=2000, temperature=0.8, model_id=_model)
+        text, error_type = _call_deepseek_raw(messages, max_tokens=3000, temperature=0.8, model_id=_model)
         proc_time = round(time.time() - t_start, 1)
         if error_type == "rate_limit":
             logger.warning("  [DeepSeek] レート制限 → 30秒待機")
@@ -637,6 +637,29 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             content = re.sub(r'作者のX[：は].*?(?=<|$)', '', content)
             content = re.sub(r'https?://[^\s<"]+', '', content)
             content = content.strip()
+
+            # === v17.7.0: speech-bubble 閉じ漏れ検出 → 投稿中止 + Discord通知 ===
+            # トークン切れ等でAIが末尾の </div></div> を出力し損ねた場合、
+            # 記事が不完全な状態のまま投稿することを防ぐ。
+            # 黙って補完するのではなく、異常として検出・通知して次のmask_levelに回す。
+            import re as _re
+            _open_count  = len(_re.findall(r'class="speech-bubble-left"', content))
+            _close_count = content.count('</div></div>')
+            if _open_count > 0 and _close_count < _open_count:
+                _missing = _open_count - _close_count
+                logger.warning(
+                    f"  [v17.7.0] speech-bubble 閉じ漏れ検出: {_missing}箇所不足 "
+                    f"(open={_open_count}, close={_close_count}) → この試行をスキップ"
+                )
+                from novelove_core import notify_discord
+                notify_discord(
+                    f"⚠️ **トークン切れ検出** [{target.get('product_id', '?')}]\n"
+                    f"speech-bubble の閉じタグが {_missing}箇所不足しています。\n"
+                    f"記事が途中で切れているため投稿をスキップし、次の試行に移ります。\n"
+                    f"（max_tokens不足またはAPIの応答切断が原因）",
+                    username="⚠️ 構造異常通知"
+                )
+                continue  # 次のmask_levelで再試行
 
             if not _check_image_ok(target["image_url"]):
                 logger.warning(f"  [画像NG] 投稿直前チェックで無効: {target['image_url']}")
