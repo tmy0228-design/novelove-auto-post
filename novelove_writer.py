@@ -15,7 +15,7 @@ from novelove_core import (
     logger, ArticleResult,
     get_affiliate_button_html,
     _get_reviewer_for_genre, _genre_label,
-    OPENROUTER_API_KEY,
+    DEEPSEEK_API_KEY,
 )
 
 from novelove_fetcher import (
