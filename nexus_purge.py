@@ -14,17 +14,15 @@ import logging
 # novelove_core から必要な設定・関数を読み込む
 from novelove_core import (
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
-    db_connect, OPENROUTER_API_KEY,
+    db_connect, DEEPSEEK_API_KEY,
 )
-from novelove_writer import MODEL_ECONOMY
+from novelove_writer import MODEL_ECONOMY, DEEPSEEK_API_URL
 
 WP_SITE_URL = os.environ.get("WP_SITE_URL", "https://novelove.jp")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("NexusPurge")
 WP_USER = os.environ.get("WP_USER", "novelove-admin")
 WP_APP_PASSWORD = os.environ.get("WP_APP_PASSWORD", "")
-# v17.0.0: OpenRouter経由でGrokに統一
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 
@@ -32,8 +30,8 @@ def _call_deepseek_score_only(title, description, genre):
     """
     タイトルとあらすじだけをAIに送り、1〜5の「SCORE」のみを算出させる
     """
-    if not OPENROUTER_API_KEY:
-        logger.error("OPENROUTER_API_KEY が設定されていません")
+    if not DEEPSEEK_API_KEY:
+        logger.error("DEEPSEEK_API_KEY が設定されていません")
         return 0
 
     system_prompt = (
@@ -47,9 +45,7 @@ def _call_deepseek_score_only(title, description, genre):
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": "https://novelove.jp",
-        "X-Title": "Novelove",
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
     }
     payload = {
         "model": MODEL_ECONOMY,
@@ -62,9 +58,9 @@ def _call_deepseek_score_only(title, description, genre):
         "stream": False,
     }
     try:
-        r = requests.post(OPENROUTER_API_URL, headers=headers, json=payload, timeout=30)
+        r = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=30)
         if r.status_code != 200:
-            logger.warning(f"OpenRouter APIエラー: {r.status_code}")
+            logger.warning(f"DeepSeek APIエラー: {r.status_code}")
             return 0
         ans = r.json()["choices"][0]["message"]["content"]
         match = re.search(r'SCORE:\s*(\d)', ans, re.IGNORECASE)
