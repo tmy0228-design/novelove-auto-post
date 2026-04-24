@@ -469,6 +469,36 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
 
     logger.info(f"  [WP] post_id={wp_post_id} / 現在のタグID: {current_tag_ids}")
 
+    # --- Step 2.5: slug検証ガード（v17.7.1: 誤上書き防止） ---
+    # post_id解決後、実際のpostのslugがproduct_idと一致するか検証する。
+    # 不一致の場合は「別の記事を上書きしてしまう」致命的バグを防止するため即座に中止。
+    try:
+        _verify_r = requests.get(
+            f"{WP_SITE_URL}/wp-json/wp/v2/posts/{wp_post_id}",
+            auth=_wp_auth(),
+            params={"_fields": "id,slug"},
+            timeout=15,
+        )
+        _verify_data = _verify_r.json()
+        _actual_slug = _verify_data.get("slug", "")
+        if _actual_slug.lower() != product_id.lower():
+            logger.error(
+                f"❌ [安全停止] post_id={wp_post_id} の実際のslugは '{_actual_slug}' ですが、"
+                f"期待するproduct_idは '{product_id}' です。slug不一致のため上書きを中止します。"
+            )
+            notify_discord(
+                f"🚨 **[リライト安全停止]** slug不一致を検出\\n"
+                f"**product_id**: {product_id}\\n"
+                f"**解決されたWP post_id**: {wp_post_id} (slug: {_actual_slug})\\n"
+                f"**判定**: 別の記事を上書きする危険があるため中止しました",
+                username="🛡️ Nexus安全装置"
+            )
+            return False
+        logger.info(f"  [検証OK] slug一致確認: {_actual_slug}")
+    except Exception as e:
+        logger.error(f"❌ [安全停止] slug検証中にエラー: {e}")
+        return False
+
     # --- Step 3: 保護タグを退避 ---
     protected_ids = _wp_get_protected_tag_ids(current_tag_ids)
     if protected_ids:
