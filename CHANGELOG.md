@@ -12,6 +12,12 @@
   - Discordに「⚠️ 構造異常通知（トークン切れ検出）」として不足箇所数を通知。
   - 次の `mask_level` フィルターで再試行し、正常な形での出力完了を目指す（3回とも失敗した場合は `content_block` エラーとして処理し、安全に投稿を破棄）。
 
+### 🚀 コスト最適化・推論力向上: DeepSeek-V4-Flash への完全移行
+- **対象 (`novelove_writer.py`)**: `MODEL_ECONOMY` を `x-ai/grok-4.1-fast` から `deepseek-v4-flash` に変更。
+- **背景**: Grokの利用コストと比較し、本日発表された DeepSeek-V4-Flash がコストパフォーマンスと推論速度の両面で圧倒的に優れているため。
+- **調整**: スコア判定（`_evaluate_article_potential`）時において、不必要な長文思考プロセスによるトークン浪費を防ぐため `thinking_disabled=True` を明示的に設定し、純粋なスコア数値のみを高速返却させるよう最適化済み。
+- **仕様書更新**: `SPECIFICATIONS.md` のAIモデル記載を更新。
+
 ### 🛠️ 運用: 問題記事のリカバリ対応
 - **対象 (`nexus_batch_rewrite.py`)**: 
   - 本問題により過去に投稿されてしまったHTML崩れ記事 `rj01533656` および `b163cijt232807` の2件を、バッチリライトの明示的な対象ID（`EXTRA_IDS`）として追加。
