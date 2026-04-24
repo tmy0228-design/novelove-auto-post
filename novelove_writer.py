@@ -588,6 +588,13 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             content = re.sub(r'https?://[^\s<"]+', '', content)
             content = content.strip()
 
+            # === v17.8.2: 自動整形のwpautop対策 ===
+            # AIが吹き出しHTMLに改行を含めた場合、WordPressが<p>を自動挿入しCSSのflexレイアウトが崩壊するのを防ぐ
+            def _wrap_html_block(m):
+                t = m.group(0).strip()
+                return f"<!-- wp:html -->\n{t}\n<!-- /wp:html -->"
+            content = re.sub(r'<div class="speech-bubble-(?:left|right)".*?</div>\s*</div>', _wrap_html_block, content, flags=re.DOTALL)
+
             # === v17.7.0: speech-bubble 閉じ漏れ検出 → 投稿中止 + Discord通知 ===
             # トークン切れ等でAIが末尾の </div></div> を出力し損ねた場合、
             # 記事が不完全な状態のまま投稿することを防ぐ。
