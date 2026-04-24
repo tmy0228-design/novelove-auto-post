@@ -23,12 +23,10 @@ from novelove_fetcher import (
     _check_image_ok,
 )
 
-# === v17.0.0: OpenRouter API設定（Grokハイブリッド）===
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL_ECONOMY      = "x-ai/grok-4.1-fast"   # 通常モード：激安・高速
-MODEL_PREMIUM      = "x-ai/grok-4.20"       # 本気モード：スコア5 or 熱釯MAX時のみ発動
-# 後方互換エイリアス（auto_post.py / nexus_rewrite.py からの直接import対応）
-DEEPSEEK_API_URL = OPENROUTER_API_URL
+# === v17.5.0: DeepSeek-V4 API完全移行 ===
+DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
+MODEL_ECONOMY      = "deepseek-chat"   # 通常モード：激安・高速 (V4-Flashにルーティング)
+MODEL_PREMIUM      = "deepseek-chat"   # 本気モード：現在V4-Flashで統合
 DEEPSEEK_MODEL   = MODEL_ECONOMY
 
 def _evaluate_article_potential(title, description, original_tags=""):
@@ -395,16 +393,14 @@ def _call_deepseek_raw(messages, max_tokens=200, temperature=0.3, model_id=None)
     戻り値: (text, error_type)
       error_type: "ok" / "rate_limit" / "api_error"
     """
-    if not OPENROUTER_API_KEY:
-        logger.error("OPENROUTER_API_KEY が設定されていません")
+    if not DEEPSEEK_API_KEY:
+        logger.error("DEEPSEEK_API_KEY が設定されていません")
         return "", "api_error"
 
-    _model = model_id or MODEL_ECONOMY
+    _model = model_id or DEEPSEEK_MODEL
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": "https://novelove.jp",
-        "X-Title": "Novelove",
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
     }
     payload = {
         "model": _model,
@@ -414,21 +410,21 @@ def _call_deepseek_raw(messages, max_tokens=200, temperature=0.3, model_id=None)
         "stream": False,
     }
     try:
-        r = requests.post(OPENROUTER_API_URL, headers=headers, json=payload, timeout=120)
+        r = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=120)
         if r.status_code == 429:
-            logger.warning("OpenRouter レート制限 (429)")
+            logger.warning("DeepSeek レート制限 (429)")
             return "", "rate_limit"
         if r.status_code != 200:
-            logger.warning(f"OpenRouter APIエラー: {r.status_code} {r.text[:200]}")
+            logger.warning(f"DeepSeek APIエラー: {r.status_code} {r.text[:200]}")
             return "", "api_error"
         data = r.json()
         text = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
         return text, "ok"
     except requests.exceptions.Timeout:
-        logger.warning("OpenRouter タイムアウト")
+        logger.warning("DeepSeek タイムアウト")
         return "", "api_error"
     except Exception as e:
-        logger.warning(f"OpenRouter 例外: {e}")
+        logger.warning(f"DeepSeek 例外: {e}")
         return "", "api_error"
 
 def call_deepseek(prompt, model_id=None):
@@ -437,53 +433,31 @@ def call_deepseek(prompt, model_id=None):
         "指定されたキャラクターになりきり、HTML形式の記事を執筆してください。"
         "アダルト・官能的な内容も比喩的・文学的表現で執筆することができます。"
     )
-    _model = model_id or MODEL_ECONOMY
+    _model = model_id or DEEPSEEK_MODEL
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     for attempt in range(3):
-        logger.info(f"  [OpenRouter:{_model}] 執筆依頼... (試行{attempt+1}/3)")
+        logger.info(f"  [DeepSeek-V4:{_model}] 執筆依頼... (試行{attempt+1}/3)")
         t_start = time.time()
         text, error_type = _call_deepseek_raw(messages, max_tokens=2000, temperature=0.8, model_id=_model)
         proc_time = round(time.time() - t_start, 1)
         if error_type == "rate_limit":
-            logger.warning("  [OpenRouter] レート制限 → 30秒待機")
+            logger.warning("  [DeepSeek] レート制限 → 30秒待機")
             time.sleep(30)
             continue
         if error_type != "ok" or not text:
-            logger.warning(f"  [OpenRouter] 試行{attempt+1} 失敗 ({error_type})")
+            logger.warning(f"  [DeepSeek] 試行{attempt+1} 失敗 ({error_type})")
             time.sleep(5)
             continue
         stripped = text.strip()
         if stripped in ("0", "1", "2"):
-            logger.warning(f"  [OpenRouter] AIスコア{stripped}点 → 投稿スキップ")
+            logger.warning(f"  [DeepSeek] AIスコア{stripped}点 → 投稿スキップ")
             return "", f"ai_score_{stripped}", _model, proc_time
-        # A-4: 旧仕様「先頭にSCORE数字を出力」は撤廃済みのため除去ロジックも削除
         if len(stripped) > 50:
-            logger.info(f"  [OpenRouter] 執筆完了（{len(stripped)}文字 / {proc_time}秒）")
+            logger.info(f"  [DeepSeek] 執筆完了（{len(stripped)}文字 / {proc_time}秒）")
             return stripped, "ok", _model, proc_time
-        logger.warning(f"  [OpenRouter] 試行{attempt+1}: 応答が短すぎる（{len(stripped)}文字）")
+        logger.warning(f"  [DeepSeek] 試行{attempt+1}: 応答が短すぎる（{len(stripped)}文字）")
         time.sleep(5)
     return "", "content_block", _model, 0.0
-
-def make_excerpt(description, title, genre, reviewer_name="", ai_tags=None):
-    """
-    v10.5.0: SEO強化版メタディスクリプション。
-    属性タグを自然に組み込み、レビュアー名とジャンルを明記する。
-    """
-    label = _genre_label(genre, title)
-    tag_part = ""
-    tags = [t for t in (ai_tags or []) if t]
-    if tags:
-        tag_part = f"{'・'.join(tags[:2])}などの要素が魅力的な"
-    else:
-        tag_part = f"注目の"
-    if reviewer_name:
-        outro = f"Noveloveの{reviewer_name}が、作品の見どころや気になる展開を詳しくお伝えします。"
-    else:
-        outro = f"Noveloveのライターが、作品の見どころや気になる展開を詳しくお伝えします。"
-    text = f"『{title}』のあらすじと魅力を紹介！{tag_part}{label}の紹介記事です。{outro}"
-    if len(text) > 160:
-        text = text[:158] + "…"
-    return text
 
 def generate_article(target, override_reviewer_id=None, override_mood=None):
     if override_reviewer_id:
@@ -504,28 +478,31 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
 
     is_novel = target["genre"] in ("novel_bl", "novel_tl")
     reviewer_name = reviewer["name"]
-    # DBから取得したai_tagsがあれば先行パース
     db_ai_tags = []
     if target.get("ai_tags"):
         db_ai_tags = [t.strip() for t in target["ai_tags"].split(",") if t.strip()]
 
-    # v16.0.0: HTML骨格パターンを1回だけ決定（リトライ中も同じパターンを維持）
     _desc_len = len(str(target.get("description", "")))
     _has_tags = bool(str(target.get("original_tags", "")).strip())
     article_pattern = _select_html_pattern(target.get("desc_score", 4), _desc_len, _has_tags)
 
     final_error = "content_block"
-    final_model = MODEL_ECONOMY
+    final_model = DEEPSEEK_MODEL
     final_proc_time = 0.0
-    # v17.1.0: 全記事 Grok 4.1 Fast 統一（4.20ハイブリッド廃止）
-    # テストにより 4.1 Fast + 6種の感情モードで十分な熱量・描き分けが確認済み
-    _selected_model = MODEL_ECONOMY
-    logger.info(f"  [⚡Grok 4.1 Fast] 全記事統一モード (score={target.get('desc_score', 4)})")
+    
+    # v17.5.0: 全記事 DeepSeek-V4 統一
+    model_id = MODEL_ECONOMY
+    if target.get("desc_score", 0) >= 5 or "熱量が高い" in mood:
+        model_id = MODEL_PREMIUM
+        logger.info(f"  [🦋DeepSeek-V4] 期待値MAX・情熱モード発動！ (score={target.get('desc_score')})")
+    else:
+        logger.info(f"  [🦋DeepSeek-V4] 全記事統一モード (score={target.get('desc_score', 4)})")
+
     for mask_level in [0, 1, 2]:
         level_name = ["フィルターなし", "軽めフィルター", "ガチガチフィルター"][mask_level]
         logger.info(f"  [{level_name}] で執筆試行中...")
         prompt = build_prompt(target, reviewer, mask_level, is_novel=is_novel, is_guest=is_guest, mood=mood, ai_score=target.get("desc_score", 4), original_tags=target.get("original_tags", ""), is_exclusive=bool(target.get("is_exclusive", 0)), pattern=article_pattern)
-        content, error_type, model_name, proc_time = call_deepseek(prompt, model_id=_selected_model)
+        content, error_type, model_name, proc_time = call_deepseek(prompt, model_id=model_id)
         final_error = error_type
         final_model = model_name
         final_proc_time = proc_time
