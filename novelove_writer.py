@@ -61,7 +61,9 @@ def _evaluate_article_potential(title, description, original_tags=""):
         {"role": "user", "content": prompt}
     ]
     # A-2: 50は切れすぎるリスクがあるため100に増やしてマージンを確保（コスト増は微小）
-    content, err = _call_deepseek_raw(messages, max_tokens=100, temperature=0.3)
+    # v17.6.0: スコア審査は数字1文字だけ返せばよいので推論(Thinking)を無効化する
+    # 推論ONだとmax_tokens=100がすべて推論に消費され、contentが空→スコア0になる致命的バグの修正
+    content, err = _call_deepseek_raw(messages, max_tokens=100, temperature=0.3, thinking_disabled=True)
     if err != "ok" or not content:
         return 0
 
@@ -392,10 +394,12 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_FALLBACK_MODEL = "deepseek/deepseek-chat"  # OpenRouter経由のDeepSeek
 _fallback_notified = False  # Discord通知の重複防止フラグ
 
-def _call_deepseek_raw(messages, max_tokens=200, temperature=0.3, model_id=None):
+def _call_deepseek_raw(messages, max_tokens=200, temperature=0.3, model_id=None, thinking_disabled=False):
     """
     DeepSeek V4 APIへの共通リクエスト関数（v17.5.0）。
     DeepSeek直接APIが失敗した場合、OpenRouter経由に自動フォールバックする。
+    thinking_disabled: Trueの場合、推論(Thinking)を無効化する。
+                       スコア審査など数字1文字だけ返す用途では必須。
     戻り値: (text, error_type)
       error_type: "ok" / "rate_limit" / "api_error"
     """
@@ -418,6 +422,9 @@ def _call_deepseek_raw(messages, max_tokens=200, temperature=0.3, model_id=None)
         "temperature": temperature,
         "stream": False,
     }
+    # v17.6.0: スコア審査等の短い応答では推論を無効化（トークン枯渇防止）
+    if thinking_disabled:
+        payload["thinking"] = {"type": "disabled"}
     try:
         r = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=120)
         if r.status_code == 200:
