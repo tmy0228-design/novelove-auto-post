@@ -417,7 +417,6 @@ def _call_deepseek_raw(messages, max_tokens=200, temperature=0.3, model_id=None)
         "max_tokens": max_tokens,
         "temperature": temperature,
         "stream": False,
-        "thinking": {"type": "disabled"}  # V4 Flashのコスト削減のため推論を無効化
     }
     try:
         r = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=120)
