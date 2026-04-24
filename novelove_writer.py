@@ -111,7 +111,7 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
     """
     safe_title = mask_input(target["title"], mask_level)
     safe_desc  = mask_input(target["description"], mask_level)
-    chat_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
+    chat_open  = f'<div class="speech-bubble-left"><img src="https://novelove.jp/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
     chat_close = '</div></div>'
 
     focus = reviewer.get("novel_focus", "") if is_novel else reviewer.get("manga_focus", "")

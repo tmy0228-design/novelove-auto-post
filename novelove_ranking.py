@@ -298,7 +298,7 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
         items_xml += f'\n<item rank="{idx+1}">\n  <title>{item["title"]}</title>\n  <description>{desc}...</description>\n</item>\n'
 
     # MC（左）の吹き出し
-    mc_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
+    mc_open  = f'<div class="speech-bubble-left"><img src="https://novelove.jp/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
     mc_close = '</div></div>'
 
     if guest is None:
@@ -326,7 +326,7 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 '''
 
     # ゲスト（右）の吹き出し
-    guest_open  = f'<div class="speech-bubble-right"><img src="/wp-content/uploads/icons/{guest["face_image"]}.png" alt="{guest["name"]}" /><div class="speech-text">'
+    guest_open  = f'<div class="speech-bubble-right"><img src="https://novelove.jp/wp-content/uploads/icons/{guest["face_image"]}.png" alt="{guest["name"]}" /><div class="speech-text">'
     guest_close = '</div></div>'
 
     # 2人の関係性テキストを取得
