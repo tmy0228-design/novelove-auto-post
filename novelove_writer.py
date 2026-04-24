@@ -586,6 +586,11 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             content = re.sub(r'アフィリエイトURL[：:].*?(?=<|$)', '', content)
             content = re.sub(r'作者のX[：は].*?(?=<|$)', '', content)
             content = re.sub(r'https?://[^\s<"]+', '', content)
+            # === v17.8.4: Markdownの見出しをHTMLに強制変換 ===
+            # AIが## や### をHTMLの代わりに出力した場合に「##」がそのまま表示される問題を防ぐ
+            content = re.sub(r'^#{3}\s+(.+)$', r'<h3>\1</h3>', content, flags=re.MULTILINE)
+            content = re.sub(r'^#{2}\s+(.+)$', r'<h2>\1</h2>', content, flags=re.MULTILINE)
+            content = re.sub(r'^#{1}\s+(.+)$', r'<h2>\1</h2>', content, flags=re.MULTILINE)
             content = content.strip()
 
             # === v17.7.0: speech-bubble 閉じ漏れ検出 → 投稿中止 + Discord通知 ===
