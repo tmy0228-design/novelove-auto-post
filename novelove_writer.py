@@ -25,7 +25,7 @@ from novelove_fetcher import (
 
 # === v17.5.0: DeepSeek-V4 API完全移行 ===
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
-MODEL_ECONOMY      = "deepseek-chat"   # 通常モード：激安・高速 (V4-Flashにルーティング)
+MODEL_ECONOMY      = "deepseek-v4-flash"   # 本日発表のV4 Flashへ明示的アップデート
 MODEL_PREMIUM      = "deepseek-chat"   # 本気モード：現在V4-Flashで統合
 DEEPSEEK_MODEL   = MODEL_ECONOMY
 
@@ -417,6 +417,7 @@ def _call_deepseek_raw(messages, max_tokens=200, temperature=0.3, model_id=None)
         "max_tokens": max_tokens,
         "temperature": temperature,
         "stream": False,
+        "thinking": {"type": "disabled"}  # V4 Flashのコスト削減のため推論を無効化
     }
     try:
         r = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=120)
