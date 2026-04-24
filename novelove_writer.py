@@ -54,7 +54,7 @@ def _evaluate_article_potential(title, description, original_tags=""):
 
 タイトル: {title}
 あらすじ: {description[:1000]}
-{f"公式属性タグ: {original_tags}" if original_tags else ""}
+{f"作品の属性・シチュエーション要素: {original_tags}" if original_tags else ""}
 """
     messages = [
         {"role": "system", "content": "あなたはプロの編集者です。情報量と面白さだけで厳密に審査してください。"},
@@ -367,7 +367,7 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 タイトル: {safe_title}
 作品ジャンル: {_genre_label(target.get("genre", ""))}（※このジャンルを絶対に間違えないこと。BL・TLの誤記は最大の禁止事項です）
 あらすじ: {safe_desc}
-{f"公式属性タグ: {original_tags}" if original_tags else ""}
+{f"作品の属性・シチュエーション要素: {original_tags}" if original_tags else ""}
 {f"販売形態: {str(target.get('site', '')).split(':')[0]}専売（他サービスでは購入できない限定作品）" if is_exclusive else ""}
 アフィリエイトURL: {target["affiliate_url"]}
 【出力形式（HTML）】
