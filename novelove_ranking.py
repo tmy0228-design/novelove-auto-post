@@ -497,7 +497,7 @@ def process_ranking_articles():
                 
                 content_html = ""
                 for attempt in range(3):
-                    html_text, err = _call_deepseek_raw(messages, max_tokens=6000, temperature=0.7)
+                    html_text, err = _call_deepseek_raw(messages, max_tokens=8000, temperature=0.7)  # v17.8.9: 6000→8000（2人対話×5作品で截断が発生していたため通常記事と同値に引き上げ）
                     if err == "ok" and html_text:
                         content_html = html_text
                         break
