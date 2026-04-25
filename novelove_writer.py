@@ -450,7 +450,7 @@ def call_deepseek(prompt, model_id=None):
     for attempt in range(3):
         logger.info(f"  [DeepSeek-V4:{_model}] 執筆依頼... (試行{attempt+1}/3)")
         t_start = time.time()
-        text, error_type = _call_deepseek_raw(messages, max_tokens=8000, temperature=0.8, model_id=_model)  # v17.7.1: 3000→8000（途切れ防止。通常執筆の最大~5000トークンを余裕で収め、暴走ストッパーとしても機能）
+        text, error_type = _call_deepseek_raw(messages, max_tokens=16000, temperature=0.8, model_id=_model)  # v17.8.11: 8000→16000（DeepSeek V4 Flash 実際の上限384K。余裕を持って設定）
         proc_time = round(time.time() - t_start, 1)
         if error_type == "rate_limit":
             logger.warning("  [DeepSeek] レート制限 → 30秒待機")
