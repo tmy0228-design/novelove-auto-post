@@ -1,3 +1,37 @@
+## v17.8.11 — max_tokens 8000→16000（ranking/writer両方） (2026-04-25)
+
+### 🔧 fix(ranking/writer): 全記事生成の最大トークン数を引き上げ
+- **対象 (`novelove_ranking.py`, `novelove_writer.py`)**: `max_tokens` を `8000` → `16000` に変更。
+- **根拠**: DeepSeek V4 Flash の実際の最大出力は **384,000 トークン**（旧認識の 8,192 は誤り）。課金は実際に生成したトークン分のみ発生するため、上限を上げてもコストが増加しない。
+- **効果**: ランキング記事（2人対話×5作品）が今後さらに詳細になっても打切れるリスクがなくなる。通常記事も将来の展開張りに対応。
+
+## v17.8.10 — ranking.pyから_wrap_html_blockを削除 (2026-04-25)
+
+### 🐛 fix(ranking): 各speech-bubbleのwp:html個別ラップを削除（ページ崩れの根本原因）
+- **対象 (`novelove_ranking.py`)**: `_wrap_html_block` 関数およびその適用行（4行）を削除。
+- **根本原因**: 各speech-bubbleを`<!-- wp:html -->`で個別ラップするおよび、全体をCSS injectionが包む構造がランキング記事に残存していた。対話形式で最大**32個**の Gutenberg HTMLブロックが生成され、ページが崩れていた。
+- **差异点**: `novelove_writer.py` では v17.8.3 に既に同様の問題で revert 済みだったが、`ranking.py` にのみ残っていた。
+- **後続対応**: `fanza-tl-ranking-2026-04-w4` 記事をリライト（崩れていた内容を完全再生成）。
+
+## v17.8.9 — アイコンパス誤出力の根本解決 + ranking.py相対URL化 (2026-04-25)
+
+### 🛡️ fix(writer/ranking): アイコンsrcをキャラ名検出で強制上書きする最強サニタイザー
+- **対象 (`novelove_writer.py`)**: v17.8.8の単純 `.replace()` 対応を廃止。正規表現で**キャラクター名（日本語/英語両対応）を含む `src` 属性を一括検出し、正しいパスに強制上書き**する方式へ移行。
+  - 修正パターン: `/webp-content/` `/wo-content/` `/wp-content/icons/` `/webdav/` `/discourse/` `/img/` 等すべて。
+- **対象 (`novelove_ranking.py`)**: アイコンURLを絶対URL (`https://novelove.jp/...`) から相対URL (`/wp-content/uploads/icons/`) に変更。
+
+### 🔧 fix(db): 破損アイコンパスの一括修復（14件）
+- SQLのHEXエンコーディングを利用し、存在する全対象記事のアイコンパスを一括修復。ランキング記事2件（fanza-bl/tl-ranking-2026-04-w4）を含む。
+
+### 🔧 fix(ranking): fanza-bl-ranking-2026-04-w4 のリライト（位で打切れていた）
+- max_tokens=8000、`_wrap_html_block`なしで再生成。WP第5122投稿を直接PATCHしURL維持。
+- **全作品コンテンツ**: 10,241文字（打切れなし）。
+
+## v17.8.8 — アイコンパス `/webp-content/` 誤出力の修正 (2026-04-25)
+
+### 🐛 fix(writer): `/webp-content/` 残留バグの一次対応
+- **対象 (`novelove_writer.py`)**: L589の https:// 除去サニタイザーにより `https://novelove.jp` が除去された後、`/webp-content/` が残殌するバグを `.replace()` で一次対応（v17.8.9で正規表現からも対応済み）。
+
 ## v17.7.1 — OpenRouterフォールバックモデルをv4-flashに統一・max_tokens引き上げ (2026-04-25)
 
 ### 🐛 fix(writer): OpenRouterフォールバックモデルをdeepseek-chatからdeepseek-v4-flashへ統一
