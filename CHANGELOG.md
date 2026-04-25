@@ -1,3 +1,14 @@
+## v17.7.1 — OpenRouterフォールバックモデルをv4-flashに統一・max_tokens引き上げ (2026-04-25)
+
+### 🐛 fix(writer): OpenRouterフォールバックモデルをdeepseek-chatからdeepseek-v4-flashへ統一
+- **対象 (`novelove_writer.py`)**: `OPENROUTER_FALLBACK_MODEL` を `"deepseek/deepseek-chat"` → `"deepseek/deepseek-v4-flash"` へ変更。
+- **理由**: DeepSeek直接APIが不通の際にフォールバックするOpenRouter経由のモデルが旧世代の `deepseek-chat` のままで、メインの `deepseek-v4-flash` と品質・スペックが乖離していた。フォールバック時も同一品質を維持するため統一。
+
+### 🐛 fix(writer): 執筆のmax_tokensを3000→8000へ引き上げ（記事途切れ防止）
+- **対象 (`novelove_writer.py`)**: `call_deepseek()` 内の `max_tokens` を `3000` → `8000` へ変更。
+- **根本原因**: DeepSeek V4はThinking（推論）機能がデフォルトでONのため、推論トークンも `max_tokens` のバジェットとして消費される。推論で最大1000〜2000トークン使用した上でパターンC/D等の長文記事（最大~5000トークン）を生成すると3000では不足し、文章が途中で強制打ち切りになっていた。
+- **影響**: `deepseek-v4-flash` の最大出力は384,000トークンであるため8000は十分な暴走ストッパーとして機能する。
+
 ## v17.8.7 — DB検索の大文字小文字不一致・WPサフィックス問題の修正 (2026-04-25)
 
 ### 🐛 fix(rewrite): product_id の大文字小文字不一致で DB レコードが見つからないバグを修正
