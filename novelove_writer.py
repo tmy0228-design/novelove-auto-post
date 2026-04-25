@@ -587,10 +587,15 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             content = re.sub(r'アフィリエイトURL[：:].*?(?=<|$)', '', content)
             content = re.sub(r'作者のX[：は].*?(?=<|$)', '', content)
             content = re.sub(r'https?://[^\s<"]+', '', content)
-            # === v17.8.8: AIが「webp-content」と誤出力した場合の修正 ===
-            # DeepSeekがWebPを意識してhttps://novelove.jp/webp-content/...と出力し、
-            # 上のサニタイザーでhttps://novelove.jpが除去された後に /webp-content/ が残るバグを防ぐ。
-            content = content.replace('/webp-content/uploads/icons/', '/wp-content/uploads/icons/')
+            # === v17.8.9: アイコンパス全修正サニタイザー ===
+            # AIがWebP・typo・絶対URLなど様々な形でアイコンパスを誤出力するケースを網羅的に修正。
+            # キャラクター名（日本語・英語）を含むsrc属性を正しいパスに強制上書き。
+            _ICON_NAMES = r'(葵|紫苑|桃香|蓮|茉莉花|shion|marika|aoi|momoka|ren)'
+            content = re.sub(
+                rf'src="[^"]*?{_ICON_NAMES}\.png"',
+                r'src="/wp-content/uploads/icons/\1.png"',
+                content
+            )
             # === v17.8.4: Markdownの見出しをHTMLに強制変換 ===
             # AIが## や### をHTMLの代わりに出力した場合に「##」がそのまま表示される問題を防ぐ
             content = re.sub(r'^#{3}\s+(.+)$', r'<h3>\1</h3>', content, flags=re.MULTILINE)
