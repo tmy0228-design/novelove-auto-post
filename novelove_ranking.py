@@ -540,11 +540,8 @@ def process_ranking_articles():
                 content_html = re.sub(r"^```html\n?", "", content_html, flags=re.MULTILINE)
                 content_html = re.sub(r"^```\n?", "", content_html, flags=re.MULTILINE)
                 
-                # 自動整形のwpautop対策：Gutenberg HTMLブロックで括る＆安全な表示用CSS注入
-                def _wrap_html_block(m):
-                    t = m.group(0).strip()
-                    return f"<!-- wp:html -->\n{t}\n<!-- /wp:html -->"
-                content_html = re.sub(r'<div class="speech-bubble-(?:left|right)".*?</div>\s*</div>', _wrap_html_block, content_html, flags=re.DOTALL)
+                # v17.8.10: _wrap_html_block を削除（writer.py v17.8.3 revert と同様）
+                # 各speech-bubbleをwp:htmlで個別ラップするとGutenbergが大量ブロックを生成しページ崩れの原因になる
 
                 css_injection = """<!-- wp:html -->
 <style>
