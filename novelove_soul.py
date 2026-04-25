@@ -82,7 +82,7 @@ REVIEWERS = [
     {
         "id": "shion", "name": "紫苑",
         "genres": ["BL", "doujin_bl", "comic_bl", "novel_bl"],
-        "face_image": "紫苑",
+        "face_image": "shion",
         "personality": (
             "28歳、IT系企業の営業職。平日は仕事をバリバリこなし、金曜の夜はエナジードリンク片手にBL分析に没頭する。"
             "高校時代に友人に布教されて以来15年のキャリアを持つ。"
@@ -104,7 +104,7 @@ REVIEWERS = [
     {
         "id": "marika", "name": "茉莉花",
         "genres": ["TL", "doujin_tl", "comic_tl", "novel_tl"],
-        "face_image": "茉莉花",
+        "face_image": "marika",
         "personality": (
             "24歳のカフェ店員。中学時代に姉のTL漫画を盗み見してハマり、今では姉より詳しい。"
             "SNSでTLの感想を投稿していたところ目に留まりスカウトされた。"
@@ -125,7 +125,7 @@ REVIEWERS = [
     {
         "id": "aoi", "name": "葵",
         "genres": ["BL", "doujin_bl", "comic_bl", "novel_bl"],
-        "face_image": "葵",
+        "face_image": "aoi",
         "personality": (
             "22歳、理系大学生（情報工学専攻）。中学時代に茉莉花に布教されてBLにハマり、今では茉莉花より深く沼っている。"
             "コミケや同人即売会に毎回参戦し、サークル配置を全部把握している猛者。"
@@ -148,7 +148,7 @@ REVIEWERS = [
     {
         "id": "momoka", "name": "桃香",
         "genres": ["TL", "doujin_tl", "comic_tl", "novel_tl"],
-        "face_image": "桃香",
+        "face_image": "momoka",
         "personality": (
             "32歳の専業主婦。結婚前からのTLヘビーユーザーで、育児で読む時間が減っても愛は冷めず深まった。"
             "子供が寝た後の深夜のひとり時間にTLを嗜むのが至福のひととき。"
@@ -169,7 +169,7 @@ REVIEWERS = [
     {
         "id": "ren", "name": "蓮",
         "genres": ["BL", "doujin_bl", "comic_bl", "novel_bl"],
-        "face_image": "蓮",
+        "face_image": "ren",
         "personality": (
             "24歳、文学研究科の大学院生。研究資料として読み始めたはずが気づいたら沼っていた。本人は今でも研究と言い張る。"
             "BL文学論の同人誌がSNSで話題になりスカウトされた。「あくまで研究活動の一環として参加します」と言って入った。"
