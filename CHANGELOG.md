@@ -1,3 +1,21 @@
+## v17.8.7 — DB検索の大文字小文字不一致・WPサフィックス問題の修正 (2026-04-25)
+
+### 🐛 fix(rewrite): product_id の大文字小文字不一致で DB レコードが見つからないバグを修正
+- **対象 (`nexus_rewrite.py`)**: `_get_published_row()` のSQLを `WHERE product_id = ?` → `WHERE LOWER(product_id) = LOWER(?)` に変更。
+- **根本原因**: DLsite DB の product_id は大文字（`RJ01563907`）で格納されているのに対し、WP slug は小文字（`rj01563907`）。SQLite の TEXT 比較はデフォルトで大文字小文字を区別するため不一致。
+- **追加修正**: WP が同一 slug の重複記事に自動付与する `-2`, `-3` サフィックスを検索前に除去するロジックを追加（例: `rj01603383-2` → `rj01603383`）。
+
+## v17.8.6 — WP REST API slug検索の誤爆防止（bcache/アンダースコア対策） (2026-04-25)
+
+### 🐛 fix(rewrite): slug検索で別の記事を誤取得するバグを修正
+- **対象 (`nexus_rewrite.py`)**: `_wp_get_post_id_and_tags()` を全面改修。
+- **根本原因**: WP REST API の `slug` パラメータが、アンダースコア(`_`)を含むslug（例: `d_723289`）で無関係な記事を返すバグ的挙動 + WP SiteManager の bcache が REST API レスポンスをキャッシュし、異なるslugクエリでも同一の結果を返す問題。
+- **修正内容**:
+  1. **Phase 1（新設）**: DB上の `wp_post_id` がある場合、`/wp-json/wp/v2/posts/{id}` で直接取得（キャッシュ影響なし）。取得後にslugの一致を検証。
+  2. **Phase 2**: 従来のslug検索結果に**完全一致フィルタ**を追加。API返却結果のうち、要求したslugと完全一致するもののみを採用。
+  3. `_get_published_row()` の SELECT に `wp_post_id` カラムを追加し、呼び出し元で `db_wp_post_id` として渡すよう変更。
+- **影響**: `d_xxxxx` 系の記事リライトで「別の記事を上書きしようとして安全停止」するエラーが解消。
+
 ## v17.8.0〜v17.8.5 — プロンプト圧縮・アイコン画像修復・記事可読性改善 (2026-04-25)
 
 ### ✨ feat(prompt): v17.8.0 — プロンプト大幅圧縮（ルール13→4に統合）

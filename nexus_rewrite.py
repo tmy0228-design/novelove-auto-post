@@ -108,7 +108,15 @@ def _get_published_row(product_id):
     """
     全3DBを横断して product_id を検索し、status='published' のレコードを返す。
     戻り値: (row, db_path) または (None, None)
+
+    v17.8.7: slug正規化
+      - WPが自動付与する '-2', '-3' サフィックスを除去してから検索
+      - LOWER() で大文字小文字を無視（DLsite DB: 'RJ01563907' vs slug: 'rj01563907'）
     """
+    import re
+    # --- slug正規化: WPの重複回避サフィックス (-2, -3, ...) を除去 ---
+    normalized = re.sub(r'-\d+$', '', product_id)
+
     for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
         if not os.path.exists(db_path):
             continue
@@ -119,13 +127,15 @@ def _get_published_row(product_id):
                 """SELECT product_id, title, author, genre, site, status,
                           description, affiliate_url, image_url, product_url, wp_post_url,
                           ai_tags, desc_score, original_tags, is_exclusive,
-                          release_date, reviewer, rewrite_count, wp_tags
+                          release_date, reviewer, rewrite_count, wp_tags, wp_post_id
                    FROM novelove_posts
-                   WHERE product_id = ?""",
-                (product_id,)
+                   WHERE LOWER(product_id) = LOWER(?)""",
+                (normalized,)
             ).fetchone()
             conn.close()
             if row:
+                if normalized != product_id:
+                    logger.info(f"  [DB] slug正規化: '{product_id}' -> '{normalized}' (DB: {row['product_id']})")
                 return row, db_path
         except Exception as e:
             logger.warning(f"  [DB] 読み込みエラー ({db_path}): {e}")
@@ -139,26 +149,61 @@ def _wp_auth():
     return (WP_USER, WP_APP_PASSWORD)
 
 
-def _wp_get_post_id_and_tags(slug, wp_post_url=None):
+def _wp_get_post_id_and_tags(slug, wp_post_url=None, db_wp_post_id=None):
     """
-    スラグ（= product_id）から WP 記事の ID と現在のタグ ID リストを取得する。
-    nexus_revive.py の _wp_search_post_by_slug と同一のロジック。
-    見つからない場合は wp_post_url からスラグを抽出してリトライする。
+    WP 記事の ID と現在のタグ ID リストを取得する。
+    v17.8.6: WP SiteManager の bcache が slug 検索結果をキャッシュし
+    無関係な記事を返す問題への根本対処。
+    
+    検索優先順位:
+      1. db_wp_post_id（DB上のWP記事ID）で直接取得 → slug検証
+      2. slug パラメータで検索 → slug完全一致フィルタ
+      3. wp_post_url からslugを抽出してリトライ
+    
     戻り値: (wp_post_id: int|None, tag_ids: list[int])
     """
     auth = _wp_auth()
+
+    # --- Phase 1: DB上の wp_post_id で直接取得（最も確実・キャッシュ影響なし） ---
+    if db_wp_post_id:
+        try:
+            r = requests.get(
+                f"{WP_SITE_URL}/wp-json/wp/v2/posts/{db_wp_post_id}",
+                auth=auth,
+                params={"_fields": "id,slug,tags,status"},
+                timeout=15,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                # slug検証: DB上のproduct_idと実際のslugが一致するか確認
+                actual_slug = data.get("slug", "")
+                if actual_slug.lower() == slug.lower() and data.get("status") == "publish":
+                    logger.info(f"  [WP] DB wp_post_id={db_wp_post_id} で直接取得成功 (slug一致確認済)")
+                    return data["id"], data.get("tags", [])
+                else:
+                    logger.warning(
+                        f"  [WP] DB wp_post_id={db_wp_post_id} のslugは '{actual_slug}' "
+                        f"(期待: '{slug}', status: {data.get('status')}) → slug検索にフォールバック"
+                    )
+        except Exception as e:
+            logger.warning(f"  [WP] DB wp_post_id={db_wp_post_id} 直接取得失敗: {e} → slug検索にフォールバック")
+
+    # --- Phase 2: slug パラメータで検索（bcache影響あり → 完全一致フィルタ必須） ---
     try:
         r = requests.get(
             f"{WP_SITE_URL}/wp-json/wp/v2/posts",
             auth=auth,
-            params={"slug": slug, "status": "publish", "_fields": "id,tags"},
+            params={"slug": slug, "status": "publish", "_fields": "id,slug,tags"},
             timeout=15,
         )
         posts = r.json()
         if isinstance(posts, list) and posts:
-            return posts[0]["id"], posts[0].get("tags", [])
+            # slug完全一致でフィルタ（WP APIの _ ワイルドカード誤爆 & bcacheキャッシュ対策）
+            exact = [p for p in posts if p.get("slug", "").lower() == slug.lower()]
+            if exact:
+                return exact[0]["id"], exact[0].get("tags", [])
             
-        # フォールバック: wp_post_urlからスラグを抽出してリトライ
+        # --- Phase 3: wp_post_url からスラグを抽出してリトライ ---
         if wp_post_url:
             import re
             m = re.search(r'/([^/]+)/?$', wp_post_url.rstrip('/'))
@@ -168,12 +213,14 @@ def _wp_get_post_id_and_tags(slug, wp_post_url=None):
                     r2 = requests.get(
                         f"{WP_SITE_URL}/wp-json/wp/v2/posts",
                         auth=auth,
-                        params={"slug": url_slug, "status": "publish", "_fields": "id,tags"},
+                        params={"slug": url_slug, "status": "publish", "_fields": "id,slug,tags"},
                         timeout=15,
                     )
                     posts2 = r2.json()
                     if isinstance(posts2, list) and posts2:
-                        return posts2[0]["id"], posts2[0].get("tags", [])
+                        exact2 = [p for p in posts2 if p.get("slug", "").lower() == url_slug.lower()]
+                        if exact2:
+                            return exact2[0]["id"], exact2[0].get("tags", [])
     except Exception as e:
         logger.warning(f"  [WP] 記事検索エラー (slug={slug}): {e}")
     return None, []
@@ -462,7 +509,8 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     # --- Step 2: WP 上の記事IDと現在タグを取得 ---
     logger.info("  [WP] 記事ID・現在タグを取得中...")
     wp_post_url = row["wp_post_url"] if "wp_post_url" in row.keys() else ""
-    wp_post_id, current_tag_ids = _wp_get_post_id_and_tags(product_id, wp_post_url=wp_post_url)
+    db_wp_post_id = row["wp_post_id"] if "wp_post_id" in row.keys() else None
+    wp_post_id, current_tag_ids = _wp_get_post_id_and_tags(product_id, wp_post_url=wp_post_url, db_wp_post_id=db_wp_post_id)
     if not wp_post_id:
         logger.error(f"❌ WP 上に slug='{product_id}' の公開記事が見つかりません (urlフォールバックも失敗)")
         return False
