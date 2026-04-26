@@ -1,3 +1,18 @@
+## v18.1.2 — DLsiteセールURL修正 & FANZA専売タグ整理 (2026-04-26)
+
+### 🐛 fix(revive): DLsiteセール検索URLのパラメータ形式を修正
+- **対象 (`nexus_revive.py`)**: `fetch_dlsite_sale_product_ids()` のスクレイピングURL4本を全面修正。
+- **根本原因**: 旧URLの `discount_rate_min/50` と `work_type_category[0]/manga` の組み合わせがDLsiteのURLパーサーを破壊し、割引指定が「指定なし」にリセットされていた。結果、セール対象外の全作品が「🔥 セール中」タグ付けされていた。
+- **修正内容**:
+  - 割引指定: `discount_rate_min/50` → `discount_rates[0]/c9`（DLsite正式パラメータ）
+  - 作品種別: `manga` → `comic/gekiga/tateyomi/novel/kanno`（ノベラブ全対象種別を網羅）
+  - 性別カテゴリ: BLフロアには `sex_category[0]/female/sex_category[1]/gay` を明示指定
+- **検証**: 全4フロアで「50%OFF以上」フィルタの動作を確認済み。セール終了済みのRJ01614297が混入しないことを確認。
+
+### 🏷 chore(tags): 「FANZA専売」タグの一括剥奪とサイドバーボタン非表示
+- **タグ剥奪**: 「FANZA専売」タグ(ID=138)が付与されていた6記事から一括除去。
+- **サイドバー**: `functions.php` の `$exclusive_tags` 配列から `'FANZA専売'` を削除し、ナビゲーターボタンを非表示化。
+
 ## v18.1.1 — リテラル \n 混入バグ修正 (2026-04-26)
 
 ### 🐛 fix(writer): AI出力内のリテラル `\n` 除去サニタイザー追加
