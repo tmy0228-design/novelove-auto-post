@@ -54,9 +54,10 @@ else:
 
 # === システム設定定数 ===
 SCRIPT_DIR      = os.path.dirname(os.path.abspath(__file__))
-DB_FILE_FANZA   = os.path.join(SCRIPT_DIR, "novelove.db")
-DB_FILE_DLSITE  = os.path.join(SCRIPT_DIR, "novelove_dlsite.db")
-DB_FILE_DIGIKET = os.path.join(SCRIPT_DIR, "novelove_digiket.db")
+DB_FILE_UNIFIED = os.path.join(SCRIPT_DIR, "novelove_unified.db")  # v18.0.0: 統合DB
+DB_FILE_FANZA   = DB_FILE_UNIFIED  # 後方互換
+DB_FILE_DLSITE  = DB_FILE_UNIFIED  # 後方互換
+DB_FILE_DIGIKET = DB_FILE_UNIFIED  # 後方互換
 LOG_FILE        = os.path.join(SCRIPT_DIR, "novelove.log")
 MAIN_LOCK_FILE  = os.path.join(SCRIPT_DIR, "main.lock")
 RANK_LOCK_FILE  = os.path.join(SCRIPT_DIR, "ranking.lock")
@@ -257,11 +258,18 @@ def generate_affiliate_url(site: str, product_url: str, **kwargs) -> str:
         return product_url  # フォールバック: 元のURLをそのまま返す
 
 
-def get_db_path(site_raw):
-    site_str = str(site_raw)
-    if "DLsite" in site_str: return DB_FILE_DLSITE
-    if "DigiKet" in site_str: return DB_FILE_DIGIKET
-    return DB_FILE_FANZA
+def get_db_path(site_raw=None):
+    """後方互換のため残す。v18.0.0以降は常に統合DBを返す。"""
+    return DB_FILE_UNIFIED
+
+def get_source_db(site_raw):
+    """site文字列からsource_dbグループ文字列を返す (v18.0.0)。
+    戻り値: 'fanza' / 'dlsite' / 'digiket'
+    """
+    s = str(site_raw)
+    if "DLsite"  in s: return "dlsite"
+    if "DigiKet" in s: return "digiket"
+    return "fanza"
 
 def db_connect(path, read_only=False):
     """
@@ -346,72 +354,79 @@ def calculate_local_priority(title: str, desc: str, tags: str = "", original_tag
     return score
 
 def init_db():
-    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-        conn = db_connect(db_path)
-        c = conn.cursor()
-        # v11.4.11: CURRENT_TIMESTAMP はUTCのため、JST(localtime)を明示的に指定
-        c.execute('''CREATE TABLE IF NOT EXISTS novelove_posts (
-            product_id    TEXT PRIMARY KEY,
-            title         TEXT,
-            author        TEXT DEFAULT '',
-            genre         TEXT,
-            site          TEXT DEFAULT 'FANZA',
-            status        TEXT DEFAULT 'excluded',
-            release_date  TEXT DEFAULT '',
-            description   TEXT DEFAULT '',
-            affiliate_url TEXT DEFAULT '',
-            image_url     TEXT DEFAULT '',
-            product_url   TEXT DEFAULT '',
-            wp_post_url   TEXT DEFAULT '',
-            wp_post_id    INTEGER DEFAULT NULL,
-            last_error    TEXT DEFAULT '',
-            inserted_at   TIMESTAMP DEFAULT (datetime('now', 'localtime')),
-            published_at  TIMESTAMP,
-            post_type     TEXT DEFAULT 'regular',
-            desc_score    INTEGER DEFAULT 0,
-            ai_tags       TEXT DEFAULT '',
-            reviewer      TEXT DEFAULT '',
-            wp_tags       TEXT DEFAULT ''
-        )''')
-        for col, definition in [
-            ("last_error",        "TEXT DEFAULT ''"),
-            ("desc_score",        "INTEGER DEFAULT 0"),
-            ("post_type",         "TEXT DEFAULT 'regular'"),
-            ("site",              "TEXT DEFAULT ''"),
-            ("ai_tags",           "TEXT DEFAULT ''"),
-            ("reviewer",          "TEXT DEFAULT ''"),
-            # === フェーズ2（Nexusダッシュボード）向けカラム ===
-            ("sale_discount_rate", "INTEGER DEFAULT 0"),   # セール割引率（%）
-            ("last_revived_at",    "TIMESTAMP DEFAULT NULL"), # 最後に蘇生処理をした日時
-            ("revive_score",       "INTEGER DEFAULT 0"),   # 蘇生ポテンシャルスコア
-            # === 専売タグ・公式属性タグ連携 ===
-            ("original_tags",     "TEXT DEFAULT ''"),      # 公式属性タグ（カンマ区切り）
-            ("is_exclusive",      "INTEGER DEFAULT 0"),    # 専売・独占フラグ（1=専売）
-            # === 完成品タグキャッシュ (v12.8.0) ===
-            ("wp_tags",           "TEXT DEFAULT ''"),      # 実際にWPへ送信した/送信予定の完成品タグ一覧
-            # === リライトエンジン基盤 (v12.9.0) ===
-            ("rewrite_count",     "INTEGER DEFAULT 0"),    # リライト回数
-            ("is_desc_updated",   "INTEGER DEFAULT 0"),    # あらすじ更新検知フラグ
-            # === あらすじ更新検知 (S4) ===
-            ("prev_description",  "TEXT DEFAULT ''"),      # 更新前の旧あらすじ（差分ビュー用）
-            # === Google Search Console 連携 (S5) ===
-            ("gsc_indexed",       "INTEGER DEFAULT 0"),    # インデックス登録済みか（0/1）
-            ("gsc_impressions",   "INTEGER DEFAULT 0"),    # 直近30日間の表示回数
-            ("gsc_clicks",        "INTEGER DEFAULT 0"),    # 直近30日間のクリック数
-            ("gsc_last_checked",  "TIMESTAMP DEFAULT NULL"),  # GSC最終チェック日時
-            # === リライト日時追跡 (S6) ===
-            ("last_rewritten_at", "TIMESTAMP DEFAULT NULL"),  # 最終リライト実行日時
-            # === WP投稿ID（マイグレーション互換） ===
-            ("wp_post_id",        "INTEGER DEFAULT NULL"),    # WP投稿記事ID
-            # === HTML骨格パターン記録 (v16.0.0) ===
-            ("article_pattern",   "TEXT DEFAULT ''"),          # 使用されたHTML骨格パターン (A/B/C/D/R)
-        ]:
-            try:
-                c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
-            except Exception:
-                pass
-        conn.commit()
-        conn.close()
+    """v18.0.0: 統合DB (novelove_unified.db) に対して1回だけ実行。"""
+    conn = db_connect(DB_FILE_UNIFIED)
+    c = conn.cursor()
+    # WALモードを先に設定（同時書き込み性能の確保）
+    c.execute("PRAGMA journal_mode=WAL;")
+    # v11.4.11: CURRENT_TIMESTAMP はUTCのため、JST(localtime)を明示的に指定
+    c.execute('''CREATE TABLE IF NOT EXISTS novelove_posts (
+        product_id    TEXT PRIMARY KEY,
+        title         TEXT,
+        author        TEXT DEFAULT '',
+        genre         TEXT,
+        site          TEXT DEFAULT 'FANZA',
+        status        TEXT DEFAULT 'excluded',
+        release_date  TEXT DEFAULT '',
+        description   TEXT DEFAULT '',
+        affiliate_url TEXT DEFAULT '',
+        image_url     TEXT DEFAULT '',
+        product_url   TEXT DEFAULT '',
+        wp_post_url   TEXT DEFAULT '',
+        wp_post_id    INTEGER DEFAULT NULL,
+        last_error    TEXT DEFAULT '',
+        inserted_at   TIMESTAMP DEFAULT (datetime('now', 'localtime')),
+        published_at  TIMESTAMP,
+        post_type     TEXT DEFAULT 'regular',
+        desc_score    INTEGER DEFAULT 0,
+        ai_tags       TEXT DEFAULT '',
+        reviewer      TEXT DEFAULT '',
+        wp_tags       TEXT DEFAULT ''
+    )''')
+    for col, definition in [
+        ("last_error",        "TEXT DEFAULT ''"),
+        ("desc_score",        "INTEGER DEFAULT 0"),
+        ("post_type",         "TEXT DEFAULT 'regular'"),
+        ("site",              "TEXT DEFAULT ''"),
+        ("ai_tags",           "TEXT DEFAULT ''"),
+        ("reviewer",          "TEXT DEFAULT ''"),
+        # === フェーズ2（Nexusダッシュボード）向けカラム ===
+        ("sale_discount_rate", "INTEGER DEFAULT 0"),   # セール割引率（%）
+        ("last_revived_at",    "TIMESTAMP DEFAULT NULL"), # 最後に蘇生処理をした日時
+        ("revive_score",       "INTEGER DEFAULT 0"),   # 蘇生ポテンシャルスコア
+        # === 専売タグ・公式属性タグ連携 ===
+        ("original_tags",     "TEXT DEFAULT ''"),      # 公式属性タグ（カンマ区切り）
+        ("is_exclusive",      "INTEGER DEFAULT 0"),    # 専売・独占フラグ（1=専売）
+        # === 完成品タグキャッシュ (v12.8.0) ===
+        ("wp_tags",           "TEXT DEFAULT ''"),      # 実際にWPへ送信した/送信予定の完成品タグ一覧
+        # === リライトエンジン基盤 (v12.9.0) ===
+        ("rewrite_count",     "INTEGER DEFAULT 0"),    # リライト回数
+        ("is_desc_updated",   "INTEGER DEFAULT 0"),    # あらすじ更新検知フラグ
+        # === あらすじ更新検知 (S4) ===
+        ("prev_description",  "TEXT DEFAULT ''"),      # 更新前の旧あらすじ（差分ビュー用）
+        # === Google Search Console 連携 (S5) ===
+        ("gsc_indexed",       "INTEGER DEFAULT 0"),    # インデックス登録済みか（0/1）
+        ("gsc_impressions",   "INTEGER DEFAULT 0"),    # 直近30日間の表示回数
+        ("gsc_clicks",        "INTEGER DEFAULT 0"),    # 直近30日間のクリック数
+        ("gsc_last_checked",  "TIMESTAMP DEFAULT NULL"),  # GSC最終チェック日時
+        # === リライト日時追跡 (S6) ===
+        ("last_rewritten_at", "TIMESTAMP DEFAULT NULL"),  # 最終リライト実行日時
+        # === WP投稿ID（マイグレーション互換） ===
+        ("wp_post_id",        "INTEGER DEFAULT NULL"),    # WP投稿記事ID
+        # === HTML骨格パターン記録 (v16.0.0) ===
+        ("article_pattern",   "TEXT DEFAULT ''"),      # 使用されたHTML骨格パターン (A/B/C/D/R)
+        # === DB統合 (v18.0.0) ===
+        ("source_db",         "TEXT DEFAULT ''"),      # 旧DB所属: fanza / dlsite / digiket
+    ]:
+        try:
+            c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
+        except Exception:
+            pass
+    # 頻繁に使われる組み合わせのインデックスを作成（v18.0.0）
+    c.execute("CREATE INDEX IF NOT EXISTS idx_status_source ON novelove_posts (status, source_db);")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_status_genre  ON novelove_posts (status, genre);")
+    conn.commit()
+    conn.close()
 
 # === インデックス管理 ===
 def get_genre_index():

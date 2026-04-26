@@ -27,9 +27,9 @@ from datetime import datetime
 # 環境変数・.envの読み込みは novelove_core.py で一元管理
 from novelove_core import (
     logger, HEADERS,
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
+    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
     _clean_description, calculate_local_priority,
-    get_db_path, db_connect,
+    get_db_path, get_source_db, db_connect,
     trigger_emergency_stop, notify_discord,
     DMM_API_ID, DMM_AFFILIATE_API_ID,
     generate_affiliate_url,
@@ -1028,12 +1028,12 @@ def fetch_and_stock_all():
                 """INSERT INTO novelove_posts
                     (product_id, title, author, genre, site, status, release_date, description,
                     affiliate_url, image_url, product_url, post_type, desc_score, last_error, ai_tags, wp_post_url,
-                    original_tags, is_exclusive)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    original_tags, is_exclusive, source_db)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (pid, item.get("title"), author, save_genre,
                  f"{save_site}:r18={is_r18}", final_status, rdate, desc,
                  aff_url, image_url, item.get("URL", ""), "regular", final_score, last_error, ai_tags_str, "",
-                 _orig_tags, _is_excl)
+                 _orig_tags, _is_excl, get_source_db(save_site))
             )
             logger.info(f"[{disp_site}] [{final_status}] {item.get('title','')[:40]}")
             added += 1
@@ -1049,7 +1049,7 @@ def fetch_digiket_items():
         {"target": "6", "label": "DigiKet_商業TL"},
         {"target": "2", "label": "DigiKet_同人"},
     ]
-    conn = db_connect(DB_FILE_DIGIKET)
+    conn = db_connect(DB_FILE_UNIFIED)
     c = conn.cursor()
     _img_re = r"src=[\"'](https?://[^\"']+?\.(?:jpg|jpeg|png|gif|webp)(?:\?.*)?)[\"']"
     for target_cfg in targets:
@@ -1209,11 +1209,11 @@ def fetch_digiket_items():
                     c.execute("""INSERT INTO novelove_posts
                         (product_id, title, author, genre, site, status, release_date, description,
                         affiliate_url, image_url, product_url, post_type, desc_score, last_error, ai_tags, wp_post_url,
-                        original_tags, is_exclusive)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        original_tags, is_exclusive, source_db)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (pid, title, author, genre, site_str, final_status, date_str, description,
                          affiliate_url, image_url, product_url, "regular", final_score, last_error, ai_tags_str, "",
-                         _dk_tags_str, 1 if _dk_is_excl else 0))
+                         _dk_tags_str, 1 if _dk_is_excl else 0, "digiket"))
                     new_count += 1
                     logger.info(f"    - 追加: {title[:30]} [{final_status}] genre:{genre}")
                 except Exception as e:

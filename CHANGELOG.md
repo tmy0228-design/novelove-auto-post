@@ -1,3 +1,17 @@
+## v18.0.0 — DB統合アーキテクチャ刷新 (2026-04-26)
+
+### 🚀 feat: 単一データベース（novelove_unified.db）への完全移行
+- **概要**: サイトごと（FANZA, DLsite, DigiKet）に3分割されていたSQLiteデータベースファイルを `novelove_unified.db` の1つに統合。
+- **アーキテクチャの変更**:
+  - 全ての `novelove_posts` レコードに `source_db` カラム（fanza/dlsite/digiket）を新設。
+  - `novelove_core.py` 内で一元管理（`DB_FILE_UNIFIED`）とし、旧定数への後方互換エイリアスを設定。
+  - マイグレーションスクリプト `_migrate_db.py` を実装し、無停止・無損欠での統合を可能に。
+- **改修対象**: `novelove_fetcher.py`, `auto_post.py`, `nexus_*.py`, `sync_db_wp.py`, `novelove_ranking.py`, 各種バッチスクリプトなど、システム内のDBアクセスを伴う全ファイルを改修・検証。
+- **効果**:
+  - 重複チェックの堅牢化: 各DB間のクロス重複が解消され、`is_cross_db_duplicate()` が単一DBからの1クエリで実行可能に。
+  - メンテナンスコストの削減: 今後新規サイトが追加されても、DBの分割・管理の必要がなくなり、`source_db` でフラグ管理するだけとなる。
+  - ダッシュボードの軽量化: `nexus_dashboard.py` で複数のDBをアタッチしてマージしていた処理を廃止、爆速化。
+
 ## v17.8.11 — max_tokens 8000→16000（ranking/writer両方） (2026-04-25)
 
 ### 🔧 fix(ranking/writer): 全記事生成の最大トークン数を引き上げ

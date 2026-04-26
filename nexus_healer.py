@@ -15,7 +15,7 @@ else:
 # novelove_core から必要な設定をインポート
 from novelove_core import (
     logger,
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
+    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
     db_connect,
 )
 
@@ -28,31 +28,22 @@ WP_APP_PASSWORD = os.environ.get("WP_APP_PASSWORD", "")
 def get_purged_urls():
     """DBから「purgeされて除外済」となった記事の wp_post_url を抽出する"""
     purged = []
-    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-        if not os.path.exists(db_path): continue
-        conn = db_connect(db_path)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        # last_error に purged_low_score が入っている記事を探す
-        rows = c.execute("SELECT product_id, title, wp_post_url, last_error FROM novelove_posts WHERE status='excluded' AND last_error LIKE 'purged_low_score%'").fetchall()
-        for r in rows:
-            if r["wp_post_url"]:
-                purged.append(r)
-        conn.close()
+    # v18.0.0: 統合DB1本から取得
+    conn = db_connect(DB_FILE_UNIFIED)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    # last_error に purged_low_score が入っている記事を探す
+    rows = c.execute("SELECT product_id, title, wp_post_url, last_error FROM novelove_posts WHERE status='excluded' AND last_error LIKE 'purged_low_score%'").fetchall()
+    for r in rows:
+        if r["wp_post_url"]:
+            purged.append(r)
+    conn.close()
     return purged
 
 def get_new_internal_link(genre, current_pid):
     """オートヒーリングのための新しい関連記事リンクをランダムに取得する"""
-    dbs = {
-        "novel_bl": DB_FILE_FANZA, "novel_tl": DB_FILE_FANZA, "comic_bl": DB_FILE_FANZA, "comic_tl": DB_FILE_FANZA,
-        "doujin_bl": DB_FILE_DLSITE, "doujin_tl": DB_FILE_DLSITE,
-        "voice_bl": DB_FILE_DLSITE, "voice_tl": DB_FILE_DLSITE
-    }
-    db_target = dbs.get(genre, DB_FILE_FANZA)
-    if not os.path.exists(db_target):
-        return None
-        
-    conn = db_connect(db_target)
+    # v18.0.0: ジャンル→DBマッピング辞書を廃止。統合DBから直接検索。
+    conn = db_connect(DB_FILE_UNIFIED)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
     
@@ -161,16 +152,13 @@ def run_healer(dry_run=False):
                 # 消えた記事(item)のレコードがないので少し工夫する。とりあえずDBからitem["product_id"]のジャンルを引く。
                 # get_purged_urls で抽出した情報を使う。
                 
-                # 代替用ジャンルの特定
+                # 代替用ジャンルの特定 (v18.0.0: 統合DB1本から検索)
                 db_genre = "novel_tl" # default fallback
-                for d in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-                    if os.path.exists(d):
-                        _conn = db_connect(d)
-                        _c = _conn.execute("SELECT genre FROM novelove_posts WHERE product_id=?", (item["product_id"],)).fetchone()
-                        _conn.close()
-                        if _c:
-                            db_genre = _c[0]
-                            break
+                _conn = db_connect(DB_FILE_UNIFIED)
+                _c = _conn.execute("SELECT genre FROM novelove_posts WHERE product_id=?", (item["product_id"],)).fetchone()
+                _conn.close()
+                if _c:
+                    db_genre = _c[0]
                 
                 total_scanned += 1
                 success = heal_wordpress_post(post_id, content, bad_url, db_genre, item["product_id"], dry_run)

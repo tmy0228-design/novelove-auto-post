@@ -13,7 +13,7 @@ import logging
 
 # novelove_core から必要な設定・関数を読み込む
 from novelove_core import (
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
+    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
     db_connect, DEEPSEEK_API_KEY,
 )
 from novelove_writer import MODEL_ECONOMY, DEEPSEEK_API_URL
@@ -112,8 +112,6 @@ def purge_wordpress_post(slug):
         return False
 
 def run_purge(dry_run=False):
-    dbs = [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]
-    
     total_processed = 0
     total_purged = 0
     total_passed = 0
@@ -121,61 +119,63 @@ def run_purge(dry_run=False):
     logger.info(f"=== Nexus Purge (再審査＆削除) 開始 ===")
     if dry_run:
         logger.info("※ DRY-RUNモード: 実際の削除やDB書き換えは行いません")
-        
-    for db_path in dbs:
-        if not os.path.exists(db_path):
-            continue
-            
-        site_name = os.path.basename(db_path).replace('.db', '').replace('novelove_', '')
-        conn = db_connect(db_path)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        
-        # published で desc_score = 0 の記事を探す (AI審査が抜けていた期間の投稿データ)
-        # ランキング記事（ranking）は対象外とし、通常記事（regular）のみをパージ対象とする
-        rows = c.execute("SELECT product_id, title, description, genre, published_at FROM novelove_posts WHERE status='published' AND post_type='regular' AND desc_score=0 ORDER BY published_at DESC").fetchall()
-        
-        if not rows:
-            conn.close()
-            continue
-            
-        logger.info(f"[{site_name}] スコア未付与の公開記事: {len(rows)}件 発見")
-        
-        for row in rows:
-            pid = row['product_id']
-            title = row['title']
-            desc = row['description']
-            genre = row['genre']
-            
-            logger.info(f"審査中: {title[:25]}...")
-            score = _call_deepseek_score_only(title, desc, genre)
-            
-            if score == 0:
-                logger.warning("  -> [エラー] スコア取得失敗のためスキップ")
-                time.sleep(2)
-                continue
-                
-            if score < 4:
-                logger.warning(f"  -> [不合格] スコア: {score} 点 -> 削除対象です 🗑️")
-                if not dry_run:
-                    # WordPressから削除
-                    if purge_wordpress_post(pid):
-                        # DBをexcludedに更新
-                        c.execute("UPDATE novelove_posts SET status='excluded', last_error=?, desc_score=0 WHERE product_id=?", (f"purged_low_score: {score}", pid))
-                        conn.commit()
-                        total_purged += 1
-            else:
-                logger.info(f"  -> [合格] スコア: {score} 点 -> 維持します ✨")
-                if not dry_run:
-                    # DBのスコアを更新
-                    c.execute("UPDATE novelove_posts SET desc_score=? WHERE product_id=?", (score, pid))
-                    conn.commit()
-                    total_passed += 1
-                    
-            total_processed += 1
-            time.sleep(1) # API制限用スリープ
-            
+
+    # v18.0.0: 統合DB1本から全サイトの対象記事を取得
+    conn = db_connect(DB_FILE_UNIFIED)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    # published で desc_score = 0 の記事を探す (AI審査が抜けていた期間の投稿データ)
+    # ランキング記事（ranking）は対象外とし、通常記事（regular）のみをパージ対象とする
+    rows = c.execute("SELECT product_id, title, description, genre, site, published_at FROM novelove_posts WHERE status='published' AND post_type='regular' AND desc_score=0 ORDER BY published_at DESC").fetchall()
+    
+    if not rows:
         conn.close()
+        logger.info("=== スコア未付与の公開記事はありません ===")
+        return
+
+    logger.info(f"スコア未付与の公開記事: {len(rows)}件 発見")
+
+    for row in rows:
+        pid = row['product_id']
+        title = row['title']
+        desc = row['description']
+        genre = row['genre']
+        # v18.0.0: site_nameはsiteカラムから推定（DBパスの代わり）
+        site_raw = row['site'] or ''
+        if 'DLsite' in site_raw: site_name = 'dlsite'
+        elif 'DigiKet' in site_raw: site_name = 'digiket'
+        else: site_name = 'fanza'
+        
+        logger.info(f"[{site_name}] 審査中: {title[:25]}...")
+        score = _call_deepseek_score_only(title, desc, genre)
+        
+        if score == 0:
+            logger.warning("  -> [エラー] スコア取得失敗のためスキップ")
+            time.sleep(2)
+            continue
+            
+        if score < 4:
+            logger.warning(f"  -> [不合格] スコア: {score} 点 -> 削除対象です 🗑️")
+            if not dry_run:
+                # WordPressから削除
+                if purge_wordpress_post(pid):
+                    # DBをexcludedに更新
+                    c.execute("UPDATE novelove_posts SET status='excluded', last_error=?, desc_score=0 WHERE product_id=?", (f"purged_low_score: {score}", pid))
+                    conn.commit()
+                    total_purged += 1
+        else:
+            logger.info(f"  -> [合格] スコア: {score} 点 -> 維持します ✨")
+            if not dry_run:
+                # DBのスコアを更新
+                c.execute("UPDATE novelove_posts SET desc_score=? WHERE product_id=?", (score, pid))
+                conn.commit()
+                total_passed += 1
+                
+        total_processed += 1
+        time.sleep(1) # API制限用スリープ
+        
+    conn.close()
 
     logger.info(f"=== Nexus Purge 完了 ===")
     logger.info(f"確認件数: {total_processed} 件")

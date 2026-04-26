@@ -38,9 +38,9 @@ else:
     load_dotenv()
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from novelove_core import DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET
+from novelove_core import DB_FILE_UNIFIED
 
-DB_FILES = [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]
+DB_FILES = [DB_FILE_UNIFIED]  # v18.0.0: 統合DB1本に変更
 MAX_WORKERS = 5    # 並列数（多すぎるとWPに429 Too Many Requestsを食らうので控えめに）
 TIMEOUT = 10       # 1件あたりのHTTPタイムアウト（秒）
 

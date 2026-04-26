@@ -19,7 +19,7 @@ from novelove_core import (
     logger, notify_discord,
     DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
     _get_reviewer_for_genre, _genre_label,
-    get_db_path, db_connect, init_db,
+    get_db_path, get_source_db, db_connect, init_db,
     WP_SITE_URL, RANK_LOCK_FILE,
     is_emergency_stop,
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
@@ -408,9 +408,9 @@ def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_ima
             # INSERT OR IGNORE: 同一スラグが既に存在する場合は上書きしない。
             # INSERT OR REPLACE だと DELETE+INSERT になり ai_tags 等が消失するリスクがある。
             c.execute("""INSERT OR IGNORE INTO novelove_posts
-                (product_id, title, genre, site, status, post_type, wp_post_url, published_at, reviewer)
-                VALUES (?, ?, ?, ?, 'published', 'ranking', ?, datetime('now', 'localtime'), ?)""",
-                (slug, title, genre, site_name, wp_url, reviewer_name))
+                (product_id, title, genre, site, status, post_type, wp_post_url, published_at, reviewer, source_db)
+                VALUES (?, ?, ?, ?, 'published', 'ranking', ?, datetime('now', 'localtime'), ?, ?)""",
+                (slug, title, genre, site_name, wp_url, reviewer_name, get_source_db(site_name)))
             conn.commit()
             conn.close()
         except Exception as e:

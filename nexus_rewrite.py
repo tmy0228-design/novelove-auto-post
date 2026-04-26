@@ -39,7 +39,7 @@ from datetime import datetime
 # 環境変数・.envの読み込みは novelove_core.py で一元管理
 from novelove_core import (
     logger,
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
+    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
     db_connect, notify_discord, generate_affiliate_url,
     WP_SITE_URL, SCRIPT_DIR,
     WP_USER, WP_APP_PASSWORD, SSH_PASS,
@@ -106,7 +106,7 @@ def _release_lock():
 # =====================================================================
 def _get_published_row(product_id):
     """
-    全3DBを横断して product_id を検索し、status='published' のレコードを返す。
+    統合DBから product_id を検索し、status='published' のレコードを返す。
     戻り値: (row, db_path) または (None, None)
 
     v17.8.7: slug正規化
@@ -117,28 +117,26 @@ def _get_published_row(product_id):
     # --- slug正規化: WPの重複回避サフィックス (-2, -3, ...) を除去 ---
     normalized = re.sub(r'-\d+$', '', product_id)
 
-    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-        if not os.path.exists(db_path):
-            continue
-        try:
-            conn = db_connect(db_path)
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                """SELECT product_id, title, author, genre, site, status,
-                          description, affiliate_url, image_url, product_url, wp_post_url,
-                          ai_tags, desc_score, original_tags, is_exclusive,
-                          release_date, reviewer, rewrite_count, wp_tags, wp_post_id
-                   FROM novelove_posts
-                   WHERE LOWER(product_id) = LOWER(?)""",
-                (normalized,)
-            ).fetchone()
-            conn.close()
-            if row:
-                if normalized != product_id:
-                    logger.info(f"  [DB] slug正規化: '{product_id}' -> '{normalized}' (DB: {row['product_id']})")
-                return row, db_path
-        except Exception as e:
-            logger.warning(f"  [DB] 読み込みエラー ({db_path}): {e}")
+    # v18.0.0: 統合DB1本から検索
+    try:
+        conn = db_connect(DB_FILE_UNIFIED)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """SELECT product_id, title, author, genre, site, status,
+                      description, affiliate_url, image_url, product_url, wp_post_url,
+                      ai_tags, desc_score, original_tags, is_exclusive,
+                      release_date, reviewer, rewrite_count, wp_tags, wp_post_id
+               FROM novelove_posts
+               WHERE LOWER(product_id) = LOWER(?)""",
+            (normalized,)
+        ).fetchone()
+        conn.close()
+        if row:
+            if normalized != product_id:
+                logger.info(f"  [DB] slug正規化: '{product_id}' -> '{normalized}' (DB: {row['product_id']})")
+            return row, DB_FILE_UNIFIED
+    except Exception as e:
+        logger.warning(f"  [DB] 読み込みエラー: {e}")
     return None, None
 
 
@@ -485,7 +483,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     # --- Step 1: DB から対象記事を取得 ---
     row, db_path = _get_published_row(product_id)
     if not row:
-        logger.error(f"❌ product_id '{product_id}' が見つかりません（全3DBを検索済み）")
+        logger.error(f"❌ product_id '{product_id}' が見つかりません（統合DB検索済み）")
         return False
 
     if row["status"] != "published":

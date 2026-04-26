@@ -31,9 +31,7 @@ except ImportError:
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DB_SOURCES = {
-    "FANZA":   os.path.join(SCRIPT_DIR, "novelove.db"),
-    "DLsite":  os.path.join(SCRIPT_DIR, "novelove_dlsite.db"),
-    "DigiKet": os.path.join(SCRIPT_DIR, "novelove_digiket.db"),
+    "unified": os.path.join(SCRIPT_DIR, "novelove_unified.db"),  # v18.0.0: 統合DB
 }
 
 COLUMNS_TO_LOAD = [
@@ -69,6 +67,8 @@ COLUMNS_TO_LOAD = [
     "gsc_last_checked",
     # === リライト日時 (S6) ===
     "last_rewritten_at",
+    # === DB統合 (v18.0.0) ===
+    "source_db",
 ]
 
 STATUS_MAP = {
@@ -85,14 +85,14 @@ STATUS_MAP = {
 # =====================================================================
 @st.cache_data(ttl=60)
 def load_all_data() -> pd.DataFrame:
-    """3つのDBを統合してDataFrameを返す。60秒キャッシュ。"""
+    """v18.0.0: 統合DB1本から全データを読み込み、DataFrameを返す。60秒キャッシュ。"""
     frames = []
     for label, db_path in DB_SOURCES.items():
         if not os.path.exists(db_path):
             continue
         try:
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-            # 存在するカラムだけ取得（DBごとにカラムが異なる可能性を考慮）
+            # 存在するカラムだけ取得
             existing_cols = [
                 row[1]
                 for row in conn.execute("PRAGMA table_info(novelove_posts)").fetchall()
@@ -103,19 +103,26 @@ def load_all_data() -> pd.DataFrame:
                 continue
             query = f"SELECT {', '.join(cols_to_query)} FROM novelove_posts"
             df = pd.read_sql_query(query, conn)
-            
-            # novelove.db(FANZA/DMM統合DB)の場合は、siteカラムやproduct_urlを見て表示を切り替える
-            if label == "FANZA" and "site" in df.columns:
-                def get_fanza_source(row):
-                    if "lovecul.dmm.co.jp" in str(row.get("product_url", "")):
+
+            # v18.0.0: _source_db を全レコードに対してサイトカラムから計算する
+            # （旧 label == 'FANZA' 条件分岐を廃止し、全サイト統一対応）
+            if "site" in df.columns:
+                def get_source_label(row):
+                    site_val = str(row.get("site", ""))
+                    product_url_val = str(row.get("product_url", "") or "")
+                    if "lovecul.dmm.co.jp" in product_url_val:
                         return "らぶカル"
-                    if "DMM" in str(row.get("site", "")):
+                    if "DLsite" in site_val:
+                        return "DLsite"
+                    if "DigiKet" in site_val:
+                        return "DigiKet"
+                    if "DMM" in site_val:
                         return "DMM"
                     return "FANZA"
-                df["_source_db"] = df.apply(get_fanza_source, axis=1)
+                df["_source_db"] = df.apply(get_source_label, axis=1)
             else:
                 df["_source_db"] = label
-            
+
             conn.close()
             frames.append(df)
         except Exception as e:

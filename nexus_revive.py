@@ -32,7 +32,7 @@ from datetime import datetime
 # 環境変数・.envの読み込みは novelove_core.py で一元管理
 from novelove_core import (
     logger,
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
+    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
     db_connect, notify_discord,
     WP_SITE_URL, HEADERS,
     WP_USER, WP_APP_PASSWORD,
@@ -168,24 +168,22 @@ def _wp_get_posts_with_tag(tag_id):
 # =====================================================================
 def get_all_published_product_ids():
     """
-    全3DBから status='published' の product_id と site を返す。
+    統合DBから status='published' の product_id と site を返す。
     戻り値: { product_id: site_string, ... }
     """
     result = {}
-    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-        if not os.path.exists(db_path):
-            continue
-        try:
-            conn = db_connect(db_path)
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT product_id, site FROM novelove_posts WHERE status='published'"
-            ).fetchall()
-            conn.close()
-            for r in rows:
-                result[r["product_id"].lower()] = r["site"] or ""
-        except Exception as e:
-            logger.warning(f"  [DB] 読み込みエラー ({db_path}): {e}")
+    # v18.0.0: 統合DB1本から取得
+    try:
+        conn = db_connect(DB_FILE_UNIFIED)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT product_id, site FROM novelove_posts WHERE status='published'"
+        ).fetchall()
+        conn.close()
+        for r in rows:
+            result[r["product_id"].lower()] = r["site"] or ""
+    except Exception as e:
+        logger.warning(f"  [DB] 読み込みエラー: {e}")
     return result
 
 
@@ -664,72 +662,71 @@ def run_desc_check():
     checked_count = 0
     errors = []
 
-    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-        if not os.path.exists(db_path):
-            continue
+    # v18.0.0: 統合DB1本から取得
+    try:
+        conn = db_connect(DB_FILE_UNIFIED)
+        conn.row_factory = sqlite3.Row
+        # product_url がある published 記事のみ対象
+        rows = conn.execute(
+            """SELECT product_id, product_url, description, site, genre
+               FROM novelove_posts
+               WHERE status='published' AND product_url != '' AND product_url IS NOT NULL"""
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"  [DB] 読み込みエラー: {e}")
+        errors.append(str(e))
+        rows = []
+
+    for row in rows:
+        pid         = row["product_id"]
+        product_url = row["product_url"]
+        old_desc    = row["description"] or ""
+        site_raw    = row["site"] or ""
+        genre_raw   = row["genre"] or ""
+
         try:
-            conn = db_connect(db_path)
-            conn.row_factory = sqlite3.Row
-            # product_url がある published 記事のみ対象
-            rows = conn.execute(
-                """SELECT product_id, product_url, description, site, genre
-                   FROM novelove_posts
-                   WHERE status='published' AND product_url != '' AND product_url IS NOT NULL"""
-            ).fetchall()
-            conn.close()
+            new_desc = scrape_description(product_url, site=site_raw, genre=genre_raw)
         except Exception as e:
-            logger.warning(f"  [DB] 読み込みエラー ({db_path}): {e}")
-            errors.append(str(e))
+            logger.warning(f"  [DESC] 取得失敗 ({pid}): {e}")
+            errors.append(f"{pid}: {e}")
             continue
 
-        for row in rows:
-            pid         = row["product_id"]
-            product_url = row["product_url"]
-            old_desc    = row["description"] or ""
-            site_raw    = row["site"] or ""
-            genre_raw   = row["genre"] or ""
+        # 取得失敗・除外判定は無視
+        if not new_desc or new_desc in ("__EXCLUDED_TYPE__",):
+            continue
 
-            try:
-                new_desc = scrape_description(product_url, site=site_raw, genre=genre_raw)
-            except Exception as e:
-                logger.warning(f"  [DESC] 取得失敗 ({pid}): {e}")
-                errors.append(f"{pid}: {e}")
-                continue
+        checked_count += 1
 
-            # 取得失敗・除外判定は無視
-            if not new_desc or new_desc in ("__EXCLUDED_TYPE__",):
-                continue
+        # difflib で内容の変化を検知（空白・改行を正規化してノイズをカット）
+        _old_norm = re.sub(r'\s+', ' ', old_desc).strip()
+        _new_norm = re.sub(r'\s+', ' ', new_desc).strip()
+        ratio = difflib.SequenceMatcher(None, _old_norm, _new_norm).ratio()
+        if ratio >= 0.99:  # 99%以上一致 → 変化なし
+            continue
 
-            checked_count += 1
-
-            # difflib で内容の変化を検知（空白・改行を正規化してノイズをカット）
-            _old_norm = re.sub(r'\s+', ' ', old_desc).strip()
-            _new_norm = re.sub(r'\s+', ' ', new_desc).strip()
-            ratio = difflib.SequenceMatcher(None, _old_norm, _new_norm).ratio()
-            if ratio >= 0.99:  # 99%以上一致 → 変化なし
-                continue
-
-            # 変化あり: 旧あらすじを退避して新しいあらすじで上書き
-            logger.info(
-                f"  [📝 更新検知] {pid} | 類似度={ratio:.1%} "
-                f"| 旧:{len(old_desc)}文字 → 新:{len(new_desc)}文字"
+        # 変化あり: 旧あらすじを退避して新しいあらすじで上書き
+        logger.info(
+            f"  [📝 更新検知] {pid} | 類似度={ratio:.1%} "
+            f"| 旧:{len(old_desc)}文字 → 新:{len(new_desc)}文字"
+        )
+        try:
+            conn2 = db_connect(DB_FILE_UNIFIED)
+            conn2.execute(
+                """UPDATE novelove_posts
+                   SET is_desc_updated = 1,
+                       prev_description = ?,
+                       description = ?
+                   WHERE product_id = ?""",
+                (old_desc, new_desc, pid),
             )
-            try:
-                conn2 = db_connect(db_path)
-                conn2.execute(
-                    """UPDATE novelove_posts
-                       SET is_desc_updated = 1,
-                           prev_description = ?,
-                           description = ?
-                       WHERE product_id = ?""",
-                    (old_desc, new_desc, pid),
-                )
-                conn2.commit()
-                conn2.close()
-                updated_count += 1
-            except Exception as e:
-                logger.error(f"  [DB] 更新失敗 ({pid}): {e}")
-                errors.append(f"{pid}: DB更新失敗 {e}")
+            conn2.commit()
+            conn2.close()
+            updated_count += 1
+        except Exception as e:
+            logger.error(f"  [DB] 更新失敗 ({pid}): {e}")
+            errors.append(f"{pid}: DB更新失敗 {e}")
+
 
     # Discord サマリー
     summary = (

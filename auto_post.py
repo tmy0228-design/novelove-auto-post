@@ -61,10 +61,10 @@ from novelove_soul import REVIEWERS, MOOD_PATTERNS, FACT_GUARD, NG_PHRASES, get_
 
 from novelove_core import (
     logger, ERROR_LABELS, notify_discord,
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
+    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
     get_affiliate_button_html, generate_affiliate_url,
     _get_reviewer_for_genre, _genre_label,
-    get_db_path, db_connect, init_db, get_genre_index, save_genre_index,
+    get_db_path, get_source_db, db_connect, init_db, get_genre_index, save_genre_index,
     WP_SITE_URL,
     MAIN_LOCK_FILE, RANK_LOCK_FILE,
     is_emergency_stop, trigger_emergency_stop,
@@ -296,27 +296,25 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 # --- [削除] 旧 main() 定義 (v11.4.14 にて統合・削除) ---
 def _check_global_cooldown(cooldown_minutes=55, post_type='regular'):
     """
-    全DB横断で最新の投稿時刻をチェックし、指定分数が経過しているか返す。
+    統合DBから最新の投稿時刻をチェックし、指定分数が経過しているか返す。
     経過していれば True、クールダウン中なら False を返す。
     """
     latest_pub = None
-    for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-        if not os.path.exists(db_p): continue
-        tmp_conn = db_connect(db_p)
-        # post_type でフィルタリング (v11.4.13 修正)
-        row = tmp_conn.execute(
-            "SELECT published_at FROM novelove_posts WHERE status='published' AND post_type=? ORDER BY published_at DESC LIMIT 1",
-            (post_type,)
-        ).fetchone()
-        tmp_conn.close()
-        if row and row[0]:
-            try:
-                # v11.4.11: 常にJST（localtime）としてパース
-                dt = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
-                if latest_pub is None or dt > latest_pub:
-                    latest_pub = dt
-            except Exception as e:
-                logger.warning(f"  [クールダウン] published_atのパース失敗: {row[0]} / {e}")
+    # v18.0.0: 統合DB1本から最新投稿時刻を取得
+    tmp_conn = db_connect(DB_FILE_UNIFIED)
+    row = tmp_conn.execute(
+        "SELECT published_at FROM novelove_posts WHERE status='published' AND post_type=? ORDER BY published_at DESC LIMIT 1",
+        (post_type,)
+    ).fetchone()
+    tmp_conn.close()
+    if row and row[0]:
+        try:
+            # v11.4.11: 常にJST（localtime）としてパース
+            dt = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
+            if latest_pub is None or dt > latest_pub:
+                latest_pub = dt
+        except Exception as e:
+            logger.warning(f"  [クールダウン] published_atのパース失敗: {row[0]} / {e}")
     
     jst = timezone(timedelta(hours=9))
     now_jst = datetime.now(jst).replace(tzinfo=None)
@@ -355,24 +353,24 @@ def _run_main_logic():
     except Exception as e:
         logger.error(f"DigiKet取得エラー: {e}")
 
-    # --- 在庫クリーンアップ ---
-    for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-        if not os.path.exists(db_p): continue
-        conn = db_connect(db_p)
-        c = conn.cursor()
-        # ① 7日以上経過したpendingをexcludedへ (JST)
-        seven_days_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
-        c.execute("UPDATE novelove_posts SET status='excluded', last_error='expired' WHERE status='pending' AND inserted_at < ?", (seven_days_ago,))
-        
-        # ② ジャンルごとにスコア上位かつ最新の20件を残して、他をexcludedへ
-        # FETCH_TARGETS を使わず、DBに実際に存在するジャンルを直接取得することで重複クエリを防ぐ
-        genres_in_db = [row[0] for row in c.execute(
-            "SELECT DISTINCT genre FROM novelove_posts WHERE status='pending'"
+    # --- 在庫クリーンアップ (v18.0.0: 統合DB対応) ---
+    conn = db_connect(DB_FILE_UNIFIED)
+    c = conn.cursor()
+    # ① 7日以上経過したpendingをexcludedへ (JST)
+    seven_days_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("UPDATE novelove_posts SET status='excluded', last_error='expired' WHERE status='pending' AND inserted_at < ?", (seven_days_ago,))
+
+    # ② source_dbごと・ジャンルごとにスコア上位の20件を残し、他をexcludedへ
+    # source_dbで分離することで、各サイトの在庫バランスが崩れないよう管理する
+    for sdb in ['fanza', 'dlsite', 'digiket']:
+        genres_in_sdb = [row[0] for row in c.execute(
+            "SELECT DISTINCT genre FROM novelove_posts WHERE status='pending' AND source_db=?",
+            (sdb,)
         ).fetchall()]
-        for genre in genres_in_db:
+        for genre in genres_in_sdb:
             rows = c.execute(
-                "SELECT product_id FROM novelove_posts WHERE status='pending' AND genre=? ORDER BY desc_score DESC, inserted_at DESC",
-                (genre,)
+                "SELECT product_id FROM novelove_posts WHERE status='pending' AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
+                (genre, sdb)
             ).fetchall()
             if len(rows) > 20:
                 to_exclude = [r[0] for r in rows[20:]]
@@ -381,8 +379,8 @@ def _run_main_logic():
                     f"UPDATE novelove_posts SET status='excluded', last_error='inventory_full' WHERE product_id IN ({placeholders})",
                     to_exclude
                 )
-        conn.commit()
-        conn.close()
+    conn.commit()
+    conn.close()
     # pendingから1件投稿（ジャンルラウンドロビン）
     # ★ タイムアウトはfetch完了後・投稿ループ開始時点から計測する
     start_time = time.time()
@@ -404,16 +402,18 @@ def _run_main_logic():
             break
 
         target_info = FETCH_TARGETS[(g_idx_base + i) % len(FETCH_TARGETS)]
-        db_path = get_db_path(target_info.get("site", "FANZA"))
+        # v18.0.0: source_dbでサイトグループを絞り込み（FANZA/DLsite/DigiKetの混在防止）
+        source_db_val = get_source_db(target_info.get("site", "FANZA"))
         genre = target_info["genre"]
-        conn = db_connect(db_path)
+        conn = db_connect(DB_FILE_UNIFIED)
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         # v11.4.7: SELECT * を廃止し、カラム名を明示的に指定 (v13.2.3: original_tags, is_exclusive 追加)
         # v15.7.0: ORDER BY に desc_score DESC を追加し、品質スコアの高い記事を優先投稿する
+        # v18.0.0: AND source_db=? を追加し、サイトグループ内でのみ選択する
         row = c.execute(
-            "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive FROM novelove_posts WHERE status='pending' AND genre=? ORDER BY desc_score DESC, inserted_at DESC LIMIT 1",
-            (genre,)
+            "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive FROM novelove_posts WHERE status='pending' AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC LIMIT 1",
+            (genre, source_db_val)
         ).fetchone()
         if row:
             pid = row['product_id']  # S-3: try外で確保し、except内でも確実に参照できるようにする
@@ -457,24 +457,16 @@ def _run_main_logic():
             break
     if not posted:
         # 在庫統計レポート
+        # v18.0.0: 統合DB1本から在庫カウント
         inventory_list = []
-        if os.path.exists(DB_FILE_FANZA):
-            _c = db_connect(DB_FILE_FANZA)
-            c_fanza   = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'FANZA%'").fetchone()[0]
-            c_dmm     = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'DMM%'").fetchone()[0]
-            c_lovecal = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'Lovecal%'").fetchone()[0]
-            inventory_list.extend([f"FANZA {c_fanza}", f"DMM {c_dmm}", f"らぶカル {c_lovecal}"])
-            _c.close()
-        if os.path.exists(DB_FILE_DLSITE):
-            _c = db_connect(DB_FILE_DLSITE)
-            c_dl = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending'").fetchone()[0]
-            inventory_list.append(f"DLsite {c_dl}")
-            _c.close()
-        if os.path.exists(DB_FILE_DIGIKET):
-            _c = db_connect(DB_FILE_DIGIKET)
-            c_dk = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending'").fetchone()[0]
-            inventory_list.append(f"DigiKet {c_dk}")
-            _c.close()
+        _c = db_connect(DB_FILE_UNIFIED)
+        c_fanza   = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'FANZA%'").fetchone()[0]
+        c_dmm     = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'DMM%'").fetchone()[0]
+        c_lovecal = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'Lovecal%'").fetchone()[0]
+        c_dl      = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND source_db='dlsite'").fetchone()[0]
+        c_dk      = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND source_db='digiket'").fetchone()[0]
+        _c.close()
+        inventory_list = [f"FANZA {c_fanza}", f"DMM {c_dmm}", f"らぶカル {c_lovecal}", f"DLsite {c_dl}", f"DigiKet {c_dk}"]
         inventory_str = " / ".join(inventory_list) + " 件"
 
         attempts_str = "\n".join(tried_details) if tried_details else "（なし：全在庫切れ）"
@@ -483,15 +475,14 @@ def _run_main_logic():
         err_stats = {}
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
         summary_stats = {"total": 0, "accepted": 0, "excluded": 0}
-        for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-            if not os.path.exists(db_p): continue
-            _c = db_connect(db_p)
-            rows = _c.execute("SELECT last_error, count(*) FROM novelove_posts WHERE status='excluded' AND inserted_at > ? GROUP BY last_error", (yesterday,)).fetchall()
-            for r in rows: err_stats[r[0]] = err_stats.get(r[0], 0) + r[1]
-            summary_stats["total"]    += _c.execute("SELECT count(*) FROM novelove_posts WHERE inserted_at > ?", (yesterday,)).fetchone()[0]
-            summary_stats["accepted"] += _c.execute("SELECT count(*) FROM novelove_posts WHERE status IN ('pending','published') AND inserted_at > ?", (yesterday,)).fetchone()[0]
-            summary_stats["excluded"] += _c.execute("SELECT count(*) FROM novelove_posts WHERE status='excluded' AND inserted_at > ?", (yesterday,)).fetchone()[0]
-            _c.close()
+        # v18.0.0: 統合DB1本からエラー統計を集計
+        _c = db_connect(DB_FILE_UNIFIED)
+        rows = _c.execute("SELECT last_error, count(*) FROM novelove_posts WHERE status='excluded' AND inserted_at > ? GROUP BY last_error", (yesterday,)).fetchall()
+        for r in rows: err_stats[r[0]] = err_stats.get(r[0], 0) + r[1]
+        summary_stats["total"]    = _c.execute("SELECT count(*) FROM novelove_posts WHERE inserted_at > ?", (yesterday,)).fetchone()[0]
+        summary_stats["accepted"] = _c.execute("SELECT count(*) FROM novelove_posts WHERE status IN ('pending','published') AND inserted_at > ?", (yesterday,)).fetchone()[0]
+        summary_stats["excluded"] = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='excluded' AND inserted_at > ?", (yesterday,)).fetchone()[0]
+        _c.close()
 
         display_errs = []
         for k, v in err_stats.items():
@@ -523,26 +514,24 @@ def is_cross_db_duplicate(new_title, current_pid, threshold=0.90):
     norm_new = normalize_title(new_title)
     if not norm_new:
         return False, "", 0.0
-    for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-        if not os.path.exists(db_p):
-            continue
-        try:
-            c2 = db_connect(db_p)
-            c2.row_factory = sqlite3.Row
-            rows = c2.execute(
-                "SELECT product_id, title FROM novelove_posts WHERE status='published' AND product_id!=? ORDER BY published_at DESC LIMIT 500",
-                (current_pid,)
-            ).fetchall()
-            c2.close()
-            for r in rows:
-                norm_existing = normalize_title(r['title'])
-                if not norm_existing:
-                    continue
-                ratio = difflib.SequenceMatcher(None, norm_new, norm_existing).ratio()
-                if ratio >= threshold:
-                    return True, r['title'], ratio
-        except Exception as e:
-            logger.warning(f"  [重複チェック] DB読み込みエラー ({db_p}): {e}")
+    # v18.0.0: 統合DB1本で全サイト横断検索（検索漏れがなくなり改善）
+    try:
+        c2 = db_connect(DB_FILE_UNIFIED)
+        c2.row_factory = sqlite3.Row
+        rows = c2.execute(
+            "SELECT product_id, title FROM novelove_posts WHERE status='published' AND product_id!=? ORDER BY published_at DESC LIMIT 1500",
+            (current_pid,)
+        ).fetchall()
+        c2.close()
+        for r in rows:
+            norm_existing = normalize_title(r['title'])
+            if not norm_existing:
+                continue
+            ratio = difflib.SequenceMatcher(None, norm_new, norm_existing).ratio()
+            if ratio >= threshold:
+                return True, r['title'], ratio
+    except Exception as e:
+        logger.warning(f"  [重複チェック] DB読み込みエラー: {e}")
     return False, "", 0.0
 
 def _execute_posting_flow(row, cursor, conn):
@@ -617,7 +606,7 @@ def _execute_posting_flow(row, cursor, conn):
         "is_exclusive":  row["is_exclusive"] if "is_exclusive" in row.keys() else 0,
     }
 
-    # v12.2.0: 全DB横断・Fuzzy Matching重複チェック (旧24hガードレールを完全置換)
+    # v12.2.0: 統合DB・Fuzzy Matching重複チェック (旧24hガードレールを完全置換)
     is_dup, dup_title, dup_ratio = is_cross_db_duplicate(title, pid)
     if is_dup:
         logger.warning(f"  [重複ブロック] スッピンタイトル '{normalize_title(title)}' は '{normalize_title(dup_title)}' と類似度 {dup_ratio:.0%} のためスキップ (元: {dup_title[:40]})")
@@ -723,33 +712,20 @@ def _execute_posting_flow(row, cursor, conn):
         conn.commit()
 
         
-        # 統計取得
-        total_daily = 0
-        for db_p in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-            if not os.path.exists(db_p): continue
-            _conn = db_connect(db_p)
-            count = _conn.execute("SELECT COUNT(*) FROM novelove_posts WHERE status='published' AND date(published_at) = date('now', 'localtime')").fetchone()[0]
-            total_daily += count
-            _conn.close()
+        # 統計取得 (v18.0.0: 統合DB1本から集計)
+        _conn = db_connect(DB_FILE_UNIFIED)
+        total_daily = _conn.execute("SELECT COUNT(*) FROM novelove_posts WHERE status='published' AND date(published_at) = date('now', 'localtime')").fetchone()[0]
+        _conn.close()
 
-        inventory_list = []
-        if os.path.exists(DB_FILE_FANZA):
-            _c = db_connect(DB_FILE_FANZA)
-            c_lovecal = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'Lovecal%'").fetchone()[0]
-            c_dmm     = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'DMM%'").fetchone()[0]
-            c_fanza   = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'FANZA%'").fetchone()[0]
-            inventory_list.extend([f"FANZA {c_fanza}", f"DMM {c_dmm}", f"らぶカル {c_lovecal}"])
-            _c.close()
-        if os.path.exists(DB_FILE_DLSITE):
-            _c = db_connect(DB_FILE_DLSITE)
-            c_dl = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending'").fetchone()[0]
-            inventory_list.append(f"DLsite {c_dl}")
-            _c.close()
-        if os.path.exists(DB_FILE_DIGIKET):
-            _c = db_connect(DB_FILE_DIGIKET)
-            c_dk = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending'").fetchone()[0]
-            inventory_list.append(f"DigiKet {c_dk}")
-            _c.close()
+        # v18.0.0: 統合DB1本から在庫カウント
+        _c = db_connect(DB_FILE_UNIFIED)
+        c_fanza   = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'FANZA%'").fetchone()[0]
+        c_dmm     = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'DMM%'").fetchone()[0]
+        c_lovecal = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'Lovecal%'").fetchone()[0]
+        c_dl      = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND source_db='dlsite'").fetchone()[0]
+        c_dk      = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND source_db='digiket'").fetchone()[0]
+        _c.close()
+        inventory_list = [f"FANZA {c_fanza}", f"DMM {c_dmm}", f"らぶカル {c_lovecal}", f"DLsite {c_dl}", f"DigiKet {c_dk}"]
         inventory_str = " / ".join(inventory_list) + " 件"
 
         notify_discord(

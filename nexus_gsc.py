@@ -35,7 +35,7 @@ else:
 
 from novelove_core import (
     logger,
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
+    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
     db_connect, notify_discord,
 )
 
@@ -182,90 +182,87 @@ def run_gsc():
     dead_lv3 = []  # クリック0
     inspect_count = 0  # 今日の Inspection API 呼び出し数
 
-    for db_path in [DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET]:
-        if not os.path.exists(db_path):
-            continue
+    # v18.0.0: 統合DB1本から全サイトの公開済み記事を取得
+    # ※ 日次上限チェックはループ内（下記 for row in rows 内）で行う
+    try:
+        conn = db_connect(DB_FILE_UNIFIED)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT product_id, wp_post_url, published_at, gsc_last_checked
+               FROM novelove_posts
+               WHERE status='published'
+                 AND wp_post_url != '' AND wp_post_url IS NOT NULL
+                 AND published_at <= ?""",
+            (inspect_since_date,)
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"  [DB] 読み込みエラー: {e}")
+        rows = []
+
+    for row in rows:
         if inspect_count >= INSPECT_DAILY_LIMIT:
-            logger.warning(f"  [GSC] 日次上限 {INSPECT_DAILY_LIMIT}件に達したため残りの DB はスキップ")
+            logger.warning(f"  [GSC] 日次上限に達したため記事ループを退出")
             break
-        try:
-            conn = db_connect(db_path)
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                """SELECT product_id, wp_post_url, published_at, gsc_last_checked
-                   FROM novelove_posts
-                   WHERE status='published'
-                     AND wp_post_url != '' AND wp_post_url IS NOT NULL
-                     AND published_at <= ?""",
-                (inspect_since_date,)
-            ).fetchall()
-            conn.close()
-        except Exception as e:
-            logger.warning(f"  [DB] 読み込みエラー ({db_path}): {e}")
+
+        pid = row["product_id"]
+        url = row["wp_post_url"]
+        last_checked = row["gsc_last_checked"]
+
+        # ━━ 7日以内に確認済みの記事は再チェックをスキップ ━━
+        if last_checked and last_checked >= recheck_cutoff:
+            logger.debug(f"  [GSC] {pid} — {INSPECT_RECHECK_DAYS}日以内に済みのためスキップ (last_checked={last_checked[:10]})")
             continue
 
-        for row in rows:
-            if inspect_count >= INSPECT_DAILY_LIMIT:
-                logger.warning(f"  [GSC] 日次上限に達したため記事ループを退出")
-                break
+        url_slash    = url if url.endswith('/') else url + '/'
+        url_no_slash = url.rstrip('/')
+        gsc_info     = url_data.get(url_slash) or url_data.get(url_no_slash)
 
-            pid = row["product_id"]
-            url = row["wp_post_url"]
-            last_checked = row["gsc_last_checked"]
+        impressions = gsc_info["impressions"] if gsc_info else 0
+        clicks      = gsc_info["clicks"]      if gsc_info else 0
 
-            # ━━ 7日以内に確認済みの記事は再チェックをスキップ ━━
-            if last_checked and last_checked >= recheck_cutoff:
-                logger.debug(f"  [GSC] {pid} — {INSPECT_RECHECK_DAYS}日以内に済みのためスキップ (last_checked={last_checked[:10]})")
-                continue
+        # インデックス確認（表示が0のURL のみ Inspection API 呼び出し）
+        if gsc_info is None or impressions == 0:
+            indexed = check_indexed(service, url)
+            inspect_count += 1
+        else:
+            indexed = True  # 表示があればインデックス済みとみなす
 
-            url_slash    = url if url.endswith('/') else url + '/'
-            url_no_slash = url.rstrip('/')
-            gsc_info     = url_data.get(url_slash) or url_data.get(url_no_slash)
+        # API判定不能（None）の場合はDB更新・分類をスキップ
+        if indexed is None:
+            logger.warning(f"  [GSC] {pid} — インデックス判定不能のためスキップ")
+            continue
 
-            impressions = gsc_info["impressions"] if gsc_info else 0
-            clicks      = gsc_info["clicks"]      if gsc_info else 0
+        # DB 更新 (v18.0.0: 統合DBに対して更新)
+        try:
+            conn2 = db_connect(DB_FILE_UNIFIED)
+            conn2.execute(
+                """UPDATE novelove_posts
+                   SET gsc_indexed      = ?,
+                       gsc_impressions  = ?,
+                       gsc_clicks       = ?,
+                       gsc_last_checked = ?
+                   WHERE product_id = ?""",
+                (1 if indexed else 0, impressions, clicks, now_str, pid)
+            )
+            conn2.commit()
+            conn2.close()
+        except Exception as e:
+            logger.error(f"  [DB] GSC 更新失敗 ({pid}): {e}")
+            continue
 
-            # インデックス確認（表示が0のURL のみ Inspection API 呼び出し）
-            if gsc_info is None or impressions == 0:
-                indexed = check_indexed(service, url)
-                inspect_count += 1
-            else:
-                indexed = True  # 表示があればインデックス済みとみなす
+        # 死に記事判定（公開30日以上の記事のみアラート対象）
+        published_at_str = row["published_at"] if row["published_at"] else ""
+        is_old_enough = published_at_str <= threshold_date
 
-            # API判定不能（None）の場合はDB更新・分類をスキップ
-            if indexed is None:
-                logger.warning(f"  [GSC] {pid} — インデックス判定不能のためスキップ")
-                continue
+        if is_old_enough:
+            if DEAD_LEVEL1_UNINDEXED and not indexed:
+                dead_lv1.append({"pid": pid, "url": url})
+            elif DEAD_LEVEL2_ZERO_IMPR and indexed and impressions == 0:
+                dead_lv2.append({"pid": pid, "url": url})
+            elif DEAD_LEVEL3_ZERO_CLICK and indexed and impressions > 0 and clicks == 0:
+                dead_lv3.append({"pid": pid, "url": url})
 
-            # DB 更新
-            try:
-                conn2 = db_connect(db_path)
-                conn2.execute(
-                    """UPDATE novelove_posts
-                       SET gsc_indexed      = ?,
-                           gsc_impressions  = ?,
-                           gsc_clicks       = ?,
-                           gsc_last_checked = ?
-                       WHERE product_id = ?""",
-                    (1 if indexed else 0, impressions, clicks, now_str, pid)
-                )
-                conn2.commit()
-                conn2.close()
-            except Exception as e:
-                logger.error(f"  [DB] GSC 更新失敗 ({pid}): {e}")
-                continue
-
-            # 死に記事判定（公開30日以上の記事のみアラート対象）
-            published_at_str = row["published_at"] if row["published_at"] else ""
-            is_old_enough = published_at_str <= threshold_date
-
-            if is_old_enough:
-                if DEAD_LEVEL1_UNINDEXED and not indexed:
-                    dead_lv1.append({"pid": pid, "url": url})
-                elif DEAD_LEVEL2_ZERO_IMPR and indexed and impressions == 0:
-                    dead_lv2.append({"pid": pid, "url": url})
-                elif DEAD_LEVEL3_ZERO_CLICK and indexed and impressions > 0 and clicks == 0:
-                    dead_lv3.append({"pid": pid, "url": url})
 
     # --- Discord 通知 ---
     _send_discord_summary(dead_lv1, dead_lv2, dead_lv3)
