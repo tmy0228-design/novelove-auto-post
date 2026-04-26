@@ -82,6 +82,8 @@ force_*.py
 mirror_*.py
 move_*.py
 update_*.py
+!update_affiliate_text.py
+!update_wp_exclusive_tags.py
 backup_*.py
 clean_*.py
 clear_*.py
@@ -105,7 +107,6 @@ launch_*.bat
 list_*.py
 migrate_*.py
 myblog.conf
-nexus_purge.py
 override_*.py
 rewrite_score3.py
 
