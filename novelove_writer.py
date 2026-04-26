@@ -583,6 +583,8 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             import re
             content = re.sub(r'^```(?:html|xml)?\s*', '', content, flags=re.IGNORECASE)
             content = re.sub(r'\s*```$', '', content)
+            # リテラルの \n（バックスラッシュ+n文字列）を除去（v18.1.1: 個別修正スクリプト由来の混入対策）
+            content = content.replace('\\n', '')
             # 万が一AIが「アフィリエイトURL:」や「作者のXは〜」などを出力した場合の強制サニタイズ
             content = re.sub(r'アフィリエイトURL[：:].*?(?=<|$)', '', content)
             content = re.sub(r'作者のX[：は].*?(?=<|$)', '', content)
