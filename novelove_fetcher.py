@@ -742,23 +742,23 @@ def _fetch_dlsite_items(target):
     floor = target.get("floor", "girls")
     genre = target.get("genre", "")
     is_novel = genre in ("novel_bl", "novel_tl")
-    work_type = "NRE" if is_novel else "MNG"
-    url = f"https://www.dlsite.com/{floor}/new/=/work_type/{work_type}/genre/all/"
+    work_category = "novel" if is_novel else "manga"
+    url = f"https://www.dlsite.com/{floor}/fsr/=/language/jp/work_type_category[0]/{work_category}/order/release_d/per_page/30/"
     items = []
     VOICE_KEYWORDS = ["ボイス", "音声", "ASMR", "CV.", "CV:", "cv.", "cv:", "シチュエーションCD",
                       "バイノーラル", "ドラマCD", "全年齢ボイス", "簡体中文版", "繁体中文版",
                       "繁體中文版", "English", "韓国語版", "中国語", "音楽", "サウンドトラック", "音声作品"]
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
-        r = _fetch_with_retry(url, headers=headers, timeout=20, label=f"DLsite新着({work_type})")
+        r = _fetch_with_retry(url, headers=headers, timeout=20, label=f"DLsite新着({work_category})")
         if r is None: return items
         soup = BeautifulSoup(r.text, "html.parser")
-        works = soup.select(".n_worklist_item")
+        works = soup.select(".n_worklist_item, .work_name")
         for work in works[:10]:
-            title_tag = work.select_one(".work_name a")
+            title_tag = work.select_one("a") if work.name != "a" else work
             if not title_tag: continue
             title_text = title_tag.text.strip()
-            category_tag = work.select_one(".work_category")
+            category_tag = work.parent.select_one(".work_category") if work.parent else None
             category_text = category_tag.text.strip() if category_tag else ""
             skip_keywords = VOICE_KEYWORDS if is_novel else VOICE_KEYWORDS + ["ノベル", "小説", "実用"]
             if any(kw in (title_text + category_text) for kw in skip_keywords):

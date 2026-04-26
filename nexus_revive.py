@@ -101,12 +101,15 @@ def _wp_search_post_by_slug(slug):
     try:
         r = requests.get(
             f"{WP_SITE_URL}/wp-json/wp/v2/posts",
-            auth=auth, params={"slug": slug, "status": "publish", "_fields": "id,tags"},
+            auth=auth, params={"slug": slug, "status": "publish", "_fields": "id,slug,tags"},
             timeout=15
         )
         posts = r.json()
         if isinstance(posts, list) and posts:
-            return posts[0]["id"], posts[0].get("tags", [])
+            # bcache対策: _検索の誤爆を防ぐため、完全一致でフィルタ
+            exact = [p for p in posts if p.get("slug", "").lower() == slug.lower()]
+            if exact:
+                return exact[0]["id"], exact[0].get("tags", [])
     except Exception as e:
         logger.warning(f"  [WP] 記事検索エラー (slug={slug}): {e}")
     return None, []
@@ -625,6 +628,16 @@ def run_nexus():
             else:
                 # 失敗時はカウントを戻すような厳密なロールバックは行わない（次回cronで再トライされるため）
                 logger.warning(f"  ⚠️ タグ一括更新失敗: {pid}")
+
+    # --- キャッシュクリア処理（追加） ---
+    if stats["sale_added"] > 0 or stats["sale_removed"] > 0 or stats["rank_added"] > 0 or stats["rank_removed"] > 0:
+        logger.info("  [WP] タグの更新があったため、KUSANAGIキャッシュをクリアします...")
+        try:
+            import subprocess
+            subprocess.run("kusanagi bcache clear && kusanagi fcache clear", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            logger.info("  [WP] キャッシュクリア完了")
+        except Exception as e:
+            logger.warning(f"  [WP] キャッシュクリア失敗: {e}")
 
     # --- Step 4: Discord 日次サマリー ---
     summary = (
