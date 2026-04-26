@@ -1,11 +1,4 @@
-## v18.1.0 — DLsite新着URLバグ修正 & nexus_revive改善 (2026-04-26)
-
-### 🐛 fix(fetcher): DLsite新着取得URLを発売カレンダーから詳細検索（fsr）に変更
-- **対象 (`novelove_fetcher.py`)**: `_fetch_dlsite_items()` の取得URLを `/new/=/work_type/{NRE|MNG}/...` から `/fsr/=/language/jp/work_type_category[0]/{novel|manga}/order/release_d/per_page/30/` に変更。
-- **根本原因**: `/new/` URLは `work_type` パラメータを無視して「発売カレンダー」全体（漫画・小説・音声・ゲーム混在）を返すDLsite側の仕様。小説として取りに行っても漫画や音声が大量に混入していた。
-- **修正内容**: `/fsr/`（詳細検索）のURLを使用することで `work_type_category=novel/manga` の絞り込みが確実に機能するよう変更。セレクタも `a[href*='/work/=/product_id/']` に刷新し、重複PID除去（`seen_pids`）を追加。
-- **影響範囲**: DLsite全4フロア（bl/girls/bl-pro/girls-pro）×2種別（novel/manga）の全8取得ターゲット。
-- **補足**: 既存の防波堤ロジック（バッジ検証・ボイス除外）はそのまま維持。自己振り分け機能も引き続き有効。
+## v18.1.0 — nexus_revive改善 & docs修正 (2026-04-26)
 
 ### 🐛 fix(revive): WP slug検索の完全一致フィルタ追加（bcache対策）
 - **対象 (`nexus_revive.py`)**: `_wp_search_post_by_slug()` の `_fields` に `slug` を追加し、返却結果に完全一致フィルタを適用。
@@ -18,6 +11,10 @@
 ### 📄 docs(CLAUDE.md): 2箇所の記述不整合を修正
 - `nexus_revive.py` の役割説明を「失敗・未投稿記事の自動再挑戦」→「セール/ランキングタグの自動付与・剥奪エンジン」に修正（実態と乖離していた）。
 - `auto_deploy.sh` の方式説明を「curlダウンロード方式（旧）」→「`git fetch && git reset --hard` 方式（現行）」に修正。
+
+### ⚠️ revert(fetcher): DLsite新着URLをfsrから元の/new/形式に差し戻し
+- 一度 `/fsr/` 形式へ変更したが、検証の結果 `work_type_category` パラメータの絞り込みも完全ではなく（30件中11件が novel/manga 両URLに重複）、元の `/new/` 形式＋既存の防波堤ロジック（バッジ検証・ボイス除外）の組み合わせが正しい仕様であることを確認。元の実装に戻した。
+- **現在の正しい仕様**: `https://www.dlsite.com/{floor}/new/=/work_type/{NRE|MNG}/genre/all/` を取得し、防波堤ロジックで自動振り分けする設計を維持。
 
 ## v18.0.0 — DB統合アーキテクチャ刷新 (2026-04-26)
 

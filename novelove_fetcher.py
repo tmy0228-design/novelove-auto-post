@@ -742,31 +742,31 @@ def _fetch_dlsite_items(target):
     floor = target.get("floor", "girls")
     genre = target.get("genre", "")
     is_novel = genre in ("novel_bl", "novel_tl")
-    work_category = "novel" if is_novel else "manga"
-    url = f"https://www.dlsite.com/{floor}/fsr/=/language/jp/work_type_category[0]/{work_category}/order/release_d/per_page/30/"
+    work_type = "NRE" if is_novel else "MNG"
+    url = f"https://www.dlsite.com/{floor}/new/=/work_type/{work_type}/genre/all/"
     items = []
     VOICE_KEYWORDS = ["ボイス", "音声", "ASMR", "CV.", "CV:", "cv.", "cv:", "シチュエーションCD",
                       "バイノーラル", "ドラマCD", "全年齢ボイス", "簡体中文版", "繁体中文版",
                       "繁體中文版", "English", "韓国語版", "中国語", "音楽", "サウンドトラック", "音声作品"]
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
-        r = _fetch_with_retry(url, headers=headers, timeout=20, label=f"DLsite新着({work_category})")
+        r = _fetch_with_retry(url, headers=headers, timeout=20, label=f"DLsite新着({work_type})")
         if r is None: return items
         soup = BeautifulSoup(r.text, "html.parser")
-        # fsr ページは作品リンクが /work/=/product_id/ 形式のaタグに集約されている
-        work_links = soup.select("a[href*='/work/=/product_id/']")
-        seen_pids = set()
-        for title_tag in work_links[:30]:
-            title_text = title_tag.get("title") or title_tag.text.strip()
-            if not title_text: continue
+        works = soup.select(".n_worklist_item")
+        for work in works[:10]:
+            title_tag = work.select_one(".work_name a")
+            if not title_tag: continue
+            title_text = title_tag.text.strip()
+            category_tag = work.select_one(".work_category")
+            category_text = category_tag.text.strip() if category_tag else ""
             skip_keywords = VOICE_KEYWORDS if is_novel else VOICE_KEYWORDS + ["ノベル", "小説", "実用"]
-            if any(kw in title_text for kw in skip_keywords):
+            if any(kw in (title_text + category_text) for kw in skip_keywords):
                 logger.info(f"[DLsite] 種別フィルターによりスキップ: {title_text[:40]}")
                 continue
             detail_url = title_tag.get("href")
             pid = detail_url.rstrip("/").split("/")[-1].replace(".html", "")
-            if not pid or pid in seen_pids: continue
-            seen_pids.add(pid)
+            if not pid: continue
             image_url = ""
             try:
                 dr = _fetch_with_retry(detail_url, headers=headers, timeout=10, label="DLsite詳細(形式判定)")
