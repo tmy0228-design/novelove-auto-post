@@ -1,4 +1,26 @@
+## v18.1.0 — DLsite新着URLバグ修正 & nexus_revive改善 (2026-04-26)
+
+### 🐛 fix(fetcher): DLsite新着取得URLを発売カレンダーから詳細検索（fsr）に変更
+- **対象 (`novelove_fetcher.py`)**: `_fetch_dlsite_items()` の取得URLを `/new/=/work_type/{NRE|MNG}/...` から `/fsr/=/language/jp/work_type_category[0]/{novel|manga}/order/release_d/per_page/30/` に変更。
+- **根本原因**: `/new/` URLは `work_type` パラメータを無視して「発売カレンダー」全体（漫画・小説・音声・ゲーム混在）を返すDLsite側の仕様。小説として取りに行っても漫画や音声が大量に混入していた。
+- **修正内容**: `/fsr/`（詳細検索）のURLを使用することで `work_type_category=novel/manga` の絞り込みが確実に機能するよう変更。セレクタも `a[href*='/work/=/product_id/']` に刷新し、重複PID除去（`seen_pids`）を追加。
+- **影響範囲**: DLsite全4フロア（bl/girls/bl-pro/girls-pro）×2種別（novel/manga）の全8取得ターゲット。
+- **補足**: 既存の防波堤ロジック（バッジ検証・ボイス除外）はそのまま維持。自己振り分け機能も引き続き有効。
+
+### 🐛 fix(revive): WP slug検索の完全一致フィルタ追加（bcache対策）
+- **対象 (`nexus_revive.py`)**: `_wp_search_post_by_slug()` の `_fields` に `slug` を追加し、返却結果に完全一致フィルタを適用。
+- **背景**: `nexus_rewrite.py` では v17.8.6 に同様のバグが修正済みだったが、`nexus_revive.py` には未適用のまま残っていた。KUSANAGIのbcacheがREST APIレスポンスをキャッシュし、異なるslugクエリでも誤った結果を返す可能性があった。
+
+### ✨ feat(revive): タグ更新後のKUSANAGIキャッシュ自動クリア追加
+- **対象 (`nexus_revive.py`)**: `run_nexus()` のタグ更新ループ完了後、1件以上のタグ変更があった場合に `kusanagi bcache clear && kusanagi fcache clear` を自動実行。
+- **効果**: タグが付与・剥奪された記事の最新状態がユーザーに即座に表示される。
+
+### 📄 docs(CLAUDE.md): 2箇所の記述不整合を修正
+- `nexus_revive.py` の役割説明を「失敗・未投稿記事の自動再挑戦」→「セール/ランキングタグの自動付与・剥奪エンジン」に修正（実態と乖離していた）。
+- `auto_deploy.sh` の方式説明を「curlダウンロード方式（旧）」→「`git fetch && git reset --hard` 方式（現行）」に修正。
+
 ## v18.0.0 — DB統合アーキテクチャ刷新 (2026-04-26)
+
 
 ### 🚀 feat: 単一データベース（novelove_unified.db）への完全移行
 - **概要**: サイトごと（FANZA, DLsite, DigiKet）に3分割されていたSQLiteデータベースファイルを `novelove_unified.db` の1つに統合。

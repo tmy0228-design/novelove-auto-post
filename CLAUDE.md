@@ -33,7 +33,7 @@
 | `novelove_soul.py` | AIライターキャラ設定・NG表現リスト・FACT_GUARD |
 | `nexus_dashboard.py` | Streamlit管理ダッシュボード |
 | `nexus_rewrite.py` | 既存記事のAIリライトエンジン |
-| `nexus_revive.py` | 失敗・未投稿記事の自動再挑戦 |
+| `nexus_revive.py` | セール/ランキングタグの自動付与・剥奪エンジン（朝・夕1日2回cronで実行） |
 | `nexus_healer.py` | DBの破損・異常データ修復 |
 | `nexus_gsc.py` | Google Search Console連携 |
 | `nexus_purge.py` | 低品質記事の自動削除 |
@@ -93,9 +93,9 @@ ExecStart=/opt/kusanagi/bin/python3 -m streamlit run nexus_dashboard.py ...
 
 GitHubのmainブランチに変更がpushされると、30分以内にサーバーが自動で取り込む。
 
-- **現在の方式**: GitHub APIでSHAを比較し、変更があれば対象ファイルを`curl`でダウンロード
-- **デプロイ対象**: `auto_post.py`, `novelove_core.py`, `novelove_fetcher.py`, `novelove_soul.py`, `novelove_ranking.py`, `novelove_writer.py`, `nexus_purge.py`（nexus系は手動 `update_ui.py` を実行）
-- **将来の予定**: `git pull` 方式に変更して全ファイルを自動同期
+- **現在の方式**: GitHub APIでSHAを比較し、変更があれば `git fetch && git reset --hard origin/main` で全ファイルを一括同期
+- **デプロイ対象**: リポジトリ管理下の**全ファイル**（`.gitignore` 除外対象を除く）
+- **同期タイミング**: 30分ごとに差分を自動検出、変更がある場合のみ反映
 
 ---
 

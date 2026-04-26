@@ -753,20 +753,20 @@ def _fetch_dlsite_items(target):
         r = _fetch_with_retry(url, headers=headers, timeout=20, label=f"DLsite新着({work_category})")
         if r is None: return items
         soup = BeautifulSoup(r.text, "html.parser")
-        works = soup.select(".n_worklist_item, .work_name")
-        for work in works[:10]:
-            title_tag = work.select_one("a") if work.name != "a" else work
-            if not title_tag: continue
-            title_text = title_tag.text.strip()
-            category_tag = work.parent.select_one(".work_category") if work.parent else None
-            category_text = category_tag.text.strip() if category_tag else ""
+        # fsr ページは作品リンクが /work/=/product_id/ 形式のaタグに集約されている
+        work_links = soup.select("a[href*='/work/=/product_id/']")
+        seen_pids = set()
+        for title_tag in work_links[:30]:
+            title_text = title_tag.get("title") or title_tag.text.strip()
+            if not title_text: continue
             skip_keywords = VOICE_KEYWORDS if is_novel else VOICE_KEYWORDS + ["ノベル", "小説", "実用"]
-            if any(kw in (title_text + category_text) for kw in skip_keywords):
+            if any(kw in title_text for kw in skip_keywords):
                 logger.info(f"[DLsite] 種別フィルターによりスキップ: {title_text[:40]}")
                 continue
             detail_url = title_tag.get("href")
             pid = detail_url.rstrip("/").split("/")[-1].replace(".html", "")
-            if not pid: continue
+            if not pid or pid in seen_pids: continue
+            seen_pids.add(pid)
             image_url = ""
             try:
                 dr = _fetch_with_retry(detail_url, headers=headers, timeout=10, label="DLsite詳細(形式判定)")
