@@ -1,3 +1,10 @@
+## v18.1.3 — 統合DB安定稼働に伴う旧DB・一時ファイルの完全削除 (2026-04-29)
+
+### 🧹 chore: 一時スクリプトと旧DBファイルのクリーンアップ
+- **ローカルリポジトリ整理**: 過去の調査や単発修正で使用した一時ファイル群（`check_*.py`, `test_*.py`, `fix_*.py`、ログ・ダンプ等）計264ファイルを削除。
+- **旧スクリプト削除**: DB移行用の `_migrate_db.py` や `old_writer.py`、単発バッチ `nexus_batch_rewrite.py` など役目を終えたファイルを git 管理から削除。
+- **旧DBバックアップ削除**: `novelove_unified.db` の安定稼働（3日間連続の正常取得・投稿・排除）が確認されたため、ロールバック用に残置していた旧DB群（`novelove.db`, `novelove_dlsite.db`, `novelove_digiket.db`, `novelove_fanza.db`, `novelove.log`）をサーバー上から完全削除。今後は `novelove_unified.db` を唯一の正本とする。
+
 ## v18.1.2 — DLsiteセールURL修正 & FANZA専売タグ整理 (2026-04-26)
 
 ### 🐛 fix(revive): DLsiteセール検索URLのパラメータ形式を修正

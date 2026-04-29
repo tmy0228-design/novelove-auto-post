@@ -12,7 +12,7 @@ BL・TL の女性向け作品（漫画・小説・同人）を全自動で紹介
 ## 🚀 システム概要
 - **目的**: FANZA(商業), DLsite, DMMブックス, DigiKet, らぶカル(Lovecal) の新着・ランキングを取得し、**DeepSeek V4-Flash**（直接API / OpenRouterフォールバック）で紹介記事を生成して WordPress に自動投稿する。
 - **主要言語**: Python 3.x
-- **データベース**: SQLite (`novelove.db`, `novelove_dlsite.db`, `novelove_digiket.db`)
+- **データベース**: SQLite (`novelove_unified.db`)
 
 ## 🗂️ ファイル構成
 | ファイル | 役割 |
