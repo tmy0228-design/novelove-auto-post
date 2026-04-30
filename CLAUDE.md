@@ -70,7 +70,8 @@ nexus_dashboard.py ← nexus系UI
 
 ```
 */30 * * * *  auto_post.py           → 自動投稿（30分ごと）
-0 22 * * *    auto_post.py --ranking → ランキング記事（毎日22時・曜日でサイト自動判定）
+0 22 * * 2-6  auto_post.py --ranking → ランキング記事1回目（BL）22時、次回のランキング投稿日に自動判定
+30 22 * * 2-6 auto_post.py --ranking → ランキング記事2回目（TL）22:30、BL投稿済みを検知しTLを投稿
 15 8,20 * * * nexus_revive.py        → 失敗記事の再挑戦（朝8:15/夜8:15）
 */30 * * * *  auto_deploy.sh         → GitHub自動デプロイ（30分ごと）
 30 3 * * *    nexus_gsc.py           → GSCデータ取得（毎日3:30）

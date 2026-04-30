@@ -84,7 +84,11 @@ Googleの「Scaled Content Abuse（テンプレート量産）」ペナルティ
 */30 * * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py >> /home/kusanagi/scripts/novelove.log 2>&1
 
 # ランキング生成（水=DigiKet, 木=DMM, 金=DLsite, 土=FANZA, 日=Lovecal / 厳選ピックアップ5選）
-0 22 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove.log 2>&1
+# ❗重要: BL（22:00）完了後にTLを処理するため。1日に2回起動必須。
+#         1回目（BL）: 22:00 → BL投稿完了後に return。
+#         2回目（TL）: 22:30 → BL投稿済みを検知し、TLを投稿して終了。
+0 22 * * 2-6 cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove.log 2>&1
+30 22 * * 2-6 cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove.log 2>&1
 ```
 
 ## 📜 変更履歴

@@ -25,8 +25,8 @@ from novelove_fetcher import (
 
 # === v17.5.0: DeepSeek-V4 API完全移行 ===
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
-MODEL_ECONOMY      = "deepseek-v4-flash"   # 本日発表のV4 Flashへ明示的アップデート
-MODEL_PREMIUM      = "deepseek-chat"   # 本気モード：現在V4-Flashで統合
+MODEL_ECONOMY      = "deepseek-v4-flash"   # v17.5.0: DeepSeek V4 Flash 全記事統一
+MODEL_PREMIUM      = "deepseek-v4-flash"   # v17.1.0で統一済み。将来のモデル差替時のみ変更すること
 DEEPSEEK_MODEL   = MODEL_ECONOMY
 
 def _evaluate_article_potential(title, description, original_tags=""):
@@ -523,13 +523,9 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
     final_model = DEEPSEEK_MODEL
     final_proc_time = 0.0
     
-    # v17.5.0: 全記事 DeepSeek-V4 統一
+    # v17.1.0/v17.5.0: 全記事 DeepSeek-V4-Flash に統一（MODEL_PREMIUMへの切り替え廃止）
     model_id = MODEL_ECONOMY
-    if target.get("desc_score", 0) >= 5 or "熱量が高い" in mood:
-        model_id = MODEL_PREMIUM
-        logger.info(f"  [🦋DeepSeek-V4] 期待値MAX・情熱モード発動！ (score={target.get('desc_score')})")
-    else:
-        logger.info(f"  [🦋DeepSeek-V4] 全記事統一モード (score={target.get('desc_score', 4)})")
+    logger.info(f"  [🦋DeepSeek-V4-Flash] 全記事統一モード (score={target.get('desc_score', 4)})")
 
     for mask_level in [0, 1, 2]:
         level_name = ["フィルターなし", "軽めフィルター", "ガチガチフィルター"][mask_level]
