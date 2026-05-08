@@ -328,7 +328,7 @@ def _check_global_cooldown(cooldown_minutes=45, post_type='regular'):
 def _run_main_logic():
     """
     v11.4.12: メイン処理。
-    1. クールダウンチェック（55分）<- 重い処理の前に移動
+    1. クールダウンチェック（45分）<- 重い処理の前に移動
     2. 新着取得
     3. 在庫クリーンアップ
     4. 投稿実行
@@ -338,10 +338,10 @@ def _run_main_logic():
         logger.info("🚨 緊急停止中のためスキップ。解除: rm emergency_stop.lock")
         return
 
-    # クールダウンチェック (通常投稿: 55分間隔 = 1日最大24件ペース)
+    # クールダウンチェック (通常投稿: cron25分+cooldown45分で実効約50分間隔)
     # v11.4.12: 何よりも先に判定を行い、負荷をゼロにする
-    # v15.7.0: スパム判定リスク軽減のため、1時間1件ペースに調整
-    is_ready, elapsed = _check_global_cooldown(55)
+    # v18.2.0: 55分→45分に短縮（~29件/日へ増量）
+    is_ready, elapsed = _check_global_cooldown(45)
     if not is_ready:
         logger.info(f"🕒 クールダウン中（{elapsed:.1f}分経過）。0.1秒で終了します。")
         return
