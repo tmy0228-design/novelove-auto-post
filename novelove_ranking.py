@@ -442,8 +442,9 @@ def process_ranking_articles():
     try:
         # 曜日判定 (0=月, 1=火, 2=水, 3=木, 4=金, 5=土, 6=日)
         weekday = datetime.now().weekday()
-        # スケジュール: 水=DigiKet, 木=DMM, 金=DLsite, 土=FANZA, 日=Lovecal
-        schedule = {2: "DigiKet", 3: "DMM", 4: "DLsite", 5: "FANZA", 6: "Lovecal"}
+        # スケジュール (v18.2.1): SEO優先度・収益貢献度に基づき再配置。FANZAは新作停止により廃止。
+        # 優先度: DLsite（最高・土曜最強枠）> らぶカル（金曜週末前）> DMM（日曜週末締め）> DigiKet（水曜平日枠）
+        schedule = {2: "DigiKet", 4: "Lovecal", 5: "DLsite", 6: "DMM"}
         
         target_site = schedule.get(weekday)
         if not target_site:
