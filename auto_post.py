@@ -294,7 +294,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 # --- [削除] 旧 main() 定義 (v11.4.14 にて統合・削除) ---
-def _check_global_cooldown(cooldown_minutes=55, post_type='regular'):
+def _check_global_cooldown(cooldown_minutes=45, post_type='regular'):
     """
     統合DBから最新の投稿時刻をチェックし、指定分数が経過しているか返す。
     経過していれば True、クールダウン中なら False を返す。

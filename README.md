@@ -1,4 +1,4 @@
-# Novelove 自動投稿システム (v17.8.7 + v17.7.1)
+# Novelove 自動投稿システム (v18.2.0)
 
 > [!IMPORTANT]
 > **開発・修正時の注意**: 作業を開始する前に、必ず `git pull origin main` で最新版をプルしてから作業を行ってください。
@@ -40,7 +40,7 @@ BL・TL の女性向け作品（漫画・小説・同人）を全自動で紹介
 - 通常投稿: **90%が専門ジャンル担当 / 10%がゲスト（専門外）登板**
 - ランキング投稿: **MCとゲストの2名で掛け合い形式**（全10パターンの関係性マトリクス参照）
 
-## ✨ 主な機能 (v17.8.7 + v17.7.1)
+## ✨ 主な機能 (v18.2.0)
 
 ### 0. らぶカル(LoveCal) 完全統合 (v13.6.0)
 FANZAの同人新フロア「らぶカル」のBL/TLコンテンツを既存パイプラインに完全統合（2025年3月3日サイト分離）。
@@ -63,7 +63,7 @@ Googleの「Scaled Content Abuse（テンプレート量産）」ペナルティ
 ### 4. 多段ガードレールと関所（Cooldown）システム
 - **サーキットブレーカー**: 連続エラー3回 or 5分超過で自動停止 → Discord緊急通知（`emergency_stop.lock`生成）
 - **関所（冷却機能）**: SQLiteのロックエラーを防ぐため、cron多重起動時の安全弁として冷却ロジックを実装。
-- **クールダウン**: 通常投稿は55分待機。ランキング記事は週1回の投稿を厳密に保証するため、12時間休止タイマーではなく「その週の対象データベースに完了記録(slug)があるか」を直接照合し、スキップミスを100%防止。
+- **クールダウン**: 通常投稿は45分待機（cron 25分間隔との組み合わせで実効50分間隔≈約29件/日）。ランキング記事は週１回の投稿を厳密に保証するため、「その週の対象データベースに完了記録(slug)があるか」を直接照合し、スキップミスを100%防止。
 - **重複防止**: DB全件 + WordPressの公開記事タイトルとの照合により二重投稿を100%排除し、SQLite固有の `ORDER BY 0` エラーも防ぐ堅牢なSQL構造。
 
 ## 🤖 AIモデル構成 (v17.7.0以降)
@@ -80,18 +80,14 @@ Googleの「Scaled Content Abuse（テンプレート量産）」ペナルティ
 
 ## ⏰ 定期実行設定 (cron)
 ```bash
-# 30分おきに通常投稿
-*/30 * * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py >> /home/kusanagi/scripts/novelove.log 2>&1
+# 25分おきに通常投稿（cooldown 45分との組み合わせで実効50分間隔≈約29件/日）
+*/25 * * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py >> /home/kusanagi/scripts/novelove.log 2>&1
 
 # ランキング生成（水=DigiKet, 木=DMM, 金=DLsite, 土=FANZA, 日=Lovecal / 厳選ピックアップ5選）
-# ❗重要: BL（22:00）完了後にTLを処理するため。1日に2回起動必須。
-#         1回目（BL）: 22:00 → BL投稿完了後に return。
-#         2回目（TL）: 22:30 → BL投稿済みを検知し、TLを投稿して終了。
-0 22 * * 2-6 cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove.log 2>&1
-30 22 * * 2-6 cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove.log 2>&1
+# ❗重要: BL（10:00）完了後にTLを処理するため、1日に2回起動必須。
+0 10 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove.log 2>&1
+30 10 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove.log 2>&1
 ```
 
 ## 📜 変更履歴
 詳細は [CHANGELOG.md](./CHANGELOG.md) を参照してください。
-
-
