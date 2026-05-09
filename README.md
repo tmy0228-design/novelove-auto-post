@@ -63,7 +63,7 @@ Googleの「Scaled Content Abuse（テンプレート量産）」ペナルティ
 ### 4. 多段ガードレールと関所（Cooldown）システム
 - **サーキットブレーカー**: 連続エラー3回 or 5分超過で自動停止 → Discord緊急通知（`emergency_stop.lock`生成）
 - **関所（冷却機能）**: SQLiteのロックエラーを防ぐため、cron多重起動時の安全弁として冷却ロジックを実装。
-- **クールダウン**: 通常投稿は45分待機（cron 25分間隔との組み合わせで実効50分間隔≈約29件/日）。ランキング記事は週１回の投稿を厳密に保証するため、「その週の対象データベースに完了記録(slug)があるか」を直接照合し、スキップミスを100%防止。
+- **クールダウン**: 通常投稿は35分待機（cron 20分間隔との組み合わせでタイミングズレのない実効40分間隔≈約36件/日）。ランキング記事は週１回の投稿を厳密に保証するため、「その週の対象データベースに完了記録(slug)があるか」を直接照合し、スキップミスを100%防止。
 - **重複防止**: DB全件 + WordPressの公開記事タイトルとの照合により二重投稿を100%排除し、SQLite固有の `ORDER BY 0` エラーも防ぐ堅牢なSQL構造。
 
 ## 🤖 AIモデル構成 (v17.7.0以降)
@@ -80,8 +80,8 @@ Googleの「Scaled Content Abuse（テンプレート量産）」ペナルティ
 
 ## ⏰ 定期実行設定 (cron)
 ```bash
-# 25分おきに通常投稿（cooldown 45分との組み合わせで実効50分間隔≈約29件/日）
-*/25 * * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py >> /home/kusanagi/scripts/novelove.log 2>&1
+# 20分おきに通常投稿（cooldown 35分との組み合わせでタイミングズレのない実効40分間隔≈約36件/日）
+*/20 * * * * /opt/kusanagi/bin/python3 /home/kusanagi/scripts/auto_post.py >> /home/kusanagi/scripts/novelove_auto.log 2>&1
 
 # ランキング生成（水=DigiKet, 木=DMM, 金=DLsite, 土=FANZA, 日=Lovecal / 厳選ピックアップ5選）
 # ❗重要: BL（10:00）完了後にTLを処理するため、1日に2回起動必須。

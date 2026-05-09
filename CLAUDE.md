@@ -19,7 +19,7 @@
 
 - **投稿サイト**: novelove.jp（WordPress / KUSANAGIサーバー）
 - **ダッシュボード**: nexus (/nexus) でStreamlitが稼働（要Basic認証）
-- **自動投稿**: 25分ごとにcronで `auto_post.py` が実行される（cooldown 45分との組み合わせで実効約50分間隔）
+- **自動投稿**: 20分ごとにcronで `auto_post.py` が実行される（cooldown 35分との組み合わせでズレのない実効40分間隔）
 
 ---
 
@@ -69,7 +69,7 @@ nexus_dashboard.py ← nexus系UI
 ### cron設定（変更前に必ず確認）
 
 ```
-*/25 * * * *  auto_post.py           → 自動投稿（25分ごと、cooldown 45分で実効50分間隔≒29件/日）
+*/20 * * * *  auto_post.py           → 自動投稿（20分ごと、cooldown 35分で実効40分間隔≒36件/日）
 0 10 * * *    auto_post.py --ranking → ランキング記事1回目（BL）10時
 30 10 * * *   auto_post.py --ranking → ランキング記事2回目（TL）10:30、BL投稿済みを検知しTLを投稿
 15 8,20 * * * nexus_revive.py        → セール/ランキングタグ付与・剥奪（朝8:15/夜8:15）
