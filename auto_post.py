@@ -338,10 +338,10 @@ def _run_main_logic():
         logger.info("🚨 緊急停止中のためスキップ。解除: rm emergency_stop.lock")
         return
 
-    # クールダウンチェック (通常投稿: cron25分+cooldown45分で実効約50分間隔)
+    # クールダウンチェック (通常投稿: cron20分+cooldown35分で実効約40分間隔)
     # v11.4.12: 何よりも先に判定を行い、負荷をゼロにする
-    # v18.2.0: 55分→45分に短縮（~29件/日へ増量）
-    is_ready, elapsed = _check_global_cooldown(45)
+    # v18.3.0: cron20分/cooldown35分に変更（~36件/日へ増量。完全40分リズムでタイミングズレ解消）
+    is_ready, elapsed = _check_global_cooldown(35)
     if not is_ready:
         logger.info(f"🕒 クールダウン中（{elapsed:.1f}分経過）。0.1秒で終了します。")
         return
