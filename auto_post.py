@@ -58,6 +58,7 @@ import argparse
 # --- Discord通知機能 ---
 # --- ライター性格設定・執筆ルール（novelove_soul.py に分離管理）---
 from novelove_soul import REVIEWERS, MOOD_PATTERNS, FACT_GUARD, NG_PHRASES, get_relationship
+from novelove_bluesky import post_to_bluesky
 
 from novelove_core import (
     logger, ERROR_LABELS, notify_discord,
@@ -737,6 +738,21 @@ def _execute_posting_flow(row, cursor, conn):
             username="ノベラブ通知くん"
         )
         logger.info(f"✅ 投稿成功！ URL: {link}")
+
+        # v18.4.0: Blueskyへの自動投稿（失敗してもメイン処理を止めない）
+        try:
+            post_to_bluesky(
+                title=wp_title,
+                genre=row["genre"],
+                excerpt=excerpt or "",
+                url=link,
+                wp_tags_str=wp_tags_str,
+                image_url=img_url,
+                is_r18=is_r18,
+            )
+        except Exception as _bsky_err:
+            logger.error(f"🚨 Bluesky呼び出しで予期せぬエラー（続行）: {_bsky_err}")
+
         return True, None
     else:
         cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='wp_post_failed' WHERE product_id=?", (pid,))
