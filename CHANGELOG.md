@@ -1,3 +1,23 @@
+## v18.4.0 — Bluesky自動投稿連携 (2026-05-10)
+
+### ✨ feat(bluesky): WordPress投稿成功後にBlueskyへ自動投稿
+- **新規ファイル (`novelove_bluesky.py`)**: Bluesky自動投稿の全ロジックを分離管理する専用モジュールを新設。
+- **対象 (`auto_post.py`)**: WordPress投稿成功直後（Discord通知の後）に `post_to_bluesky()` を呼び出すフックを追加。`try-except` ラップにより、Bluesky投稿失敗時もメイン処理は継続する。
+- **機能一覧**:
+  - **画像直接アップロード**: アイキャッチ画像をAT Protocol BlobとしてBlueskyに直接アップロード。ALTテキスト自動付与。
+  - **成人向けラベル自動付与**: `is_r18=True` 時に `com.atproto.label.defs#selfLabels` で `porn` ラベルを付与。BAN対策。
+  - **返信完全ブロック (Threadgate)**: 投稿と同時に `app.bsky.feed.threadgate` を作成し、リプライを完全封鎖。スパム防止。
+  - **タグフィルタリング**: wp_tagsからレビュアー名（紫苑/茉莉花/葵/桃香/蓮）および専売・限定・独占サフィックスのタグを除外し、属性タグ（執着/年下攻め等）のみを `#ハッシュタグ` として付与。
+  - **セッションキャッシュ**: `bluesky_session.json` にセッション情報をディスク保存し、毎回ログインせず `resumeSession` 相当の再利用を行う。復元失敗時は自動で新規ログイン。
+  - **日本語フラグ**: `langs: ["ja"]` を付与。
+  - **ジャンルラベル**: genre引数からBL/TL × 漫画/小説を自動判別し `【BL漫画】` 等のプレフィックスを付与。
+
+### 🔧 chore(env): Bluesky認証情報を環境変数化
+- **対象 (`.env`)**: `BLUESKY_HANDLE` / `BLUESKY_APP_PASSWORD` の2キーを追加。サーバー・ローカル両方に設定済み。
+- **アカウント**: `@novelove-official.bsky.social`（アプリパスワード認証）。
+
+---
+
 ## v18.3.0 — 投稿ペース最適化（1日36件プラン）(2026-05-09)
 
 ### ⏱️ perf(post): cron間隔・クールダウン最適化（タイミングズレ解消）
