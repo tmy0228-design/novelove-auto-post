@@ -123,25 +123,22 @@ THIN_CONTENT_KEYWORDS = ["分冊版", "単話", "単話版", "【マイクロ】
 # === フィルタリング ヘルパー ===
 
 def _is_r18_item(item, site=None):
-    r18_keywords = {"R18", "18禁", "成人向け", "18歳未満", "アダルト", "sexually explicit"}
-    title = item.get("title", "")
-    genres = item.get("genre", []) or item.get("iteminfo", {}).get("genre", []) or []
-    cat = item.get("category_name", "") or ""
-    target_text = str(title) + str(cat)
-    for g in genres:
-        target_text += (g.get("name", "") if isinstance(g, dict) else str(g))
-    if any(kw in target_text for kw in r18_keywords): return True
-    if site == "FANZA": return True
-    title_r18_kws = {
-        "セックス", "SEX", "sex", "エッチ", "えっち", "ナカイキ", "中イキ",
-        "イかせ", "イかされ", "射精", "勃起", "オナ禁", "オナニー", "潮吹き",
-        "絶頂", "痴女", "痴漢", "おっぱい", "巨乳", "乳首",
-        "性感マッサージ", "性感ほぐし", "風俗", "ソープ", "デリヘル",
-        "NTR", "ネトラレ", "寝取", "メスイキ", "女装", "調教", "奴隷", "緊縛",
-        "孕ませ", "種付け", "R18", "R-18", "18禁", "モザイク版", "成人向け", "アダルト", "官能",
-    }
-    if any(kw in title for kw in title_r18_kws): return True
-    return False
+    # 1. サイト・ブランドごとの絶対判定ルール
+    if site == "DMM.com":
+        return False  # DMM(一般)は100%全年齢
+    if site == "FANZA":
+        return True   # FANZA(らぶカル含む)は年齢確認ありの成人サイトのため100%R-18
+    if site == "DigiKet":
+        return True   # DigiKetは安全第一で一律R-18扱い
+
+    # 2. DLsiteのHTMLバッジ判定（_fetch_dlsite_itemsで取得したもの）
+    if site == "DLsite":
+        if "is_r18_badge" in item:
+            return item["is_r18_badge"]
+        return True # 万が一取得できなかった場合は安全のためR-18扱い
+
+    # 3. フォールバック（原則ここには来ないが安全側に倒す）
+    return True
 
 def _extract_author(item):
     for field in ["article", "author", "writer", "artist"]:
@@ -768,6 +765,7 @@ def _fetch_dlsite_items(target):
             pid = detail_url.rstrip("/").split("/")[-1].replace(".html", "")
             if not pid: continue
             image_url = ""
+            is_r18_badge = False
             try:
                 dr = _fetch_with_retry(detail_url, headers=headers, timeout=10, label="DLsite詳細(形式判定)")
                 if dr is None:
@@ -785,6 +783,9 @@ def _fetch_dlsite_items(target):
                     continue
                 og_img = dsoup.select_one('meta[property="og:image"]')
                 if og_img: image_url = og_img.get("content", "")
+
+                # v18.4.0: DLsiteのR-18バッジ(icon_ADL)の有無を取得して判定フラグとして保持
+                is_r18_badge = bool(dsoup.select_one(".icon_ADL"))
 
                 # v11.3.1: 審査前に「薄い作品（単話・分冊版）」を除外ｗ
                 if any(kw in title_text for kw in THIN_CONTENT_KEYWORDS):
@@ -819,7 +820,8 @@ def _fetch_dlsite_items(target):
                 "imageURL": {"large": image_url},
                 "article": [{"name": work.select_one(".maker_name").text.strip()}] if work.select_one(".maker_name") else [],
                 "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "dr_wg_links": dr_wg_links
+                "dr_wg_links": dr_wg_links,
+                "is_r18_badge": is_r18_badge
             })
             time.sleep(1)
     except Exception as e:
