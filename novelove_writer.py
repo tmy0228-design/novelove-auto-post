@@ -698,7 +698,20 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
                 content + button_html + credit_html
             )
             word_count = len(content)
-            is_r18_val = ":r18=1" in str(target.get("site", ""))
+            # v18.4.0: サイトブランドベースのR-18判定（_is_r18_itemと同一ルール）
+            # DB保存済みの古い":r18=0/1"文字列に依存せず、サイト名から確実に判定する
+            _site_str = str(target.get("site", ""))
+            _site_brand = _site_str.split(":")[0] if ":" in _site_str else _site_str
+            if _site_brand == "DMM.com":
+                is_r18_val = False  # DMM(一般)は100%全年齢
+            elif _site_brand in ("FANZA", "Lovecal"):
+                is_r18_val = True   # FANZA/らぶカルは100%R-18
+            elif _site_brand == "DigiKet":
+                is_r18_val = True   # DigiKetは安全第一で一律R-18
+            elif _site_brand == "DLsite":
+                is_r18_val = ":r18=1" in _site_str  # DLsiteはDB保存値を参照
+            else:
+                is_r18_val = True   # 不明サイトは安全側に倒す
             # 戻り値: (wp_title, full_content, excerpt, seo_title, is_r18, status, model, level, time, words, reviewer, tags, score)
             # ※将来拡張時は NamedTuple 化を検討すること（13要素タプルは保守性リスク）
             return ArticleResult(
