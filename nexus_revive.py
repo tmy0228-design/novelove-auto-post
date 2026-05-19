@@ -768,9 +768,17 @@ def run_nexus():
     RANK_BANNER_HTML = (
         "<!-- NOVELOVE_RANK_BANNER_START -->\n"
         '<div class="novelove-rank-banner" style="background: linear-gradient(135deg, #f5af19, #f12711); color: #fff; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; text-align: center; box-shadow: 0 4px 15px rgba(245, 175, 25, 0.3);">\n'
-        "    🏆 【今一番売れています！】今週の週間売れ筋ランキングにランクインした話題の作品です！\n"
+        "    🏆 【売れ筋！】週間売れ筋ランキングにランクインした、今売れている作品です！\n"
         "</div>\n"
         "<!-- NOVELOVE_RANK_BANNER_END -->\n"
+    )
+
+    COMBINED_BANNER_HTML = (
+        "<!-- NOVELOVE_COMBINED_BANNER_START -->\n"
+        '<div class="novelove-combined-banner" style="background: linear-gradient(135deg, #ff4e50, #f5af19); color: #fff; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; text-align: center; box-shadow: 0 4px 15px rgba(255, 78, 80, 0.3);">\n'
+        "    🔥🏆 【特別セール＆売れ筋！】今なら大変お得！週間ランキングにも入った、今売れている大注目作品です！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_COMBINED_BANNER_END -->\n"
     )
 
     for pid in all_targets:
@@ -838,12 +846,20 @@ def run_nexus():
             clean_content,
             flags=re.DOTALL
         )
+        clean_content = re.sub(
+            r"<!-- NOVELOVE_COMBINED_BANNER_START -->.*?<!-- NOVELOVE_COMBINED_BANNER_END -->\n?",
+            "",
+            clean_content,
+            flags=re.DOTALL
+        )
 
         new_content = clean_content
-        if is_rank:
-            new_content = RANK_BANNER_HTML + new_content
-        if is_sale:
+        if is_sale and is_rank:
+            new_content = COMBINED_BANNER_HTML + new_content
+        elif is_sale:
             new_content = SALE_BANNER_HTML + new_content
+        elif is_rank:
+            new_content = RANK_BANNER_HTML + new_content
 
         # ログメッセージの生成
         if sale_tag_id not in original_tags and sale_tag_id in new_tags:
