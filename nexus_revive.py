@@ -775,8 +775,8 @@ def run_nexus():
 
     COMBINED_BANNER_HTML = (
         "<!-- NOVELOVE_COMBINED_BANNER_START -->\n"
-        '<div class="novelove-combined-banner" style="background: linear-gradient(135deg, #ff4e50, #f5af19); color: #fff; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; text-align: center; box-shadow: 0 4px 15px rgba(255, 78, 80, 0.3);">\n'
-        "    🔥🏆 【特別セール＆売れ筋！】今なら大変お得！週間ランキングにも入った、今売れている大注目作品です！\n"
+        '<div class="novelove-combined-banner" style="background: linear-gradient(135deg, #ff4e50, #f5af19); color: #fff; padding: 8px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; box-shadow: 0 2px 10px rgba(255, 78, 80, 0.2);">\n'
+        "    🔥🏆 【セール＆売れ筋！】週間ランキング入り！今だけお得な注目作\n"
         "</div>\n"
         "<!-- NOVELOVE_COMBINED_BANNER_END -->\n"
     )
