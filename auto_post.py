@@ -739,19 +739,32 @@ def _execute_posting_flow(row, cursor, conn):
         )
         logger.info(f"✅ 投稿成功！ URL: {link}")
 
-        # v18.4.0: Blueskyへの自動投稿（失敗してもメイン処理を止めない）
-        try:
-            post_to_bluesky(
-                title=wp_title,
-                genre=row["genre"],
-                excerpt=excerpt or "",
-                url=link,
-                wp_tags_str=wp_tags_str,
-                image_url=img_url,
-                is_r18=is_r18,
-            )
-        except Exception as _bsky_err:
-            logger.error(f"🚨 Bluesky呼び出しで予期せぬエラー（続行）: {_bsky_err}")
+        # v18.5.0: Bluesky投稿頻度制限（ハイブリッドフィルタ）+ 茉莉花SNS担当化
+        # DLsite/FANZA/らぶカル: 専売(is_exclusive=1) かつ スコア5のみ投稿
+        # DigiKet/DMM        : スコア5のみ投稿（専売条件なし）
+        _is_high_volume_site = any(site_raw.startswith(s) for s in ("DLsite", "FANZA", "Lovecal"))
+        _is_exclusive_val    = bool(row.get("is_exclusive", 0))
+        _bsky_ok = False
+        if _is_high_volume_site:
+            _bsky_ok = (ai_score >= 5 and _is_exclusive_val)
+        else:
+            _bsky_ok = (ai_score >= 5)
+
+        if _bsky_ok:
+            try:
+                post_to_bluesky(
+                    title=wp_title,
+                    genre=row["genre"],
+                    excerpt=excerpt or "",
+                    url=link,
+                    wp_tags_str=wp_tags_str,
+                    image_url=img_url,
+                    is_r18=is_r18,
+                )
+            except Exception as _bsky_err:
+                logger.error(f"🚨 Bluesky呼び出しで予期せぬエラー（続行）: {_bsky_err}")
+        else:
+            logger.info(f"  [Bluesky] スキップ (site={site_raw}, score={ai_score}, exclusive={_is_exclusive_val})")
 
         return True, None
     else:
