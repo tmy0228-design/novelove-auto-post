@@ -759,16 +759,16 @@ def run_nexus():
 
     SALE_BANNER_HTML = (
         "<!-- NOVELOVE_SALE_BANNER_START -->\n"
-        '<div class="novelove-sale-banner" style="background: linear-gradient(135deg, #ff4e50, #f9d423); color: #fff; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; text-align: center; box-shadow: 0 4px 15px rgba(255, 78, 80, 0.3);">\n'
-        "    🔥 【期間限定セール中！】今だけ大変お得に購入できます！このチャンスをお見逃しなく！\n"
+        '<div class="novelove-sale-banner" style="background: linear-gradient(135deg, #ff4e50, #f9d423); color: #fff; padding: 8px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; box-shadow: 0 2px 10px rgba(255, 78, 80, 0.2);">\n'
+        "    🔥 【期間限定セール中！】今だけお得に購入できるチャンスです！\n"
         "</div>\n"
         "<!-- NOVELOVE_SALE_BANNER_END -->\n"
     )
 
     RANK_BANNER_HTML = (
         "<!-- NOVELOVE_RANK_BANNER_START -->\n"
-        '<div class="novelove-rank-banner" style="background: linear-gradient(135deg, #f5af19, #f12711); color: #fff; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; text-align: center; box-shadow: 0 4px 15px rgba(245, 175, 25, 0.3);">\n'
-        "    🏆 【売れ筋！】週間売れ筋ランキングにランクインした、今売れている作品です！\n"
+        '<div class="novelove-rank-banner" style="background: linear-gradient(135deg, #f5af19, #f12711); color: #fff; padding: 8px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; box-shadow: 0 2px 10px rgba(245, 175, 25, 0.2);">\n'
+        "    🏆 【売れ筋！】週間ランキング入りした、今売れている作品です\n"
         "</div>\n"
         "<!-- NOVELOVE_RANK_BANNER_END -->\n"
     )
