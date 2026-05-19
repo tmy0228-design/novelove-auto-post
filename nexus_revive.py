@@ -37,6 +37,7 @@ from novelove_core import (
     WP_SITE_URL, HEADERS,
     WP_USER, WP_APP_PASSWORD,
     DMM_API_ID, DMM_AFFILIATE_API_ID,
+    WP_CLI_PATH, WP_DOC_ROOT,
 )
 from novelove_fetcher import scrape_description
 
