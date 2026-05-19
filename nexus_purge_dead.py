@@ -112,7 +112,7 @@ def _delete_wp_post(product_id: str, wp_post_id: int = None) -> bool:
 # =====================================================================
 def run_purge_dead(dry_run=False):
     logger.info("=" * 60)
-    logger.info("🪓 死に記事自動パージ (nexus_purge_dead) 開始")
+    logger.info("⚡ 死に記事自動パージ (nexus_purge_dead) 開始")
     if dry_run:
         logger.info("※ DRY-RUN モード: 実際の削除・DB更新は行いません")
     logger.info("=" * 60)
@@ -207,15 +207,15 @@ def run_purge_dead(dry_run=False):
     conn.close()
 
     # === Discord 通知 ===
-    mode_label = "🧪 DRY-RUN" if dry_run else "🪓 本番実行"
+    mode_label = "🧪 DRY-RUN" if dry_run else "⚡ 本番実行"
     summary = (
-        f"🪓 **[死に記事パージ完了]** ({mode_label})\n"
+        f"⚡ **[死に記事パージ完了]** ({mode_label})\n"
         f"┣ ルールA (未インデックス {RULE_A_DAYS}日超): {len(rule_a_rows)}件\n"
         f"┣ ルールB (低トラフィック {RULE_B_DAYS}日超): {len(rule_b_unique)}件\n"
         f"┣ 削除成功: {purged_count}件\n"
         f"┗ 削除失敗: {failed_count}件"
     )
-    notify_discord(summary, username="🪓 死に記事パージ")
+    notify_discord(summary, username="⚡ 死に記事パージ")
 
     logger.info("=" * 60)
     logger.info(f"🏁 死に記事パージ完了 — 削除: {purged_count}件 / 失敗: {failed_count}件")
