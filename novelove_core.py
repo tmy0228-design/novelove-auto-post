@@ -417,6 +417,8 @@ def init_db():
         ("article_pattern",   "TEXT DEFAULT ''"),      # 使用されたHTML骨格パターン (A/B/C/D/R)
         # === DB統合 (v18.0.0) ===
         ("source_db",         "TEXT DEFAULT ''"),      # 旧DB所属: fanza / dlsite / digiket
+        # === 死に記事自動パージ・永久保護 (v18.6.0) ===
+        ("is_protected",      "INTEGER DEFAULT 0"),    # 殿堂入り保護フラグ（1=永久保護、自動削除対象外）
     ]:
         try:
             c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")

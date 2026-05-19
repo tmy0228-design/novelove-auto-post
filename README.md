@@ -27,6 +27,7 @@ BL・TL の女性向け作品（漫画・小説・同人）を全自動で紹介
 | `nexus_dashboard.py`| 【Nexus】データベース閲覧、あらすじ更新検知、DB状況可視化GUI |
 | `nexus_rewrite.py` | 【Nexus】個別記事の手動リライトエンジン（ダッシュボード等から起動） |
 | `nexus_gsc.py` | 【Nexus】Google Search Consoleと連携した「死に記事」自動検知バッチ |
+| `nexus_purge_dead.py` | 【Nexus】GSCデータに基づく死に記事の自動パージ（殿堂入り保護付き） |
 
 ## 🤖 AIライター（5名）
 | ID | 名前 | 担当ジャンル | 性格 |

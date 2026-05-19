@@ -234,6 +234,8 @@ def run_gsc():
             continue
 
         # DB 更新 (v18.0.0: 統合DBに対して更新)
+        # v18.6.0: クリック実績がある記事に永久保護フラグを付与（殿堂入り）
+        should_protect = 1 if clicks >= 1 else None  # None=変更しない
         try:
             conn2 = db_connect(DB_FILE_UNIFIED)
             conn2.execute(
@@ -245,6 +247,12 @@ def run_gsc():
                    WHERE product_id = ?""",
                 (1 if indexed else 0, impressions, clicks, now_str, pid)
             )
+            # 保護フラグは一度ONになったら二度と外さない（0→1のみ）
+            if should_protect:
+                conn2.execute(
+                    "UPDATE novelove_posts SET is_protected = 1 WHERE product_id = ? AND is_protected = 0",
+                    (pid,)
+                )
             conn2.commit()
             conn2.close()
         except Exception as e:
