@@ -743,7 +743,7 @@ def _execute_posting_flow(row, cursor, conn):
         # DLsite/FANZA/らぶカル: 専売(is_exclusive=1) かつ スコア5のみ投稿
         # DigiKet/DMM        : スコア5のみ投稿（専売条件なし）
         _is_high_volume_site = any(site_raw.startswith(s) for s in ("DLsite", "FANZA", "Lovecal"))
-        _is_exclusive_val    = bool(row.get("is_exclusive", 0))
+        _is_exclusive_val    = is_exclusive  # L658で定義済みの bool 変数を流用
         _bsky_ok = False
         if _is_high_volume_site:
             _bsky_ok = (ai_score >= 5 and _is_exclusive_val)

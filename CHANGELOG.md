@@ -1,3 +1,23 @@
+## v18.5.0 — Bluesky茉莉花SNS担当化・投稿頻度最適化 (2026-05-19)
+
+### ✨ feat(bluesky): 茉莉花をSNS担当に任命（novelove_bluesky.py 全面改修）
+- **SNS中の人**: 無機質なbot投稿から「24歳カフェ店員・茉莉花」のキャラクター投稿に全面変更。BL/TL問わず茉莉花ソロで担当（他ライター名は出さない）。
+- **DeepSeek V4-Flashによるコメント生成**: 毎投稿、茉莉花ペルソナ＋作品情報を渡してリアクションコメント（30〜55字）を自動生成。失敗時は10種類のフォールバック定型文からランダム選択（メイン処理は絶対止めない）。
+- **Bluesky公式タグ（facet）の正式実装**: `TextBuilder.text()` のみで書いていた旧来の「機能しないハッシュタグ」を廃止。`TextBuilder.tag()` を使った `app.bsky.richtext.facet#tag` による正式なタグ埋め込みに移行。コメント文中の最初のタグワードをinlineリンクとして自然に溶け込ませ、残りは末尾に配置。
+
+### ⏱️ perf(bluesky): 投稿頻度ハイブリッドフィルタ（1日約13件に最適化）
+- **対象 (`auto_post.py`)**: WordPress投稿成功後のBluesky呼び出し前にサイト別条件分岐を追加。
+  - **DLsite / FANZA / らぶカル**（作品数が多いサイト）: `is_exclusive=True` かつ `ai_score=5` の場合のみ投稿（専売最高品質のみ）。
+  - **DigiKet / DMM.com**（作品数が少ないサイト）: `ai_score=5` のみ投稿（専売条件なし。取りこぼし防止）。
+  - スキップ時はログに理由（site/score/exclusive）を記録。
+- **効果**: 1日36件 → 平均 **約13件**（1日のBluesky投稿数）。タイムラインの品質・頻度を両立。
+
+### 🐛 fix(bluesky): `sqlite3.Row.get()` 非サポートによる AttributeError の修正
+- **原因**: `row.get("is_exclusive", 0)` と書いたが、`sqlite3.Row` は `.get()` メソッドを持たず、実行時に `AttributeError` が発生する潜在バグ。
+- **修正**: L658で既に定義済みの `is_exclusive`（bool）変数を直接参照するよう変更。
+
+---
+
 ## v18.4.0 — Bluesky自動投稿連携 (2026-05-10)
 
 ### ✨ feat(bluesky): WordPress投稿成功後にBlueskyへ自動投稿
