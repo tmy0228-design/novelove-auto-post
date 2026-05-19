@@ -68,26 +68,44 @@ def get_or_create_tag(name, slug):
     """
     WordPress上で指定タグを探し、なければ作成してIDを返す。
     スラッグ（英字URL名）はサイトルールに従い英字で固定。
+    ※ REST APIはGETパラメータ消失バグがあるため、wp-cliを使用。
     """
-    auth = _wp_auth()
+    import subprocess
+    import json
     try:
-        r = requests.get(
-            f"{WP_SITE_URL}/wp-json/wp/v2/tags",
-            auth=auth, params={"slug": slug}, timeout=15
+        # 1. タグの検索
+        result = subprocess.run(
+            [
+                WP_CLI_PATH, "term", "list", "post_tag",
+                f"--slug={slug}",
+                "--fields=term_id",
+                "--format=json",
+                f"--path={WP_DOC_ROOT}",
+                "--allow-root",
+            ],
+            capture_output=True, text=True, timeout=30
         )
-        hits = r.json()
-        if isinstance(hits, list) and hits:
-            return hits[0]["id"]
-        # タグが存在しない場合は新規作成
-        r2 = requests.post(
-            f"{WP_SITE_URL}/wp-json/wp/v2/tags",
-            auth=auth, json={"name": name, "slug": slug}, timeout=15
+        terms = json.loads(result.stdout or "[]")
+        if isinstance(terms, list) and terms:
+            return int(terms[0]["term_id"])
+
+        # 2. 存在しない場合は新規作成
+        create_result = subprocess.run(
+            [
+                WP_CLI_PATH, "term", "create", "post_tag", name,
+                f"--slug={slug}",
+                "--format=json",
+                f"--path={WP_DOC_ROOT}",
+                "--allow-root",
+            ],
+            capture_output=True, text=True, timeout=30
         )
-        data = r2.json()
-        if "id" in data:
-            logger.info(f"  [WP] タグ '{name}' (slug={slug}) を新規作成しました: ID={data['id']}")
-            return data["id"]
-        logger.warning(f"  [WP] タグ作成失敗: {data}")
+        data = json.loads(create_result.stdout or "{}")
+        if "term_id" in data:
+            logger.info(f"  [WP] タグ '{name}' (slug={slug}) を新規作成しました: ID={data['term_id']}")
+            return int(data["term_id"])
+        
+        logger.warning(f"  [WP] タグ作成失敗 (stdout): {create_result.stdout}, (stderr): {create_result.stderr}")
         return None
     except Exception as e:
         logger.error(f"  [WP] タグ取得/作成エラー ({name}): {e}")
@@ -547,11 +565,14 @@ def fetch_digiket_ranking_product_ids():
 
 def fetch_digiket_sale_product_ids():
     """
-    DigiKetのセール情報をジャンル別専用URLからスクレイピングで取得する（v12.7.0刷新）。
+    DigiKetのセール情報をジャンル別専用URLからスクレイピングで取得する（v12.7.0刷新, v19.1.0改修）。
     camp=on パラメータにより本物のセール中作品のみを厳密に取得。
+    v19.1.0: 割引率30%未満の作品を除外するフィルタリングを追加。
     取得に失敗しても他サイトの処理に影響しない（隔離設計）。
     """
+    MIN_DISCOUNT_RATE = 30  # セール対象とみなす最低割引率（%）
     sale_ids = set()
+    skipped_count = 0
     # 女性向けジャンル別のセール専用URL（camp=on で本物のセール中のみに絞込）
     sale_urls = [
         "https://www.digiket.com/b/result/_data/limit=300/camp=on/sort=camp_end/",   # 女性向同人
@@ -564,12 +585,59 @@ def fetch_digiket_sale_product_ids():
                 logger.warning(f"  [DigiKet] セールページ取得失敗: status={r.status_code} url={url}")
                 continue
             html_text = r.content.decode("EUC-JP", errors="ignore")
-            for iid in re.findall(r"ITM(\d+)", html_text):
-                sale_ids.add(f"itm{iid}")
+            soup = BeautifulSoup(html_text, "html.parser")
+
+            for dl in soup.find_all("dl"):
+                name_dt = dl.find("dt", class_="item_name")
+                if not name_dt:
+                    continue
+                a_tag = name_dt.find("a")
+                if not a_tag:
+                    continue
+                href = a_tag.get("href", "")
+                m_id = re.search(r"ID=ITM(\d+)", href)
+                if not m_id:
+                    continue
+
+                item_id = f"itm{m_id.group(1)}"
+                discount_pct = None
+
+                # 方法A: item-discount_bk > item-title_prcent から直接取得（BL商業ページ）
+                discount_dt = dl.find("dt", class_="item-discount_bk")
+                if discount_dt:
+                    pct_span = discount_dt.find("span", class_="item-title_prcent")
+                    if pct_span:
+                        m_pct = re.search(r"(\d+)%", pct_span.text)
+                        if m_pct:
+                            discount_pct = int(m_pct.group(1))
+
+                # 方法B: 価格差から計算（女性向同人ページ等、方法Aが使えない場合）
+                if discount_pct is None:
+                    price_dt = dl.find("dt", class_="item-price")
+                    price2_dt = dl.find("dt", class_="item_price2")
+                    if price_dt and price2_dt:
+                        strong = price_dt.find("strong")
+                        current_text = strong.text if strong else ""
+                        m_cur = re.search(r"(\d+)", current_text.replace(",", ""))
+                        s_tag = price2_dt.find("s")
+                        orig_text = s_tag.text if s_tag else ""
+                        m_orig = re.search(r"(\d+)", orig_text.replace(",", ""))
+                        if m_cur and m_orig:
+                            current_price = int(m_cur.group(1))
+                            original_price = int(m_orig.group(1))
+                            if original_price > 0:
+                                discount_pct = round((1 - current_price / original_price) * 100)
+
+                # 割引率フィルタリング
+                if discount_pct is not None and discount_pct >= MIN_DISCOUNT_RATE:
+                    sale_ids.add(item_id)
+                else:
+                    skipped_count += 1
+
         except Exception as e:
             logger.warning(f"  [DigiKet] セール取得エラー ({url}): {e}")
 
-    logger.info(f"  [DigiKet] セール作品 {len(sale_ids)}件 検知")
+    logger.info(f"  [DigiKet] セール作品 {len(sale_ids)}件 検知（{skipped_count}件は{MIN_DISCOUNT_RATE}%OFF未満のため除外）")
     return sale_ids
 
 
@@ -697,6 +765,14 @@ def run_nexus():
         "<!-- NOVELOVE_SALE_BANNER_END -->\n"
     )
 
+    RANK_BANNER_HTML = (
+        "<!-- NOVELOVE_RANK_BANNER_START -->\n"
+        '<div class="novelove-rank-banner" style="background: linear-gradient(135deg, #f5af19, #f12711); color: #fff; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; text-align: center; box-shadow: 0 4px 15px rgba(245, 175, 25, 0.3);">\n'
+        "    🏆 【今一番売れています！】今週の週間売れ筋ランキングにランクインした話題の作品です！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_RANK_BANNER_END -->\n"
+    )
+
     for pid in all_targets:
         wp_post_id, current_tags, current_title, current_content = _wp_search_post_by_slug(pid)
         if not wp_post_id:
@@ -707,51 +783,78 @@ def run_nexus():
         new_tags = set(current_tags)
         original_tags = set(current_tags)
         
-        new_title = current_title
-        new_content = current_content
-        
         logs = []
         wp_payload = {}
 
-        # --- セール処理 (タグ & タイトル & 本文) ---
+        # 現在および更新後のセール状態を決定
+        is_sale = False
         if pid in pids_needing_sale_tag:
-            # 1. タグ付与
+            is_sale = True
             new_tags.add(sale_tag_id)
-            # 2. タイトル先頭にセール表記を追加 (ない場合のみ)
-            if not current_title.startswith("【期間限定セール中！】"):
-                new_title = f"【期間限定セール中！】{current_title}"
-            # 3. 本文先頭にセールバナーを追加 (ない場合のみ)
-            if "<!-- NOVELOVE_SALE_BANNER_START -->" not in current_content:
-                new_content = SALE_BANNER_HTML + current_content
-            
-            if sale_tag_id not in original_tags:
-                logs.append(("sale_added", f"  🔥 セールタグ付与・テキスト自動更新: {pid}"))
-                
         elif pid in pids_losing_sale_tag:
-            # 1. タグ剥奪
+            is_sale = False
             new_tags.discard(sale_tag_id)
-            # 2. タイトルからセール表記を削除
-            new_title = re.sub(r"^【期間限定セール中！】", "", current_title).strip()
-            # 3. 本文からセールバナーを削除
-            new_content = re.sub(
-                r"<!-- NOVELOVE_SALE_BANNER_START -->.*?<!-- NOVELOVE_SALE_BANNER_END -->\n?",
-                "",
-                current_content,
-                flags=re.DOTALL
-            )
-            
-            if sale_tag_id in original_tags:
-                logs.append(("sale_removed", f"  ❄️ セールタグ剥奪・テキスト元戻し: {pid}"))
+        else:
+            is_sale = sale_tag_id in original_tags
 
-        # --- 売れ筋タグの計算 ---
+        # 現在および更新後の売れ筋状態を決定
+        is_rank = False
         if pid in pids_needing_rank_tag:
+            is_rank = True
             new_tags.add(bestseller_tag_id)
-            if bestseller_tag_id not in original_tags:
-                logs.append(("rank_added", f"  🏆 売れ筋タグ付与: {pid}"))
         elif pid in pids_losing_rank_tag:
+            is_rank = False
             new_tags.discard(bestseller_tag_id)
-            if bestseller_tag_id in original_tags:
-                logs.append(("rank_removed", f"  📉 売れ筋タグ剥奪: {pid}"))
+        else:
+            is_rank = bestseller_tag_id in original_tags
+
+        # --- タイトル先頭のクリーンアップ & 再構築 ---
+        clean_title = current_title
+        while True:
+            prev_title = clean_title
+            clean_title = re.sub(r"^【期間限定セール中！】", "", clean_title).strip()
+            clean_title = re.sub(r"^【人気売れ筋！】", "", clean_title).strip()
+            if clean_title == prev_title:
+                break
+
+        prefix = ""
+        if is_sale:
+            prefix += "【期間限定セール中！】"
+        if is_rank:
+            prefix += "【人気売れ筋！】"
+        new_title = f"{prefix}{clean_title}"
+
+        # --- 本文バナーのクリーンアップ & 再構築 ---
+        clean_content = current_content
+        clean_content = re.sub(
+            r"<!-- NOVELOVE_SALE_BANNER_START -->.*?<!-- NOVELOVE_SALE_BANNER_END -->\n?",
+            "",
+            clean_content,
+            flags=re.DOTALL
+        )
+        clean_content = re.sub(
+            r"<!-- NOVELOVE_RANK_BANNER_START -->.*?<!-- NOVELOVE_RANK_BANNER_END -->\n?",
+            "",
+            clean_content,
+            flags=re.DOTALL
+        )
+
+        new_content = clean_content
+        if is_rank:
+            new_content = RANK_BANNER_HTML + new_content
+        if is_sale:
+            new_content = SALE_BANNER_HTML + new_content
+
+        # ログメッセージの生成
+        if sale_tag_id not in original_tags and sale_tag_id in new_tags:
+            logs.append(("sale_added", f"  🔥 セールタグ付与・テキスト自動更新: {pid}"))
+        elif sale_tag_id in original_tags and sale_tag_id not in new_tags:
+            logs.append(("sale_removed", f"  ❄️ セールタグ剥奪・テキスト元戻し: {pid}"))
+
+        if bestseller_tag_id not in original_tags and bestseller_tag_id in new_tags:
+            logs.append(("rank_added", f"  🏆 売れ筋タグ付与・テキスト自動更新: {pid}"))
+        elif bestseller_tag_id in original_tags and bestseller_tag_id not in new_tags:
+            logs.append(("rank_removed", f"  📉 売れ筋タグ剥奪・テキスト元戻し: {pid}"))
 
         # 一括更新用のペイロード作成
         if new_tags != original_tags:
@@ -775,7 +878,7 @@ def run_nexus():
         logger.info("  [WP] タグの更新があったため、KUSANAGIキャッシュをクリアします...")
         try:
             import subprocess
-            subprocess.run("kusanagi bcache clear && kusanagi fcache clear", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run("kusanagi bcache clear myblog && kusanagi fcache clear myblog", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             logger.info("  [WP] キャッシュクリア完了")
         except Exception as e:
             logger.warning(f"  [WP] キャッシュクリア失敗: {e}")
