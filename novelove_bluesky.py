@@ -126,15 +126,18 @@ def _generate_marika_comment(title: str, excerpt: str, genre_label: str) -> str:
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 100,
                 "temperature": 0.9,
+                "thinking": {"type": "disabled"},  # v18.5.1: 推論OFF。ONだとmax_tokensが推論に全消費され本文が空になる
             },
             timeout=15,
         )
         if resp.status_code == 200:
-            comment = resp.json()["choices"][0]["message"]["content"].strip()
-            # 長すぎる場合はフォールバック
-            if len(comment) <= 60:
+            comment = (resp.json()["choices"][0]["message"]["content"] or "").strip()
+            # 空 or 長すぎる場合はフォールバック
+            if 5 <= len(comment) <= 60:
                 logger.info(f"🔵 Bluesky: 茉莉花コメント生成完了 ({len(comment)}字)")
                 return comment
+            elif len(comment) == 0:
+                logger.warning("⚠️ Bluesky: 茉莉花コメントが空(0字)。フォールバック使用。")
             else:
                 logger.warning(f"⚠️ Bluesky: 茉莉花コメントが長すぎる({len(comment)}字)。フォールバック使用。")
         else:
