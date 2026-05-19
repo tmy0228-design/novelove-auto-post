@@ -95,74 +95,140 @@ def get_or_create_tag(name, slug):
 
 def _wp_search_post_by_slug(slug):
     """
-    product_id（= WP投稿のslug）からWP記事のID・現在のタグIDリストを取得する。
+    product_id（= WP投稿のslug）からWP記事のID・現在のタグIDリスト・タイトル・本文を取得する。
+    ※ REST APIはサーバーのNginxキャッシュ設定によりクエリパラメータが消失するバグがあるため、
+      wp-cli（MySQL直接アクセス）を使用して確実に取得する。
     """
-    auth = _wp_auth()
+    import subprocess
+    import json
     try:
-        r = requests.get(
-            f"{WP_SITE_URL}/wp-json/wp/v2/posts",
-            auth=auth, params={"slug": slug, "status": "publish", "_fields": "id,slug,tags"},
-            timeout=15
+        # wp-cli で slug 完全一致の投稿を取得
+        result = subprocess.run(
+            [
+                WP_CLI_PATH, "post", "list",
+                f"--name={slug}",
+                "--post_status=publish",
+                "--fields=ID,post_name",
+                "--format=json",
+                f"--path={WP_DOC_ROOT}",
+                "--allow-root",
+            ],
+            capture_output=True, text=True, timeout=30
         )
-        posts = r.json()
-        if isinstance(posts, list) and posts:
-            # bcache対策: _検索の誤爆を防ぐため、完全一致でフィルタ
-            exact = [p for p in posts if p.get("slug", "").lower() == slug.lower()]
-            if exact:
-                return exact[0]["id"], exact[0].get("tags", [])
+        posts = json.loads(result.stdout or "[]")
+        if not posts:
+            return None, [], "", ""
+        post_id = int(posts[0]["ID"])
+
+        # タグIDリストを取得
+        tag_result = subprocess.run(
+            [
+                WP_CLI_PATH, "post", "term", "list", str(post_id), "post_tag",
+                "--fields=term_id",
+                "--format=json",
+                f"--path={WP_DOC_ROOT}",
+                "--allow-root",
+            ],
+            capture_output=True, text=True, timeout=30
+        )
+        tag_data = json.loads(tag_result.stdout or "[]")
+        tag_ids = [int(t["term_id"]) for t in tag_data]
+
+        # タイトル・本文はREST APIで取得（POSTは通常のAPIを使用、GETのみバグがある）
+        auth = _wp_auth()
+        r = requests.get(
+            f"{WP_SITE_URL}/wp-json/wp/v2/posts/{post_id}",
+            auth=auth, params={"_fields": "title,content"}, timeout=15
+        )
+        post_data = r.json() if r.status_code == 200 else {}
+        title = post_data.get("title", {}).get("rendered", "")
+        content = post_data.get("content", {}).get("rendered", "")
+
+        return post_id, tag_ids, title, content
     except Exception as e:
         logger.warning(f"  [WP] 記事検索エラー (slug={slug}): {e}")
-    return None, []
+    return None, [], "", ""
 
 
-def update_post_tags(wp_post_id, updated_tag_ids):
+def update_post_data(wp_post_id, data_dict):
     """
-    計算済みの最新タグ配列（updated_tag_ids）を1回だけWPにPOSTして上書き更新する。
-    これによりキャッシュによる先祖返りを防ぎ、API通信を最小化する。
+    WP記事のタグ・タイトル・本文を一括更新する。
+    data_dict には "tags", "title", "content" などを指定。
+    タグはwp-cli経由、タイトル・本文はREST API POST経由（POSTはクエリパラメータ不要なので正常動作）。
     """
-    auth = _wp_auth()
+    import subprocess
+    import json
     try:
-        r = requests.post(
-            f"{WP_SITE_URL}/wp-json/wp/v2/posts/{wp_post_id}",
-            auth=auth, json={"tags": updated_tag_ids}, timeout=15
-        )
-        return r.status_code in (200, 201)
+        # 1. タグの更新（wp-cli 経由）
+        if "tags" in data_dict:
+            tag_ids = data_dict["tags"]
+            if tag_ids:
+                # term_id をカンマ区切りで渡す
+                tag_id_strs = [str(t) for t in tag_ids]
+                subprocess.run(
+                    [
+                        WP_CLI_PATH, "post", "term", "set", str(wp_post_id), "post_tag",
+                        "--by=id",
+                    ] + tag_id_strs + [
+                        f"--path={WP_DOC_ROOT}",
+                        "--allow-root",
+                    ],
+                    capture_output=True, text=True, timeout=30
+                )
+            else:
+                # タグを全て外す場合
+                subprocess.run(
+                    [
+                        WP_CLI_PATH, "post", "term", "remove", str(wp_post_id), "post_tag", "--all",
+                        f"--path={WP_DOC_ROOT}",
+                        "--allow-root",
+                    ],
+                    capture_output=True, text=True, timeout=30
+                )
+
+        # 2. タイトル・本文の更新（REST API POST経由: POSTはクエリパラメータ不要で正常動作）
+        rest_payload = {k: v for k, v in data_dict.items() if k != "tags"}
+        if rest_payload:
+            auth = _wp_auth()
+            r = requests.post(
+                f"{WP_SITE_URL}/wp-json/wp/v2/posts/{wp_post_id}",
+                auth=auth, json=rest_payload, timeout=20
+            )
+            return r.status_code in (200, 201)
+        return True
     except Exception as e:
-        logger.error(f"  [WP] タグ一括更新エラー (post={wp_post_id}): {e}")
+        logger.error(f"  [WP] 記事一括更新エラー (post={wp_post_id}): {e}")
         return False
 
 
 def _wp_get_posts_with_tag(tag_id):
     """
-    WP REST API で指定タグIDが付いている全記事のslug（= product_id）を取得する。
-    ページネーションで全件取得。タグ剥奪対象の特定に使用。
+    指定タグIDが付いている全記事のslug（= product_id）を取得する。
+    ※ REST APIはクエリパラメータ消失バグがあるため、wp-cli（MySQL直接アクセス）を使用。
     """
-    auth = _wp_auth()
+    import subprocess
+    import json
     slugs = set()
-    page = 1
-    while True:
-        try:
-            r = requests.get(
-                f"{WP_SITE_URL}/wp-json/wp/v2/posts",
-                auth=auth,
-                params={"tags": tag_id, "status": "publish", "_fields": "slug", "per_page": 100, "page": page},
-                timeout=20
-            )
-            if r.status_code != 200:
-                break
-            posts = r.json()
-            if not isinstance(posts, list) or not posts:
-                break
-            for p in posts:
-                if p.get("slug"):
-                    slugs.add(p["slug"])
-            total_pages = int(r.headers.get("X-WP-TotalPages", 1))
-            if page >= total_pages:
-                break
-            page += 1
-        except Exception as e:
-            logger.warning(f"  [WP] タグ付き記事取得エラー (tag={tag_id}, page={page}): {e}")
-            break
+    try:
+        result = subprocess.run(
+            [
+                WP_CLI_PATH, "post", "list",
+                f"--tag_id={tag_id}",
+                "--post_status=publish",
+                "--fields=post_name",
+                "--format=json",
+                "--posts_per_page=-1",
+                f"--path={WP_DOC_ROOT}",
+                "--allow-root",
+            ],
+            capture_output=True, text=True, timeout=60
+        )
+        posts = json.loads(result.stdout or "[]")
+        for p in posts:
+            if p.get("post_name"):
+                slugs.add(p["post_name"])
+    except Exception as e:
+        logger.warning(f"  [WP] タグ付き記事取得エラー (tag={tag_id}): {e}")
     return slugs
 
 
@@ -232,20 +298,37 @@ def fetch_fanza_sale_product_ids():
                     if not items:
                         break  # これ以上作品がなければ終了
                     for item in items:
-                        if item.get("campaign"):
-                            cid = item.get("content_id", "")
-                            if cid: sale_ids.add(cid.lower())
+                        campaign = item.get("campaign")
+                        if campaign:
+                            # 30%以上かどうか判定
+                            prices = item.get("prices", {})
+                            price = prices.get("price")
+                            list_price = prices.get("list_price")
+                            pct = 0
+                            if list_price and price and int(list_price) > 0:
+                                pct = int((1 - float(price) / float(list_price)) * 100)
+                            
+                            # 定価が取得できない場合はキャンペーン名からパース
+                            if pct == 0 and isinstance(campaign, list) and len(campaign) > 0:
+                                title = campaign[0].get("title", "")
+                                m_pct = re.search(r"(\d+)", title)
+                                if m_pct:
+                                    pct = int(m_pct.group(1))
+                                    
+                            if pct >= 30:
+                                cid = item.get("content_id", "")
+                                if cid: sale_ids.add(cid.lower())
             except Exception as e:
                 logger.warning(f"  [FANZA] セール取得エラー (API / {fl.get('floor')}): {e}")
 
     # === 2. DMM/FANZA 商業コミック セール抽出（スクレイピング方式） ===
     # 理由: 商業作品はAPIで「campaign」フラグが出力されない仕様のため、
-    # 50%OFF以上のセール一覧ページを直接スクレイピングしてIDを網羅取得する。
+    # 30%OFF以上のセール一覧ページを直接スクレイピングしてIDを網羅取得する。
     scrape_targets = [
-        "https://book.dmm.com/list/?floor=Gbl&sale=discount&discount_rate=50&sort=ranking",    # DMM BL（人気順）
-        "https://book.dmm.com/list/?floor=Gtl&sale=discount&discount_rate=50&sort=ranking",    # DMM TL（人気順）
-        "https://book.dmm.co.jp/list/?category=670008&sale=discount&discount_rate=50&sort=ranking",  # FANZA BL（人気順）
-        "https://book.dmm.co.jp/list/?category=670009&sale=discount&discount_rate=50&sort=ranking"   # FANZA TL（人気順）
+        "https://book.dmm.com/list/?floor=Gbl&sale=discount&discount_rate=30&sort=ranking",    # DMM BL（人気順）
+        "https://book.dmm.com/list/?floor=Gtl&sale=discount&discount_rate=30&sort=ranking",    # DMM TL（人気順）
+        "https://book.dmm.co.jp/list/?category=670008&sale=discount&discount_rate=30&sort=ranking",  # FANZA BL（人気順）
+        "https://book.dmm.co.jp/list/?category=670009&sale=discount&discount_rate=30&sort=ranking"   # FANZA TL（人気順）
     ]
     
     session = requests.Session()
@@ -271,16 +354,23 @@ def fetch_fanza_sale_product_ids():
                 product_links = [l for l in all_links if "/product/" in l]
                 
                 # 正規表現で商品IDを抽出
-                found_ids = list(dict.fromkeys([
-                    re.search(r'/product/([^/]+)/', l).group(1) 
-                    for l in product_links if re.search(r'/product/([^/]+)/', l)
-                ]))
+                # 例: /product/824544/b412arvmj03374/ -> b412arvmj03374 を抽出する (DMM/FANZA商業)
+                found_ids = []
+                for l in product_links:
+                    m_second = re.search(r'/product/[^/]+/([^/]+)/', l)
+                    if m_second:
+                        found_ids.append(m_second.group(1).lower())
+                    else:
+                        m_first = re.search(r'/product/([^/]+)/', l)
+                        if m_first:
+                            found_ids.append(m_first.group(1).lower())
+                found_ids = list(dict.fromkeys(found_ids))
                 
                 if not found_ids:
                     break  # これ以上商品がなければ次のカテゴリへ
                     
                 for pid in found_ids:
-                    sale_ids.add(pid.lower())
+                    sale_ids.add(pid)
                 
                 time.sleep(1)  # サーバー負荷への配慮
             except Exception as e:
@@ -354,12 +444,12 @@ def fetch_dlsite_sale_product_ids(published_pids):
 
     # 4フロアのセール検索ページ
     # v18.1.2: URL修正 — discount_rate_min/50 + manga はDLsiteのパーサーを壊し割引指定が無視されていた
-    #   修正: discount_rates[0]/c9 (50%OFF以上) + comic/gekiga/tateyomi/novel/kanno (ノベラブ全対象種別)
+    #   修正: discount_rates[0]/c8/discount_rates[1]/c9 (30%OFF以上) + comic/gekiga/tateyomi/novel/kanno (ノベラブ全対象種別)
     sale_search_urls = [
-        "https://www.dlsite.com/girls/fsr/=/language/jp/sex_category[0]/female/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/order/trend/per_page/100/discount_rates[0]/c9/",      # 女性向け同人
-        "https://www.dlsite.com/bl/fsr/=/language/jp/sex_category[0]/female/sex_category[1]/gay/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/order/trend/per_page/100/discount_rates[0]/c9/",  # BL同人
-        "https://www.dlsite.com/girls-pro/fsr/=/language/jp/sex_category[0]/female/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/order/trend/per_page/100/discount_rates[0]/c9/",   # 女性向け商業
-        "https://www.dlsite.com/bl-pro/fsr/=/language/jp/sex_category[0]/female/sex_category[1]/gay/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/order/trend/per_page/100/discount_rates[0]/c9/",  # BL商業
+        "https://www.dlsite.com/girls/fsr/=/language/jp/sex_category[0]/female/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",      # 女性向け同人
+        "https://www.dlsite.com/bl/fsr/=/language/jp/sex_category[0]/female/sex_category[1]/gay/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",  # BL同人
+        "https://www.dlsite.com/girls-pro/fsr/=/language/jp/sex_category[0]/female/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",   # 女性向け商業
+        "https://www.dlsite.com/bl-pro/fsr/=/language/jp/sex_category[0]/female/sex_category[1]/gay/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",  # BL商業
     ]
 
     for base_url in sale_search_urls:
@@ -371,8 +461,13 @@ def fetch_dlsite_sale_product_ids(published_pids):
                 if r.status_code != 200:
                     break
 
-                # ページからproduct_idを正規表現で抽出
-                codes = re.findall(r"((?:RJ|BJ|VJ)\d{6,10})", r.text)
+                # メイン作品リストの dd class="work_name" のみから抽出することで、サイドバーや履歴などの誤検知を100%防止
+                dd_blocks = re.findall(r'<dd class="work_name">(.*?)</dd>', r.text, re.DOTALL)
+                codes = []
+                for block in dd_blocks:
+                    match = re.search(r"((?:RJ|BJ|VJ)\d{6,10})", block)
+                    if match:
+                        codes.append(match.group(1).lower())
                 unique_codes = list(dict.fromkeys(codes))  # 出現順を保持して重複除去
 
                 if not unique_codes:
@@ -593,8 +688,16 @@ def run_nexus():
     all_targets = pids_needing_sale_tag | pids_needing_rank_tag | pids_losing_sale_tag | pids_losing_rank_tag
     logger.info(f"  [最適化] WP API対象: {len(all_targets)}件 (全{len(published_pids)}件中)")
 
+    SALE_BANNER_HTML = (
+        "<!-- NOVELOVE_SALE_BANNER_START -->\n"
+        '<div class="novelove-sale-banner" style="background: linear-gradient(135deg, #ff4e50, #f9d423); color: #fff; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; text-align: center; box-shadow: 0 4px 15px rgba(255, 78, 80, 0.3);">\n'
+        "    🔥 【期間限定セール中！】今だけ大変お得に購入できます！このチャンスをお見逃しなく！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_SALE_BANNER_END -->\n"
+    )
+
     for pid in all_targets:
-        wp_post_id, current_tags = _wp_search_post_by_slug(pid)
+        wp_post_id, current_tags, current_title, current_content = _wp_search_post_by_slug(pid)
         if not wp_post_id:
             continue
         stats["checked"] += 1
@@ -602,33 +705,69 @@ def run_nexus():
         # リストをSetに変換して計算を容易にする
         new_tags = set(current_tags)
         original_tags = set(current_tags)
+        
+        new_title = current_title
+        new_content = current_content
+        
         logs = []
+        wp_payload = {}
 
-        # --- セールタグの計算 ---
+        # --- セール処理 (タグ & タイトル & 本文) ---
         if pid in pids_needing_sale_tag:
+            # 1. タグ付与
             new_tags.add(sale_tag_id)
-            logs.append(("sale_added", f"  🔥 セールタグ付与: {pid}"))
+            # 2. タイトル先頭にセール表記を追加 (ない場合のみ)
+            if not current_title.startswith("【期間限定セール中！】"):
+                new_title = f"【期間限定セール中！】{current_title}"
+            # 3. 本文先頭にセールバナーを追加 (ない場合のみ)
+            if "<!-- NOVELOVE_SALE_BANNER_START -->" not in current_content:
+                new_content = SALE_BANNER_HTML + current_content
+            
+            if sale_tag_id not in original_tags:
+                logs.append(("sale_added", f"  🔥 セールタグ付与・テキスト自動更新: {pid}"))
+                
         elif pid in pids_losing_sale_tag:
+            # 1. タグ剥奪
             new_tags.discard(sale_tag_id)
-            logs.append(("sale_removed", f"  ❄️ セールタグ剥奪: {pid}"))
+            # 2. タイトルからセール表記を削除
+            new_title = re.sub(r"^【期間限定セール中！】", "", current_title).strip()
+            # 3. 本文からセールバナーを削除
+            new_content = re.sub(
+                r"<!-- NOVELOVE_SALE_BANNER_START -->.*?<!-- NOVELOVE_SALE_BANNER_END -->\n?",
+                "",
+                current_content,
+                flags=re.DOTALL
+            )
+            
+            if sale_tag_id in original_tags:
+                logs.append(("sale_removed", f"  ❄️ セールタグ剥奪・テキスト元戻し: {pid}"))
 
         # --- 売れ筋タグの計算 ---
         if pid in pids_needing_rank_tag:
             new_tags.add(bestseller_tag_id)
-            logs.append(("rank_added", f"  🏆 売れ筋タグ付与: {pid}"))
+            if bestseller_tag_id not in original_tags:
+                logs.append(("rank_added", f"  🏆 売れ筋タグ付与: {pid}"))
         elif pid in pids_losing_rank_tag:
             new_tags.discard(bestseller_tag_id)
-            logs.append(("rank_removed", f"  📉 売れ筋タグ剥奪: {pid}"))
+            if bestseller_tag_id in original_tags:
+                logs.append(("rank_removed", f"  📉 売れ筋タグ剥奪: {pid}"))
 
-        # --- WPへの一括更新リクエスト ---
+        # 一括更新用のペイロード作成
         if new_tags != original_tags:
-            if update_post_tags(wp_post_id, list(new_tags)):
+            wp_payload["tags"] = list(new_tags)
+        if new_title != current_title:
+            wp_payload["title"] = new_title
+        if new_content != current_content:
+            wp_payload["content"] = new_content
+
+        # 何かしら変更がある場合のみ一括更新APIを叩く
+        if wp_payload:
+            if update_post_data(wp_post_id, wp_payload):
                 for stat_key, log_msg in logs:
                     stats[stat_key] += 1
                     logger.info(log_msg)
             else:
-                # 失敗時はカウントを戻すような厳密なロールバックは行わない（次回cronで再トライされるため）
-                logger.warning(f"  ⚠️ タグ一括更新失敗: {pid}")
+                logger.warning(f"  ⚠️ 記事一括更新失敗: {pid}")
 
     # --- キャッシュクリア処理（追加） ---
     if stats["sale_added"] > 0 or stats["sale_removed"] > 0 or stats["rank_added"] > 0 or stats["rank_removed"] > 0:
