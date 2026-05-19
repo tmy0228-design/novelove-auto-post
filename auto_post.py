@@ -755,7 +755,7 @@ def _execute_posting_flow(row, cursor, conn):
                 post_to_bluesky(
                     title=wp_title,
                     genre=row["genre"],
-                    excerpt=excerpt or "",
+                    excerpt=row["description"] or "",
                     url=link,
                     wp_tags_str=wp_tags_str,
                     image_url=img_url,

@@ -31,6 +31,7 @@ import datetime
 import requests
 from atproto import Client, client_utils, models
 from novelove_core import logger, DEEPSEEK_API_KEY
+from novelove_soul import REVIEWERS
 
 # --- 認証情報（環境変数から取得）---
 BLUESKY_HANDLE   = os.environ.get("BLUESKY_HANDLE", "")
@@ -46,19 +47,7 @@ EXCLUDE_SUFFIXES  = ("専売", "限定", "独占")
 # DeepSeek API
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 
-# --- 茉莉花のフォールバック定型コメント（DeepSeek失敗時に使用）---
-_MARIKA_FALLBACKS = [
-    "ちょっと聞いてーー！！この作品ヤバすぎて心臓もたない😭💖",
-    "え待って、これは絶対みんなに共有しなきゃいけないやつだ…！💘",
-    "発掘しちゃいました…！ヤバいやつ…ドキドキが止まらない😭✨",
-    "これ読んで絶対後悔しないやつ…！早く続きが読みたすぎる💖🔥",
-    "語彙力が消えるくらいヤバい作品を見つけてしまった…！😭💕",
-    "思わず声に出してしまった…このドキドキ、みんなにも届け〜！💓✨",
-    "ひとりで抱えきれないので共有させてください…！これヤバすぎる😭💖",
-    "本当に心臓もたないんだけど…！こういう作品に出会いたかった…！💘",
-    "見つけちゃった…絶対好きなやつ…ありがとう世界…！😭✨",
-    "これは布教しないと一生後悔するやつだ…！みんな読んで…！💖🙌",
-]
+
 
 
 def _get_client() -> Client:
@@ -96,25 +85,33 @@ def _parse_tags(wp_tags_str: str) -> list:
 
 def _generate_marika_comment(title: str, excerpt: str, genre_label: str) -> str:
     """
-    DeepSeekで茉莉花の一言コメント（30〜55字）を生成する。
-    失敗時はフォールバック定型文を返す。
+    DeepSeekで茉莉花の紹介コメント（80文字程度、2文以内）を生成する。
+    novelove_soul.pyのペルソナ設定を活用し、表現はAIに委ねる。
+    失敗時は空文字を返す（定型文は使用しない）。
     """
     if not DEEPSEEK_API_KEY:
-        return random.choice(_MARIKA_FALLBACKS)
+        return ""
 
-    safe_excerpt = (excerpt or "")[:80]
+    # novelove_soul.py から茉莉花のペルソナを取得
+    marika = next((r for r in REVIEWERS if r["id"] == "marika"), None)
+    personality = marika["personality"] if marika else ""
+    tone = marika["tone"] if marika else ""
+
+    safe_excerpt = (excerpt or "")[:120]
     prompt = (
-        f"あなたはSNSを担当している24歳のカフェ店員「茉莉花」です。\n"
-        f"「全人類ハッピーエンド」が合言葉で、ピュアで甘々な溺愛展開をこよなく愛します。\n"
-        f"友達に「これ絶対読んで！」と勧めるノリで、ときめきを全力で共有したがります。\n"
-        f"口癖は「ヤバい」「心臓もたない」「ドキドキ」「尊い」。絵文字も使います。\n\n"
-        f"以下の作品をBlueskyで紹介する、茉莉花の「思わず声に出た素直なリアクション」を\n"
-        f"30〜55字で1文だけ書いてください。\n"
-        f"ルール：①他のライター名は出さない ②BL/TLの専門分析はしない ③語尾は「…！」「！！」が多め\n\n"
+        f"あなたはSNSを担当している「茉莉花」です。\n"
+        f"【キャラクター】\n{personality}\n"
+        f"【口調】\n{tone}\n\n"
+        f"以下の作品をBlueskyで軽く紹介するコメントを書いてください。\n"
+        f"ルール：\n"
+        f"・80文字程度、2文以内で\n"
+        f"・友達におすすめする感覚で、作品のあらすじに沿った具体的な魅力に触れること\n"
+        f"・他のライター名は出さない\n"
+        f"・毎回同じような言い回しにならないよう、作品の内容に合わせて自由に表現すること\n\n"
         f"ジャンル: {genre_label}\n"
         f"タイトル: {title}\n"
-        f"あらすじ冒頭: {safe_excerpt}\n\n"
-        f"出力: 茉莉花の一言のみ（前置き不要）"
+        f"あらすじ: {safe_excerpt}\n\n"
+        f"出力: 茉莉花の紹介コメントのみ（前置き不要）"
     )
 
     try:
@@ -124,28 +121,28 @@ def _generate_marika_comment(title: str, excerpt: str, genre_label: str) -> str:
             json={
                 "model": "deepseek-v4-flash",
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 100,
+                "max_tokens": 200,
                 "temperature": 0.9,
-                "thinking": {"type": "disabled"},  # v18.5.1: 推論OFF。ONだとmax_tokensが推論に全消費され本文が空になる
+                "thinking": {"type": "disabled"},
             },
             timeout=15,
         )
         if resp.status_code == 200:
             comment = (resp.json()["choices"][0]["message"]["content"] or "").strip()
-            # 空 or 長すぎる場合はフォールバック
-            if 5 <= len(comment) <= 60:
+            # カギカッコで囲まれている場合は除去
+            if comment.startswith("「") and comment.endswith("」"):
+                comment = comment[1:-1]
+            if len(comment) >= 5:
                 logger.info(f"🔵 Bluesky: 茉莉花コメント生成完了 ({len(comment)}字)")
                 return comment
-            elif len(comment) == 0:
-                logger.warning("⚠️ Bluesky: 茉莉花コメントが空(0字)。フォールバック使用。")
             else:
-                logger.warning(f"⚠️ Bluesky: 茉莉花コメントが長すぎる({len(comment)}字)。フォールバック使用。")
+                logger.warning("⚠️ Bluesky: 茉莉花コメントが短すぎる。コメントなしで投稿。")
         else:
-            logger.warning(f"⚠️ Bluesky: DeepSeek API エラー {resp.status_code}。フォールバック使用。")
+            logger.warning(f"⚠️ Bluesky: DeepSeek API エラー {resp.status_code}。コメントなしで投稿。")
     except Exception as e:
         logger.warning(f"⚠️ Bluesky: 茉莉花コメント生成失敗（続行）: {e}")
 
-    return random.choice(_MARIKA_FALLBACKS)
+    return ""
 
 
 def post_to_bluesky(
@@ -176,35 +173,34 @@ def post_to_bluesky(
         else:
             g_label = "BL漫画" if is_bl else "TL漫画"
 
-        # --- 茉莉花の一言コメント生成 ---
+        # --- 茉莉花の紹介コメント生成 ---
         marika_comment = _generate_marika_comment(title, excerpt, g_label)
-
-        # --- あらすじのトリミング ---
-        safe_excerpt = (excerpt or "")[:80]
-        if len(excerpt or "") > 80:
-            safe_excerpt += "…"
 
         # --- タグ処理 ---
         tags = _parse_tags(wp_tags_str or "")
-        # 1つ目のタグ: 文中inline埋め込み候補
-        inline_tag = tags[0] if tags else None
-        # 残りのタグ: 末尾に #タグ として配置（最大3個）
-        tail_tags = tags[1:4] if len(tags) > 1 else []
+        tail_tags = tags[:3]
+
+        # --- あらすじの動的トリミング（茉莉花コメント優先） ---
+        # 固定部分の文字数を計算し、残りをあらすじに割り当てる
+        title_line = f"\n\n【{g_label}】{title}\n"
+        link_line = "\n▼ 詳しくはこちら\n"
+        tag_text = ""
+        if tail_tags:
+            tag_text = "\n\n" + " ".join(f"#{t}" for t in tail_tags)
+        fixed_len = len(marika_comment) + len(title_line) + len(link_line) + len(url) + len(tag_text)
+        remaining = 300 - fixed_len - 4  # 4 = 「」\n + マージン
+
+        safe_excerpt = ""
+        if remaining >= 20 and excerpt:
+            safe_excerpt = (excerpt or "")[:remaining]
+            if len(excerpt or "") > remaining:
+                safe_excerpt = safe_excerpt[:-1] + "…"
 
         # --- テキスト組み立て ---
         tb = client_utils.TextBuilder()
-        # 茉莉花の一言（inline_tagが含まれていれば分割してtag埋め込み）
-        if inline_tag and inline_tag in marika_comment:
-            # コメント中のタグワードをinline facetに変換
-            idx = marika_comment.index(inline_tag)
-            before = marika_comment[:idx]
-            after  = marika_comment[idx + len(inline_tag):]
-            if before:
-                tb.text(before)
-            tb.tag(inline_tag, inline_tag)
-            if after:
-                tb.text(after)
-        else:
+
+        # 茉莉花のコメント（ある場合のみ）
+        if marika_comment:
             tb.text(marika_comment)
 
         tb.text(f"\n\n【{g_label}】{title}\n")

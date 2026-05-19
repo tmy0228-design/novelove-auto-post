@@ -474,8 +474,15 @@ def render_detail_panel(detail_pid, df, key_prefix="list"):
                     st.success(f"🔥 現在 {int(row['sale_discount_rate'])}% セール中！")
             
             with c3:
-                st.markdown("**📖 保存されているあらすじ**")
-                desc_text = str(row.get("description", ""))
+                is_updated = pd.notna(row.get("is_desc_updated")) and int(row.get("is_desc_updated")) == 1
+                if is_updated:
+                    st.markdown("**📖 現在のWP記事のベース（旧あらすじ）**")
+                    st.markdown("<span style='color:#FF4B4B; font-size:0.85em;'>※あらすじの更新が検知されました。下部のパネルで最新情報をご確認ください。</span>", unsafe_allow_html=True)
+                    desc_text = str(row.get("prev_description", ""))
+                else:
+                    st.markdown("**📖 保存されているあらすじ**")
+                    desc_text = str(row.get("description", ""))
+
                 if desc_text and desc_text.strip() and desc_text != "nan":
                     st.text_area("あらすじ", value=desc_text, height=350, disabled=True, label_visibility="collapsed", key=f"{key_prefix}_desc_area_{detail_pid}")
                 else:
