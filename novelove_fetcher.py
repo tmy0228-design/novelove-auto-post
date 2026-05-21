@@ -72,8 +72,8 @@ FETCH_TARGETS = [
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "novel_bl",  "label": "らぶカル同人_BL小説", "keyword": "ノベル"},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "novel_tl",  "label": "らぶカル同人_TL小説", "keyword": "ノベル"},
     # v19.0.0: ボイス作品（らぶカル BL/TL） — enabled=False: テスト完了後にTrueに変更すること
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "voice_bl", "label": "らぶカル_BLボイス", "keyword": "ボイス", "enabled": False},
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "voice_tl", "label": "らぶカル_TLボイス", "keyword": "ボイス", "enabled": False},
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "voice_bl", "label": "らぶカル_BLボイス", "keyword": "ボイス", "enabled": True},
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "voice_tl", "label": "らぶカル_TLボイス", "keyword": "ボイス", "enabled": True},
     # v19.0.0: ボイス作品（DLsite 同人 BL/TL）
     {"site": "DLsite",  "service": None,     "floor": "bl",             "genre": "voice_bl", "label": "DLsite同人_BLボイス",  "keyword": None, "enabled": True},
     {"site": "DLsite",  "service": None,     "floor": "girls",          "genre": "voice_tl", "label": "DLsite同人_TLボイス",  "keyword": None, "enabled": False},
