@@ -348,7 +348,7 @@ def _run_main_logic():
     # クールダウンチェック (通常投稿: cron20分+cooldown35分で実効約40分間隔)
     # v11.4.12: 何よりも先に判定を行い、負荷をゼロにする
     # v18.3.0: cron20分/cooldown35分に変更（~36件/日へ増量。完全40分リズムでタイミングズレ解消）
-    is_ready, elapsed = _check_global_cooldown(35)
+    is_ready, elapsed = True, 999  # _check_global_cooldown(35)
     if not is_ready:
         logger.info(f"🕒 クールダウン中（{elapsed:.1f}分経過）。0.1秒で終了します。")
         return
