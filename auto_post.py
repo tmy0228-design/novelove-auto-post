@@ -227,7 +227,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
     post_data = {
         "title": title, "content": content, "excerpt": excerpt,
-        "status": "draft", "slug": slug,
+        "status": "publish", "slug": slug,
         "categories": categories, "tags": tag_ids, "meta": meta,
     }
     try:
