@@ -64,6 +64,23 @@ def _wp_auth():
     return (WP_USER, WP_APP_PASSWORD)
 
 
+def _run_wp_cli(cmd_list, timeout=30):
+    """
+    KUSANAGIのPHPパスを通した状態でwp-cliを実行する。
+    """
+    import subprocess
+    import os
+    env = os.environ.copy()
+    env["PATH"] = f"/opt/kusanagi/php/bin:{env.get('PATH', '')}"
+    return subprocess.run(
+        cmd_list,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env
+    )
+
+
 def get_or_create_tag(name, slug):
     """
     WordPress上で指定タグを探し、なければ作成してIDを返す。
@@ -74,7 +91,7 @@ def get_or_create_tag(name, slug):
     import json
     try:
         # 1. タグの検索
-        result = subprocess.run(
+        result = _run_wp_cli(
             [
                 WP_CLI_PATH, "term", "list", "post_tag",
                 f"--slug={slug}",
@@ -83,14 +100,14 @@ def get_or_create_tag(name, slug):
                 f"--path={WP_DOC_ROOT}",
                 "--allow-root",
             ],
-            capture_output=True, text=True, timeout=30
+            timeout=30
         )
         terms = json.loads(result.stdout or "[]")
         if isinstance(terms, list) and terms:
             return int(terms[0]["term_id"])
 
         # 2. 存在しない場合は新規作成
-        create_result = subprocess.run(
+        create_result = _run_wp_cli(
             [
                 WP_CLI_PATH, "term", "create", "post_tag", name,
                 f"--slug={slug}",
@@ -98,7 +115,7 @@ def get_or_create_tag(name, slug):
                 f"--path={WP_DOC_ROOT}",
                 "--allow-root",
             ],
-            capture_output=True, text=True, timeout=30
+            timeout=30
         )
         data = json.loads(create_result.stdout or "{}")
         if "term_id" in data:
@@ -122,7 +139,7 @@ def _wp_search_post_by_slug(slug):
     import json
     try:
         # wp-cli で slug 完全一致の投稿を取得
-        result = subprocess.run(
+        result = _run_wp_cli(
             [
                 WP_CLI_PATH, "post", "list",
                 f"--name={slug}",
@@ -132,7 +149,7 @@ def _wp_search_post_by_slug(slug):
                 f"--path={WP_DOC_ROOT}",
                 "--allow-root",
             ],
-            capture_output=True, text=True, timeout=30
+            timeout=30
         )
         posts = json.loads(result.stdout or "[]")
         if not posts:
@@ -140,7 +157,7 @@ def _wp_search_post_by_slug(slug):
         post_id = int(posts[0]["ID"])
 
         # タグIDリストを取得
-        tag_result = subprocess.run(
+        tag_result = _run_wp_cli(
             [
                 WP_CLI_PATH, "post", "term", "list", str(post_id), "post_tag",
                 "--fields=term_id",
@@ -148,7 +165,7 @@ def _wp_search_post_by_slug(slug):
                 f"--path={WP_DOC_ROOT}",
                 "--allow-root",
             ],
-            capture_output=True, text=True, timeout=30
+            timeout=30
         )
         tag_data = json.loads(tag_result.stdout or "[]")
         tag_ids = [int(t["term_id"]) for t in tag_data]
@@ -184,7 +201,7 @@ def update_post_data(wp_post_id, data_dict):
             if tag_ids:
                 # term_id をカンマ区切りで渡す
                 tag_id_strs = [str(t) for t in tag_ids]
-                subprocess.run(
+                _run_wp_cli(
                     [
                         WP_CLI_PATH, "post", "term", "set", str(wp_post_id), "post_tag",
                         "--by=id",
@@ -192,17 +209,17 @@ def update_post_data(wp_post_id, data_dict):
                         f"--path={WP_DOC_ROOT}",
                         "--allow-root",
                     ],
-                    capture_output=True, text=True, timeout=30
+                    timeout=30
                 )
             else:
                 # タグを全て外す場合
-                subprocess.run(
+                _run_wp_cli(
                     [
                         WP_CLI_PATH, "post", "term", "remove", str(wp_post_id), "post_tag", "--all",
                         f"--path={WP_DOC_ROOT}",
                         "--allow-root",
                     ],
-                    capture_output=True, text=True, timeout=30
+                    timeout=30
                 )
 
         # 2. タイトル・本文の更新（REST API POST経由: POSTはクエリパラメータ不要で正常動作）
@@ -229,7 +246,7 @@ def _wp_get_posts_with_tag(tag_id):
     import json
     slugs = set()
     try:
-        result = subprocess.run(
+        result = _run_wp_cli(
             [
                 WP_CLI_PATH, "post", "list",
                 f"--tag_id={tag_id}",
@@ -240,7 +257,7 @@ def _wp_get_posts_with_tag(tag_id):
                 f"--path={WP_DOC_ROOT}",
                 "--allow-root",
             ],
-            capture_output=True, text=True, timeout=60
+            timeout=60
         )
         posts = json.loads(result.stdout or "[]")
         for p in posts:
