@@ -71,7 +71,7 @@ FETCH_TARGETS = [
     # らぶカル 同人（小説）—— v15.5.0: 旧FANZA同人小説フロアをらぶカル専用フロアに統一
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "novel_bl",  "label": "らぶカル同人_BL小説", "keyword": "ノベル"},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "novel_tl",  "label": "らぶカル同人_TL小説", "keyword": "ノベル"},
-    # v19.0.0: ボイス作品（らぶカル BL/TL） — enabled=False: テスト完了後にTrueに変更すること
+    # v19.0.0: ボイス作品（らぶカル BL/TL） — v19.1.0で全設定有効化済み
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "voice_bl", "label": "らぶカル_BLボイス", "keyword": "ボイス", "enabled": True},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "voice_tl", "label": "らぶカル_TLボイス", "keyword": "ボイス", "enabled": True},
     # v19.0.0: ボイス作品（DLsite 同人 BL/TL）
