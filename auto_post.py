@@ -157,6 +157,8 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     # 形態とジャンルに基づくカテゴリ(大分類)の決定
     # v11.0.2: ジャンル文字列による厳格判定。タイトルキーワードはフォールバックのみ。
     g_lower = str(genre).lower()
+    # v19.0.0: ボイスジャンル対応
+    is_voice = "voice" in g_lower
     if "novel" in g_lower:
         is_novel = True
     elif any(x in g_lower for x in ("comic", "manga", "doujin")):
@@ -169,6 +171,10 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     
     if is_ranking:
         cat_name = "ランキング"
+    elif is_voice:
+        # v19.0.0: ボイス作品用カテゴリ
+        is_bl = "bl" in genre.lower() or "BL" in genre
+        cat_name = "BLボイス" if is_bl else "TLボイス"
     else:
         # 小説か漫画かでカテゴリを分ける
         is_bl = "bl" in genre.lower() or "BL" in genre
@@ -553,6 +559,10 @@ def _execute_posting_flow(row, cursor, conn):
     title_str = str(row['title'])
     desc_str = str(row['description']) if 'description' in row.keys() else ""
     ng_patterns = ["動画", "ボイス", "シチュエーションCD", "ASMR", "English", "Chinese", "サンプル", "【ボイス】", "【動画】"]
+    # v19.0.0: ボイスジャンルの作品はボイス関連NGワードをバイパス
+    _current_genre = str(row.get('genre', ''))
+    if "voice_" in _current_genre:
+        ng_patterns = ["動画", "English", "Chinese", "サンプル", "【動画】"]
     if any(p in title_str for p in ng_patterns) or any(p in desc_str for p in ng_patterns):
         logger.info(f"  [Pre-Filter] 不採用キーワード、または不適合形式を検知したため除外します: {title_str[:30]}...")
         cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='excluded_by_pre_filter' WHERE product_id=?", (row['product_id'],))

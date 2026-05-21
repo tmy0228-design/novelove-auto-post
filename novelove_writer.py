@@ -114,14 +114,30 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
     chat_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
     chat_close = '</div></div>'
 
-    focus = reviewer.get("novel_focus", "") if is_novel else reviewer.get("manga_focus", "")
-    medium_label = "小説" if is_novel else "漫画"
+    is_voice = "voice_" in str(target.get("genre", ""))
+    if is_voice:
+        focus = reviewer.get("voice_focus", "声優の演技や音響演出、バイノーラル体験など音声ならではの臨場感と没入感。")
+        medium_label = "音声作品"
+    elif is_novel:
+        focus = reviewer.get("novel_focus", "")
+        medium_label = "小説"
+    else:
+        focus = reviewer.get("manga_focus", "")
+        medium_label = "漫画"
 
     novel_rules = ""
     if is_novel:
         novel_rules = (
             "\n※小説作品のため「コマ」「見開き」「絵」「描画」等の漫画表現は使わず、"
             "「文章」「心理描写」「行間」「文体」「語り口」等の活字特有の視点で語ること。"
+        )
+
+    voice_rules = ""
+    if is_voice:
+        voice_rules = (
+            "\n※音声作品（ボイスドラマ / シチュエーションボイス / ASMR）のため、"
+            "「コマ」「見開き」「絵」「描画」「読む」等の漫画・小説表現は使わず、"
+            "「聴く」「耳元で囁く」「イヤホン推奨」「声優の演技」「音響演出」等の音声体験を表す表現を積極的に使うこと。"
         )
 
     guest_hint = ""
@@ -312,11 +328,11 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 【あなたのキャラクター】
 性格: {reviewer["personality"]}
 口調: {reviewer["tone"]}
-注目点（{medium_label}）: {focus}{mood_note}{guest_hint}{novel_rules}
+注目点（{medium_label}）: {focus}{mood_note}{guest_hint}{novel_rules}{voice_rules}
 
 【ルール】
 1. 吹き出しコメント＝あなたの口調全開。本文（h2/p/ul/liタグ内）＝標準語・ですます調で客観的に。この2つは絶対に混ぜない。
-2. あらすじに書かれていない設定・キャラ名・展開を創作しない。あらすじの事実は自信を持って断定してよい。「読み終えて」等の読了済み表現は禁止。
+2. あらすじに書かれていない設定・キャラ名・展開を創作しない。あらすじの事実は自信を持って断定してよい。{'「聴き終えて」「聴いてみると」' if is_voice else '「読み終えて」'}等の完了済みを装う表現は禁止。
 3. 直接的な性的単語は官能的な比喩に。テーマ傾向は「○○な関係性が堪らない」のように自然な文脈で語る（リスト列挙・メタ言及は禁止）。
 4. 本文の各セクション（h2直下のpタグ）は1段落あたり120〜180字を目安に、内容の区切りで複数の<p>タグに分けること。400字以上を1つの<p>に詰め込まない。
 {pattern_rules}
@@ -510,6 +526,7 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
         mood = random.choice(MOOD_PATTERNS)
 
     is_novel = target["genre"] in ("novel_bl", "novel_tl")
+    # v19.0.0: ボイス作品は小説でも漫画でもないのでis_novel=FalseのままでOK
     reviewer_name = reviewer["name"]
     db_ai_tags = []
     if target.get("ai_tags"):
@@ -638,8 +655,11 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             # サイト名・フォーマット名の整形（らぶカル表記へのフォールバック）
             site_display = "らぶカル" if site_display == "Lovecal" else site_display
             badge_html = f'\n<p style="text-align:center; margin-bottom:20px;">\n<span style="background:#fefefe; border:1px solid #ddd; padding:6px 16px; border-radius:25px; font-weight:bold; color:#444; box-shadow:0 2px 4px rgba(0,0,0,0.05); display:inline-block;">{icon} {site_display} {format_name}</span>\n</p>'
-            text_link = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:5px; margin-bottom:15px;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{target["title"]}』の試し読み・お得なセール状況をチェック！</a></p>\n'
-            button_html = get_affiliate_button_html(target["affiliate_url"], "無料で試し読みする")
+            _is_voice_genre = "voice_" in str(target.get("genre", ""))
+            _link_text = "▶ 『" + target["title"] + "』の試し聴き・お得なセール状況をチェック！" if _is_voice_genre else "▶ 『" + target["title"] + "』の試し読み・お得なセール状況をチェック！"
+            text_link = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:5px; margin-bottom:15px;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">{_link_text}</a></p>\n'
+            _btn_label = "無料で試し聴きする" if _is_voice_genre else "無料で試し読みする"
+            button_html = get_affiliate_button_html(target["affiliate_url"], _btn_label)
             if "FANZA" in site_display or "らぶカル" in site_display:
                 credit_html = (
                     f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'

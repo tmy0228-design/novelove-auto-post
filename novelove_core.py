@@ -180,6 +180,10 @@ def _get_reviewer_for_genre(genre):
 
 def _genre_label(genre, title=""):
     g_lower = str(genre).lower()
+    # v19.0.0: ボイスジャンル対応
+    if "voice" in g_lower:
+        is_bl = "bl" in g_lower or "BL" in str(genre)
+        return "BLボイス" if is_bl else "TL/乙女ボイス"
     if "novel" in g_lower:
         is_novel = True
     elif any(x in g_lower for x in ("comic", "manga", "doujin")):

@@ -167,8 +167,11 @@ def post_to_bluesky(
         # --- ジャンルラベル ---
         g_lower = str(genre).lower()
         is_novel = "novel" in g_lower
+        is_voice = "voice" in g_lower  # v19.0.0
         is_bl    = "bl" in g_lower
-        if is_novel:
+        if is_voice:
+            g_label = "BLボイス" if is_bl else "TLボイス"
+        elif is_novel:
             g_label = "BL小説" if is_bl else "TL小説"
         else:
             g_label = "BL漫画" if is_bl else "TL漫画"

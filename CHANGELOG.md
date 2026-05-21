@@ -1,3 +1,30 @@
+## v19.0.0 — ボイス作品（BL/TL）復活対応 (2026-05-21)
+
+### ✨ feat(voice): 女性向けボイス作品の取得・記事化を全面復活
+- **FETCH_TARGETS追加**: らぶカルBL/TLボイス（keyword="ボイス"）、DLsite同人/商業BL/TLボイス（work_type=SOU）の計6ターゲットを新設。
+- **DLsite SOU対応**: `_fetch_dlsite_items` に `work_type=SOU`（音声作品）によるスクレイピングを追加。ボイスターゲット時は外国語版のみスキップし、VOICE_KEYWORDSフィルタをバイパス。
+- **バッジ検証拡張**: DLsite詳細ページの形式バッジ判定に `/work_type/SOU` を追加。
+- **画像URLフィルタバイパス**: `fetch_and_stock_all` 内の `/voice/` パス除外ロジックをボイスターゲット時はバイパス。
+- **scrape_dlsite_description**: SOU形式を許可リストに追加（MNG/NRE/TOW/SOUの4形式が通過）。
+- **scrape_description (FANZA)**: ボイスジャンル時のフォーマットチェック（コミック/マンガ判定）をバイパス。
+- **DigiKetボイス分類**: `_classify_digiket_genre` にボイスキーワード判定を追加（target=8, target=2 の両方で対応）。
+
+### ✨ feat(category): WPカテゴリ「BLボイス」「TLボイス」新設
+- `auto_post.py` のカテゴリ判定ロジックに `is_voice` 分岐を追加。`voice_bl` → `BLボイス`、`voice_tl` → `TLボイス` のカテゴリに自動振り分け。
+
+### ✨ feat(writer): ボイス作品専用AIプロンプト
+- `build_prompt` に `voice_rules` を追加。漫画・小説表現を禁止し、「聴く」「耳元で囁く」等の音声体験表現を推奨。
+- `focus` / `medium_label` のボイス対応（「音声作品」ラベル＋音響演出の注目点）。
+- テキストリンク・ボタンラベルを「試し聴き」に自動切替。
+
+### 🔧 chore: ボイス関連の全般対応
+- `novelove_soul.py`: AI_TAG_WHITELISTにボイス特有タグ追加（ASMR, KU100, ささやき, 添い寝等）。全5キャラのgenresにvoice_bl/voice_tl追加。
+- `novelove_core.py`: `_genre_label` に「BLボイス」「TL/乙女ボイス」の分岐追加。
+- `auto_post.py`: ng_patternsのボイスジャンル例外処理（ボイス関連NGワード4語をバイパス）。
+- `SPECIFICATIONS.md`: データフィルタリング仕様を更新（ボイスの選択的取得を明記）。
+
+---
+
 ## v18.7.0 — 売れ筋作品のタイトル・バナー自動追加＆セール統合バナー化 (2026-05-19)
 
 ### ✨ feat(nexus): 売れ筋ランキング対象作品のタイトル・バナー自動追加

@@ -71,6 +71,15 @@ FETCH_TARGETS = [
     # らぶカル 同人（小説）—— v15.5.0: 旧FANZA同人小説フロアをらぶカル専用フロアに統一
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "novel_bl",  "label": "らぶカル同人_BL小説", "keyword": "ノベル"},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "novel_tl",  "label": "らぶカル同人_TL小説", "keyword": "ノベル"},
+    # v19.0.0: ボイス作品（らぶカル BL/TL） — enabled=False: テスト完了後にTrueに変更すること
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "voice_bl", "label": "らぶカル_BLボイス", "keyword": "ボイス", "enabled": False},
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "voice_tl", "label": "らぶカル_TLボイス", "keyword": "ボイス", "enabled": False},
+    # v19.0.0: ボイス作品（DLsite 同人 BL/TL）
+    {"site": "DLsite",  "service": None,     "floor": "bl",             "genre": "voice_bl", "label": "DLsite同人_BLボイス",  "keyword": None, "enabled": False},
+    {"site": "DLsite",  "service": None,     "floor": "girls",          "genre": "voice_tl", "label": "DLsite同人_TLボイス",  "keyword": None, "enabled": False},
+    # v19.0.0: ボイス作品（DLsite 商業 BL/TL）
+    {"site": "DLsite",  "service": None,     "floor": "bl-pro",         "genre": "voice_bl", "label": "DLsite商業_BLボイス",  "keyword": None, "enabled": False},
+    {"site": "DLsite",  "service": None,     "floor": "girls-pro",      "genre": "voice_tl", "label": "DLsite商業_TLボイス",  "keyword": None, "enabled": False},
     # DigiKet（fetch_digiket_items()で処理するためsite=DigiKetのみ記載）
     {"site": "DigiKet", "service": None,     "floor": None,             "genre": "comic_bl",  "label": "DigiKet商業_BL",      "keyword": None},
     {"site": "DigiKet", "service": None,     "floor": None,             "genre": "comic_tl",  "label": "DigiKet商業_TL",      "keyword": None},
@@ -349,12 +358,13 @@ def scrape_dlsite_description(url):
         has_mng = any("/work_type/MNG" in link for link in wg_links)
         has_nre = any("/work_type/NRE" in link for link in wg_links)  # ノベル
         has_tow = any("/work_type/TOW" in link for link in wg_links)  # テキスト・画像
-        if not has_mng and not has_nre and not has_tow:
+        has_sou = any("/work_type/SOU" in link for link in wg_links)  # v19.0.0: ボイス
+        if not has_mng and not has_nre and not has_tow and not has_sou:
             type_map = {"SOU": "ボイス", "NRE": "ノベル", "MNG": "マンガ",
                         "GME": "ゲーム", "MOV": "動画", "ANI": "アニメ", "ICG": "CG集"}
             detected = [name for code, name in type_map.items()
                         if any(f"/work_type/{code}" in link for link in wg_links)]
-            logger.warning(f"[DLsite] 漫画・ノベル以外の形式（{', '.join(detected) or '不明'}）のため除外: {url}")
+            logger.warning(f"[DLsite] 漫画・ノベル・ボイス以外の形式（{', '.join(detected) or '不明'}）のため除外: {url}")
             return "__EXCLUDED_TYPE__", "", False
         lang_labels = [a.text.strip() for a in soup_pre.select(".work_genre a")]
         FOREIGN_LABELS = ["韓国語", "中国語", "繁體中文", "繁体中文", "简体中文", "English", "英語"]
@@ -587,6 +597,7 @@ def scrape_description(product_url, site="FANZA", genre=""):
         is_comic = False
         has_format_tag = False
         is_novel_target = "novel" in genre
+        is_voice_target = "voice_" in genre  # v19.0.0: ボイスジャンル判定
         for dt in soup.find_all("dt"):
             if "作品形式" in dt.text or "形式" in dt.text or "ジャンル" in dt.text:
                 dd = dt.find_next_sibling("dd")
@@ -596,7 +607,8 @@ def scrape_description(product_url, site="FANZA", genre=""):
                     if "コミック" in fmt_text or "劇画" in fmt_text or "マンガ" in fmt_text:
                         is_comic = True
                     break
-        if has_format_tag and not is_comic and not is_novel_target:
+        # v19.0.0: ボイスジャンルはフォーマット不一致でも除外しない
+        if has_format_tag and not is_comic and not is_novel_target and not is_voice_target:
             logger.warning(f"[FANZA] マンガ以外の形式のため除外: {product_url}")
             return "__EXCLUDED_TYPE__"
         page_title_tag = soup.find("title")
@@ -696,21 +708,30 @@ def _extract_digiket_genre_tags(content_encoded):
 
 def _classify_digiket_genre(genre_tags, target_id):
     """
-    DigiKetのジャンルタグからBL/TL/小説を判定する。
-    target=8（商業BL・TLチャンネル）: タグを元にcomic/novelとTL/BLを振り分け（v15.3.3改修）
+    DigiKetのジャンルタグからBL/TL/小説/ボイスを判定する。
+    target=8（商業BL・TLチャンネル）: タグを元にcomic/novel/voiceとTL/BLを振り分け（v15.3.3改修, v19.0.0ボイス追加）
+        - ボイス + TL → voice_tl / ボイス + BL → voice_bl
         - TL + 小説 → novel_tl / 小説のみ → novel_bl / TLのみ → comic_tl / それ以外 → comic_bl
     target=6（商業電子書籍全般）: 女性コミック＋TL語ありのみcomic_tl、それ以外スキップ
     target=2（同人全般）: TLタグ → doujin_tl / BLタグ → doujin_bl / どちらもなければスキップ（男性向け除外）
-    戻り値: "comic_bl" / "comic_tl" / "novel_bl" / "novel_tl" / "doujin_bl" / "doujin_tl" / None（スキップ）
+    戻り値: "comic_bl" / "comic_tl" / "novel_bl" / "novel_tl" / "voice_bl" / "voice_tl" / "doujin_bl" / "doujin_tl" / None（スキップ）
     """
     tags_str = " ".join(genre_tags)
     TL_KEYWORDS = ["ティーンズラブ", "TL", "乙女"]
     BL_KEYWORDS = ["ボーイズラブ", "BL", "腐向け"]
     NOVEL_KEYWORDS = ["小説", "ノベル", "ライトノベル"]
+    VOICE_KEYWORDS = ["ボイス", "ASMR", "音声", "ドラマCD", "シチュエーション"]  # v19.0.0
     if target_id == "8":
-        # ★v15.3.3修正: target=8はBL・TL混在(小説も含む)チャンネル。タグを元にcomic/novelとTL/BLを振り分け
+        # ★v15.3.3修正: target=8はBL・TL混在(小説も含む)チャンネル。タグを元にcomic/novel/voiceとTL/BLを振り分け
         is_tl = any(kw in tags_str for kw in TL_KEYWORDS)
+        is_bl = any(kw in tags_str for kw in BL_KEYWORDS)
         is_novel = any(kw in tags_str for kw in NOVEL_KEYWORDS)
+        is_voice = any(kw in tags_str for kw in VOICE_KEYWORDS)  # v19.0.0
+        # v19.0.0: ボイス判定を最優先
+        if is_voice:
+            if is_tl:
+                return "voice_tl"
+            return "voice_bl"
         if is_tl and is_novel:
             return "novel_tl"
         elif is_novel:
@@ -725,6 +746,13 @@ def _classify_digiket_genre(genre_tags, target_id):
             return "comic_tl"
         return None
     elif target_id == "2":
+        # v19.0.0: 同人でもボイス判定を追加
+        is_voice = any(kw in tags_str for kw in VOICE_KEYWORDS)
+        if is_voice:
+            if any(kw in tags_str for kw in TL_KEYWORDS):
+                return "voice_tl"
+            if any(kw in tags_str for kw in BL_KEYWORDS):
+                return "voice_bl"
         if any(kw in tags_str for kw in TL_KEYWORDS):
             return "doujin_tl"
         if any(kw in tags_str for kw in BL_KEYWORDS):
@@ -739,12 +767,15 @@ def _fetch_dlsite_items(target):
     floor = target.get("floor", "girls")
     genre = target.get("genre", "")
     is_novel = genre in ("novel_bl", "novel_tl")
-    work_type = "NRE" if is_novel else "MNG"
+    is_voice = "voice_" in genre  # v19.0.0: ボイスジャンル判定
+    work_type = "SOU" if is_voice else ("NRE" if is_novel else "MNG")
     url = f"https://www.dlsite.com/{floor}/new/=/work_type/{work_type}/genre/all/"
     items = []
     VOICE_KEYWORDS = ["ボイス", "音声", "ASMR", "CV.", "CV:", "cv.", "cv:", "シチュエーションCD",
                       "バイノーラル", "ドラマCD", "全年齢ボイス", "簡体中文版", "繁体中文版",
                       "繁體中文版", "English", "韓国語版", "中国語", "音楽", "サウンドトラック", "音声作品"]
+    # v19.0.0: ボイスターゲット時は外国語版のみスキップ（ボイスキーワードはバイパス）
+    FOREIGN_KEYWORDS = ["簡体中文版", "繁体中文版", "繁體中文版", "English", "韓国語版", "中国語"]
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         r = _fetch_with_retry(url, headers=headers, timeout=20, label=f"DLsite新着({work_type})")
@@ -757,7 +788,13 @@ def _fetch_dlsite_items(target):
             title_text = title_tag.text.strip()
             category_tag = work.select_one(".work_category")
             category_text = category_tag.text.strip() if category_tag else ""
-            skip_keywords = VOICE_KEYWORDS if is_novel else VOICE_KEYWORDS + ["ノベル", "小説", "実用"]
+            if is_voice:
+                # ボイスターゲット: 外国語版のみスキップ
+                skip_keywords = FOREIGN_KEYWORDS
+            elif is_novel:
+                skip_keywords = VOICE_KEYWORDS
+            else:
+                skip_keywords = VOICE_KEYWORDS + ["ノベル", "小説", "実用"]
             if any(kw in (title_text + category_text) for kw in skip_keywords):
                 logger.info(f"[DLsite] 種別フィルターによりスキップ: {title_text[:40]}")
                 continue
@@ -773,7 +810,10 @@ def _fetch_dlsite_items(target):
                     continue
                 dsoup = BeautifulSoup(dr.text, "html.parser")
                 dr_wg_links = [a.get("href", "") for a in dsoup.select(".work_genre a")]
-                if is_novel:
+                if is_voice:
+                    # v19.0.0: ボイスターゲットはSOUバッジで判定
+                    valid_badge = any("/work_type/SOU" in link for link in dr_wg_links)
+                elif is_novel:
                     valid_badge = any("/work_type/NRE" in link or "/work_type/TOW" in link
                                       for link in dr_wg_links)
                 else:
@@ -835,6 +875,10 @@ def fetch_and_stock_all():
     """
     failed_titles = []
     for target in FETCH_TARGETS:
+        # v19.0.0: enabledフラグがFalseのターゲットはスキップ（ボイス等の段階的有効化用）
+        if not target.get("enabled", True):
+            logger.info(f"  [{target.get('label', '?')}] enabled=False のためスキップ")
+            continue
         site = target.get("site", "FANZA")
         # v15.5.1: 通知・ログ表示用のサイト名（APIに渡す site とは別に管理）
         _is_lovecal_target = target.get("floor") in ("digital_doujin_bl", "digital_doujin_tl") or "らぶカル" in target.get("label", "")
@@ -885,8 +929,10 @@ def fetch_and_stock_all():
             if not p_url: continue
             title_str = item.get("title", "")
             # ボイス・ASMR作品の除外（らぶカル等のBL/TLフロアに混在するため）
+            # v19.0.0: ボイスターゲット時はこのフィルタをバイパス
             _img_large = item.get("imageURL", {}).get("large", "")
-            if "/voice/" in _img_large:
+            is_voice_target = "voice_" in target.get("genre", "")
+            if "/voice/" in _img_large and not is_voice_target:
                 logger.info(f"  [ボイス作品除外] 画像URLにvoiceパスを検出: {title_str[:40]}")
                 continue
             if _is_thin_content(title_str, item):
