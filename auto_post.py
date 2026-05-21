@@ -560,7 +560,7 @@ def _execute_posting_flow(row, cursor, conn):
     desc_str = str(row['description']) if 'description' in row.keys() else ""
     ng_patterns = ["動画", "ボイス", "シチュエーションCD", "ASMR", "English", "Chinese", "サンプル", "【ボイス】", "【動画】"]
     # v19.0.0: ボイスジャンルの作品はボイス関連NGワードをバイパス
-    _current_genre = str(row.get('genre', ''))
+    _current_genre = str(row['genre']) if 'genre' in row.keys() else ""
     if "voice_" in _current_genre:
         ng_patterns = ["動画", "English", "Chinese", "サンプル", "【動画】"]
     if any(p in title_str for p in ng_patterns) or any(p in desc_str for p in ng_patterns):
