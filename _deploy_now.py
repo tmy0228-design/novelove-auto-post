@@ -9,7 +9,7 @@ try:
     client.connect('novelove.jp', username='root', password='#Dama0228', port=22, timeout=15)
     
     print("--- サーバー側で最新のGitHubコードをPullします ---")
-    stdin, stdout, stderr = client.exec_command("cd /home/kusanagi/scripts && git reset --hard && git pull origin main")
+    stdin, stdout, stderr = client.exec_command("cd /home/kusanagi/scripts && git reset --hard && git clean -fd && git pull origin main")
     
     print(stdout.read().decode('utf-8', errors='replace'))
     err = stderr.read().decode('utf-8', errors='replace')
