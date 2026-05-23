@@ -382,11 +382,11 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
         # === 最重要: 更新フックの発火とキャッシュの完全消去 ===
         # これを実行することで RankMath(Google等) へのPing通知が走る
         # さらに、再執筆内容が即座に反映されるよう本番サーバーのキャッシュを全クリアする
-        cmd_update = f"cd {doc_root} && wp post update {wp_post_id} --allow-root"
+        cmd_update = f"cd {doc_root} && wp post update {wp_post_id} --post_modified=\"$(date '+%Y-%m-%d %H:%M:%S')\" --allow-root"
         cmd_cache_clear = f"cd {doc_root} && wp cache flush --allow-root && kusanagi bcache clear myblog && kusanagi fcache clear myblog"
         
-        # 連続実行
-        stdin, stdout, stderr = ssh.exec_command(f"{cmd_update} && {cmd_cache_clear}")
+        # 連続実行 (アップデートが失敗してもキャッシュクリアは確実に行うため ; で連結)
+        stdin, stdout, stderr = ssh.exec_command(f"{cmd_update}; {cmd_cache_clear}")
         # コマンドの完了を待機
         exit_status = stdout.channel.recv_exit_status()
         
