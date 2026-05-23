@@ -601,7 +601,9 @@ def scrape_description(product_url, site="FANZA", genre=""):
                         is_comic = True
                     break
         # v19.0.0: ボイスジャンルはフォーマット不一致でも除外しない
-        if has_format_tag and not is_comic and not is_novel_target and not is_voice_target:
+        # ランキング生成時（genreが単にBL/TL）は全形式を許容する
+        is_ranking = genre in ("BL", "TL")
+        if has_format_tag and not is_comic and not is_novel_target and not is_voice_target and not is_ranking:
             logger.warning(f"[FANZA] マンガ以外の形式のため除外: {product_url}")
             return "__EXCLUDED_TYPE__"
         page_title_tag = soup.find("title")

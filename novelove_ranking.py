@@ -166,8 +166,8 @@ def fetch_ranking_dlsite(genre):
                     if dr.status_code == 200:
                         dsoup = BeautifulSoup(dr.text, 'html.parser')
                         badges = [wg.get('href', '') for wg in dsoup.select('.work_genre a')]
-                        # 漫画(MNG) or 小説(NRE/NVL/TOW)のみ許可
-                        if not any(b in str(badges) for b in ['MNG', 'NRE', 'NVL', 'TOW']):
+                        # 漫画(MNG) or 小説(NRE/NVL/TOW) or ボイス(SOU)のみ許可
+                        if not any(b in str(badges) for b in ['MNG', 'NRE', 'NVL', 'TOW', 'SOU']):
                             continue
                         og_img = dsoup.select_one('meta[property="og:image"]')
                         if og_img: img_src = og_img.get('content', '')
@@ -239,8 +239,8 @@ def fetch_ranking_digiket(genre):
                 link = entry.find("link").text
                 # 詳細を取得
                 desc, img, _, _, _, _ = scrape_digiket_description(link)
-                # 漫画・小説のみ (DigiKetはカテゴリ名に文字列が含まれる)
-                if not any(x in str(entry) for x in ["コミック", "小説", "マンガ", "ノベル"]):
+                # 漫画・小説・ボイス (DigiKetはカテゴリ名に文字列が含まれる)
+                if not any(x in str(entry) for x in ["コミック", "小説", "マンガ", "ノベル", "ボイス", "音声", "ASMR", "ドラマCD", "シチュエーション"]):
                     continue
                 aff_url = link
                 if DIGIKET_AFFILIATE_ID:
@@ -274,7 +274,7 @@ def fetch_ranking_digiket(genre):
             if not link.startswith("http"): link = "https://www.digiket.com" + link
             # 種別確認
             desc, img, _, _, _, _ = scrape_digiket_description(link)
-            if not any(x in (title + desc) for x in ["コミック", "小説", "マンガ", "ノベル"]): continue
+            if not any(x in (title + desc) for x in ["コミック", "小説", "マンガ", "ノベル", "ボイス", "音声", "ASMR", "ドラマCD", "シチュエーション"]): continue
             aff_url = link
             if DIGIKET_AFFILIATE_ID:
                 if not aff_url.endswith("/"): aff_url += "/"
@@ -313,7 +313,7 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 ・文体: {reviewer["tone"]}
 【執筆ルール】HTML形式で出力してください。
 ・直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
-※当サイトは漫画・小説専門です。「聴く」「イヤホン」などの音声表現は避け、「読む・見る」体験として紹介してください。
+※紹介する作品には漫画、小説、音声作品（ボイス・ASMR）が含まれます。メディアタイプを特定する表現（「読む」「聴く」「本を開く」「耳を澄ます」など）は避け、どのメディアであっても違和感のない中立的な表現（「この作品を楽しむ」「チェックする」「体験する」など）で紹介してください。
 1. 冒頭キャラコメント
 {mc_open}（{intro_rule} 60〜80字以内）{mc_close}
 2. ランキングTOP5（各作品につき紹介文＋推しポイント吹き出し）
@@ -364,7 +364,7 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 5. 2人の性格の違いと関係性に基づいた自然なテンポで会話を進めること。
 6. raw HTMLのみを出力。```やコードブロックは使わないこと。
 7. 直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
-8. 当サイトは漫画・小説専門です。「聴く」「イヤホン」などの音声表現は避け、「読む・見る」体験として紹介してください。
+8. 紹介する作品には漫画、小説、音声作品（ボイス・ASMR）が含まれます。メディアタイプを特定する表現（「読む」「聴く」「本を開く」「耳を澄ます」など）は避け、どのメディアであっても違和感のない中立的な表現（「この作品を楽しむ」「チェックする」「体験する」など）で紹介してください。
 【冒頭の挨拶ルール】
 {mc_intro_rule}
 {guest_intro_rule}
