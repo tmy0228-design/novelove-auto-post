@@ -71,7 +71,7 @@ def fetch_ranking_dmm_fanza(site, genre):
             base_url = item.get("URL", "")
             # generate_affiliate_url が lovecul.dmm.co.jp を検知し自動でDMM用URLに変換する
             aff_url = generate_affiliate_url("FANZA", base_url)
-            desc = scrape_description(item.get("URL", ""), site=site, genre=genre)
+            desc = scrape_description(item.get("URL", ""), site=site, genre=genre, is_ranking=True)
             if _is_noise_content(title, desc): continue
             
             final_items.append({
@@ -132,7 +132,7 @@ def fetch_ranking_dmm_fanza(site, genre):
         base_url = item.get("URL", "")
         # generate_affiliate_url が FANZA/DMM.com を自動判定してURLを生成する
         aff_url = generate_affiliate_url(site, base_url)
-        desc = scrape_description(item.get("URL", ""), site=site, genre=genre)
+        desc = scrape_description(item.get("URL", ""), site=site, genre=genre, is_ranking=True)
         if _is_noise_content(title, desc): continue
         
         final_items.append({
@@ -275,6 +275,11 @@ def fetch_ranking_digiket(genre):
             # 種別確認
             desc, img, _, _, _, _ = scrape_digiket_description(link)
             if not any(x in (title + desc) for x in ["コミック", "小説", "マンガ", "ノベル", "ボイス", "音声", "ASMR", "ドラマCD", "シチュエーション"]): continue
+            # TLジャンルの場合はフォールバック時もTLキーワードによる絞り込みを強制（一般作品の混入を防ぐ）
+            if not is_bl:
+                tl_keywords = ["TL", "ティーンズラブ", "乙女", "女性向け"]
+                if not any(kw in (title + desc) for kw in tl_keywords):
+                    continue
             aff_url = link
             if DIGIKET_AFFILIATE_ID:
                 if not aff_url.endswith("/"): aff_url += "/"

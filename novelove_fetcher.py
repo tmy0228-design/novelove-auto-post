@@ -567,7 +567,7 @@ def scrape_digiket_description(url):
         logger.error(f"  [DigiKet] エラー発生: {e}")
         return "", "", None, None, "", False
 
-def scrape_description(product_url, site="FANZA", genre=""):
+def scrape_description(product_url, site="FANZA", genre="", is_ranking=False):
     if not product_url: return ""
     if "dlsite" in str(product_url).lower():
         desc, _tags, _excl = scrape_dlsite_description(product_url)
@@ -602,8 +602,8 @@ def scrape_description(product_url, site="FANZA", genre=""):
                     break
         # v19.0.0: ボイスジャンルはフォーマット不一致でも除外しない
         # ランキング生成時（genreが単にBL/TL）は全形式を許容する
-        is_ranking = genre in ("BL", "TL")
-        if has_format_tag and not is_comic and not is_novel_target and not is_voice_target and not is_ranking:
+        is_ranking_final = is_ranking or (genre in ("BL", "TL"))
+        if has_format_tag and not is_comic and not is_novel_target and not is_voice_target and not is_ranking_final:
             logger.warning(f"[FANZA] マンガ以外の形式のため除外: {product_url}")
             return "__EXCLUDED_TYPE__"
         page_title_tag = soup.find("title")
