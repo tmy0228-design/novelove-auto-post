@@ -474,14 +474,17 @@ def fetch_dlsite_sale_product_ids(published_pids):
     """
     sale_ids = set()
 
-    # 4フロアのセール検索ページ
+    # 4フロアのセール検索ページ + 2フロアの一般向けセール検索ページ
     # v18.1.2: URL修正 — discount_rate_min/50 + manga はDLsiteのパーサーを壊し割引指定が無視されていた
     #   修正: discount_rates[0]/c8/discount_rates[1]/c9 (30%OFF以上) + comic/gekiga/tateyomi/novel/kanno (ノベラブ全対象種別)
+    # v20.0.1: DLsite一般（全年齢）セール検索URLを追記
     sale_search_urls = [
         "https://www.dlsite.com/girls/fsr/=/language/jp/sex_category[0]/female/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/work_type_category[5]/SOU/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",      # 女性向け同人
         "https://www.dlsite.com/bl/fsr/=/language/jp/sex_category[0]/female/sex_category[1]/gay/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/work_type_category[5]/SOU/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",  # BL同人
         "https://www.dlsite.com/girls-pro/fsr/=/language/jp/sex_category[0]/female/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/work_type_category[5]/SOU/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",   # 女性向け商業
         "https://www.dlsite.com/bl-pro/fsr/=/language/jp/sex_category[0]/female/sex_category[1]/gay/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/work_type_category[5]/SOU/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",  # BL商業
+        "https://www.dlsite.com/home/fsr/=/language/jp/sex_category[0]/female/work_type_category[0]/MNG/work_type_category[1]/novel/work_type_category[2]/SOU/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",      # 女性向け一般同人（全年齢）
+        "https://www.dlsite.com/home/fsr/=/language/jp/sex_category[0]/female/sex_category[1]/gay/work_type_category[0]/MNG/work_type_category[1]/novel/work_type_category[2]/SOU/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",  # BL一般同人（全年齢）
     ]
 
     for base_url in sale_search_urls:
@@ -528,9 +531,12 @@ def fetch_dlsite_ranking_product_ids():
     """
     RANKING_TOP_N = 30  # 各URLから取得するTOP件数（FANZA=20×4フロア に合わせたバランス調整）
     ranking_ids = set()
+    # v20.0.1: DLsite一般（全年齢）週間ランキングURLを追記
     ranking_urls = [
         "https://www.dlsite.com/girls/ranking/week",  # 女性向け週間ランキング
         "https://www.dlsite.com/bl/ranking/week",     # BL週間ランキング（v12.7.0追加）
+        "https://www.dlsite.com/home/ranking/week?is_tl=1",  # 女性向け一般週間ランキング
+        "https://www.dlsite.com/home/ranking/week?is_bl=1&is_gay=1",  # BL一般週間ランキング
     ]
     for url in ranking_urls:
         try:

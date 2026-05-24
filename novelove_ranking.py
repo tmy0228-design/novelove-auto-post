@@ -139,12 +139,10 @@ def fetch_ranking_dmm(site, genre):
         
     return final_items
 
-def fetch_ranking_dlsite(genre):
-    """v11.2.0: DLsiteの総合ランキングから漫画・小説のみ抽出"""
+def _fetch_dlsite_ranking_items_from_url(url, is_bl, limit, skip_titles=None):
+    if skip_titles is None:
+        skip_titles = []
     items = []
-    is_bl = (genre == "BL")
-    path = "bl/ranking/week" if is_bl else "girls/ranking/week"
-    url = f"https://www.dlsite.com/{path}"
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
         r = requests.get(url, headers=headers, timeout=15)
@@ -154,7 +152,9 @@ def fetch_ranking_dlsite(genre):
                 title = anchor.text.strip()
                 link = anchor.get('href')
                 if _is_noise_content(title, ""): continue
+                if title in skip_titles: continue
                 img_src = ""; desc = ""
+                is_r18_badge = False
                 try:
                     dr = requests.get(link, headers=headers, timeout=10)
                     if dr.status_code == 200:
@@ -168,18 +168,58 @@ def fetch_ranking_dlsite(genre):
                         desc_tag = dsoup.select_one('meta[property="og:description"]')
                         if desc_tag: desc = desc_tag.get('content', '')
                         if _is_noise_content(title, desc): continue
+                        
+                        # R-18バッジ判定でアフィURLのfloorを決定 (v20.0.1)
+                        is_r18_badge = bool(dsoup.select_one(".icon_ADL"))
                 except Exception as e:
                     logger.warning(f"  [DLsite詳細取得失敗] {title[:20]}: {e}")
                     continue
                 aff_id = DLSITE_AFFILIATE_ID
                 pid = link.rstrip("/").split("/")[-1].replace(".html", "")
-                floor = "bl" if is_bl else "girls"
+                
+                # アフィURLの全年齢判定 (v20.0.1)
+                if is_r18_badge:
+                    floor = "bl" if is_bl else "girls"
+                else:
+                    floor = "home"
+                    
                 aff_url = f"https://dlaf.jp/{floor}/dlaf/=/t/n/link/work/aid/{aff_id}/id/{pid}.html"
-                items.append({"title": title, "url": aff_url, "image_url": img_src, "description": desc})
-                if len(items) >= 5: break
+                items.append({"title": title, "url": aff_url, "image_url": img_src, "description": desc, "content_id": pid})
+                if len(items) >= limit: break
     except Exception as e:
-        logger.error(f"DLsite Scraping Exception ({genre}): {e}")
+        logger.error(f"DLsite Ranking URL Fetch Error ({url}): {e}")
     return items
+
+def fetch_ranking_dlsite(genre):
+    """v20.0.1: DLsiteのランキングからR18（3件）および一般（2件）を抽出してマージ"""
+    items = []
+    is_bl = (genre == "BL")
+    
+    # 1. R18ランキング取得（目標3件）
+    r18_path = "bl/ranking/week" if is_bl else "girls/ranking/week"
+    r18_url = f"https://www.dlsite.com/{r18_path}"
+    r18_items = _fetch_dlsite_ranking_items_from_url(r18_url, is_bl, limit=3)
+    items.extend(r18_items)
+    
+    # 2. 一般（全年齢）ランキング取得（目標2件）
+    general_query = "is_bl=1" if is_bl else "is_tl=1"
+    general_url = f"https://www.dlsite.com/home/ranking/week?{general_query}"
+    general_items = _fetch_dlsite_ranking_items_from_url(general_url, is_bl, limit=2, skip_titles=[x["title"] for x in items])
+    items.extend(general_items)
+    
+    # もし合計が5件に満たない場合、残りをR18の残枠から補填する
+    if len(items) < 5:
+        needed = 5 - len(items)
+        more_r18 = _fetch_dlsite_ranking_items_from_url(r18_url, is_bl, limit=5, skip_titles=[x["title"] for x in items])
+        items.extend(more_r18[:needed])
+        
+    # それでも足りなければ一般ランキングからさらに補填
+    if len(items) < 5:
+        needed = 5 - len(items)
+        more_general = _fetch_dlsite_ranking_items_from_url(general_url, is_bl, limit=5, skip_titles=[x["title"] for x in items])
+        items.extend(more_general[:needed])
+        
+    return items[:5]
 
 def fetch_ranking_digiket(genre):
     """v11.2.0: DigiKetのランキングを取得"""
