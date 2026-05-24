@@ -1,3 +1,24 @@
+## v19.5.0 — DigiKet新規取得・ランキング投稿の完全停止 (2026-05-24)
+
+### 🗑️ refactor(fetcher): DigiKet新規取得の停止
+- **対象 (`novelove_fetcher.py`)**: `FETCH_TARGETS` からDigiKet関連の6定義（商業BL/TL、同人BL/TL、小説BL/TL）を削除。
+- **根拠**: DigiKetの直近アフィリエイト成果は4,479クリックに対しCVR 0.0%（売上・報酬が完全なゼロ）。かつDLsiteとの作品重複率が極めて高く（fuzzy重複ブロック23件以上）、紹介すること自体が機会損失と判断。
+- **残存**: `fetch_digiket_items()` 関数本体、`scrape_digiket_description()`、`_classify_digiket_genre()` 等のヘルパー関数は既存記事のリライト・ダッシュボードサポートのため削除せず維持。
+
+### 🗑️ refactor(ranking): DigiKet水曜日ランキングの廃止
+- **対象 (`novelove_ranking.py`)**: `schedule` 辞書から `2: "DigiKet"` を削除。水曜日はランキング非投稿日に変更。
+- **残存**: `fetch_ranking_digiket()` 関数は将来の再開に備えて残存。
+
+### 🗑️ refactor(auto_post): DigiKet取得呼び出しの削除
+- **対象 (`auto_post.py`)**: `_run_main_logic()` 内の `fetch_digiket_items()` 呼び出し（try-exceptブロック）を削除。importからも `fetch_digiket_items` を除去。
+- **残存**: 在庫カウント（`source_db='digiket'`）、DigiKetサムネ変換ロジック、`DigiKet限定` タグ付与ロジック等は既存記事サポートのため維持。
+
+### 📝 docs: ドキュメント更新
+- `SPECIFICATIONS.md` (v19.5.0): コアコンセプト、データソース説明、ランキングスケジュール表、DB章等を更新。
+- `README.md`: 対応サイト記述を更新。
+
+---
+
 ## v19.4.1 — 旧FANZA商業完全停止と関連処理の廃止（らぶカル対応維持）(2026-05-24)
 
 ### 🧹 chore(ranking): novelove_ranking.py のデッドコード削除

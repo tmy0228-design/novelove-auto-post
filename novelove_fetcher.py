@@ -74,14 +74,8 @@ FETCH_TARGETS = [
     # v19.0.0: ボイス作品（DLsite 商業 BL/TL）
     {"site": "DLsite",  "service": None,     "floor": "bl-pro",         "genre": "voice_bl", "label": "DLsite商業_BLボイス",  "keyword": None, "enabled": True},
     {"site": "DLsite",  "service": None,     "floor": "girls-pro",      "genre": "voice_tl", "label": "DLsite商業_TLボイス",  "keyword": None, "enabled": True},
-    # DigiKet（fetch_digiket_items()で処理するためsite=DigiKetのみ記載）
-    {"site": "DigiKet", "service": None,     "floor": None,             "genre": "comic_bl",  "label": "DigiKet商業_BL",      "keyword": None},
-    {"site": "DigiKet", "service": None,     "floor": None,             "genre": "comic_tl",  "label": "DigiKet商業_TL",      "keyword": None},
-    {"site": "DigiKet", "service": None,     "floor": None,             "genre": "doujin_bl", "label": "DigiKet同人_BL",      "keyword": None},
-    {"site": "DigiKet", "service": None,     "floor": None,             "genre": "doujin_tl", "label": "DigiKet同人_TL",      "keyword": None},
-    # DigiKet（小説）
-    {"site": "DigiKet", "service": None,     "floor": None,             "genre": "novel_bl",  "label": "DigiKet_BL小説",      "keyword": None},
-    {"site": "DigiKet", "service": None,     "floor": None,             "genre": "novel_tl",  "label": "DigiKet_TL小説",      "keyword": None},
+    # v19.5.0: DigiKet新規取得停止（CVR 0.0%・DLsite重複率高のため）。既存記事は残存。
+    # fetch_digiket_items() / scrape_digiket_description() 等の関数は既存記事サポートのため維持。
 ]
 
 

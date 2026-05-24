@@ -78,7 +78,6 @@ from novelove_core import (
 # === 取得ロジックは novelove_fetcher.py に分離 ===
 from novelove_fetcher import (
     fetch_and_stock_all,
-    fetch_digiket_items,
     FETCH_TARGETS,
     AI_TAG_WHITELIST,
     mask_input,
@@ -355,10 +354,7 @@ def _run_main_logic():
 
 
     fetch_and_stock_all()
-    try:
-        fetch_digiket_items()
-    except Exception as e:
-        logger.error(f"DigiKet取得エラー: {e}")
+    # v19.5.0: DigiKet新規取得停止（fetch_digiket_items()呼び出し削除）
 
     # --- 在庫クリーンアップ (v18.0.0: 統合DB対応) ---
     conn = db_connect(DB_FILE_UNIFIED)
