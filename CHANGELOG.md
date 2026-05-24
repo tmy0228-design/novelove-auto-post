@@ -1,3 +1,21 @@
+## v19.5.1 — DigiKet既存記事削除とスマホフィルター非表示バグの修正 (2026-05-24)
+
+### 🗑️ refactor(wordpress): DigiKet既存記事の完全削除と301リダイレクト設定
+- **記事削除**: wp-cliを使用して、WordPress上の残存DigiKet記事（114件＋枝番付き2件）をゴミ箱へ移動し、完全削除しました。
+- **301リダイレクト (`myblog.conf`)**: 旧DigiKet記事URL（`/itm[0-9]+/` 形式）へのアクセスを、Nginxでトップページへ301恒久転送する設定を追加しました。
+- **見出しリンク化 (ID: 7558)**: トップページの見出し「BL/TL漫画・小説・ボイス新着」および「ランキング」を、デザインを維持したまま各カテゴリページへのAタグ（リンク）に変更しました。
+- **データベース更新**: `novelove_unified.db` 上のDigiKet記事のステータスを `deleted` に一括更新し、バッチ処理から除外しました。
+
+### 🐛 fix(theme): スマホ用トグルフィルター非表示バグの修正とキャッシュクリア
+- **対象 (`functions.php`)**:
+  - `functions.php` のL123付近にあった、サイドバー内のスマホフィルターを非表示にする設定 `.page-id-7558 #sidebar .search-filter-section { display: none !important; }` を削除しました。
+  - 代わりに、メインコンテンツ上部（`#main` 内）のスマホフィルターのみを非表示にする `body.home #main .search-filter-section, body.page-id-7558 #main .search-filter-section { display: none !important; }` を追加しました。これにより、スマホ表示時にページ下部（サイドバー回り込み位置）にのみ正しくトグルフィルターが表示されるようになります。
+- **キャッシュクリア**: 
+  - コマンド `kusanagi bcache clear myblog` および `kusanagi fcache clear myblog` を実行して、データベースのページキャッシュ（`wp_site_cache` テーブル）と Nginx キャッシュをパージしました。
+  - `systemctl restart php-fpm` を実行して、メモリ上のOPcache（PHPコンパイルキャッシュ）を完全にクリアしました。
+
+---
+
 ## v19.5.0 — DigiKet新規取得・ランキング投稿の完全停止 (2026-05-24)
 
 ### 🗑️ refactor(fetcher): DigiKet新規取得の停止
