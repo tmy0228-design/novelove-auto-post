@@ -118,7 +118,7 @@ def load_all_data() -> pd.DataFrame:
                         return "DigiKet"
                     if "DMM" in site_val:
                         return "DMM"
-                    return "FANZA"
+                    return "DMM"
                 df["_source_db"] = df.apply(get_source_label, axis=1)
             else:
                 df["_source_db"] = label

@@ -369,7 +369,7 @@ def _run_main_logic():
 
     # ② source_dbごと・ジャンルごとにスコア上位の20件を残し、他をexcludedへ
     # source_dbで分離することで、各サイトの在庫バランスが崩れないよう管理する
-    for sdb in ['fanza', 'dlsite', 'digiket']:
+    for sdb in ['dmm', 'lovecal', 'dlsite', 'digiket']:
         genres_in_sdb = [row[0] for row in c.execute(
             "SELECT DISTINCT genre FROM novelove_posts WHERE status='pending' AND source_db=?",
             (sdb,)
@@ -467,13 +467,12 @@ def _run_main_logic():
         # v18.0.0: 統合DB1本から在庫カウント
         inventory_list = []
         _c = db_connect(DB_FILE_UNIFIED)
-        c_fanza   = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'FANZA%'").fetchone()[0]
         c_dmm     = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'DMM%'").fetchone()[0]
         c_lovecal = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'Lovecal%'").fetchone()[0]
         c_dl      = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND source_db='dlsite'").fetchone()[0]
         c_dk      = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND source_db='digiket'").fetchone()[0]
         _c.close()
-        inventory_list = [f"FANZA {c_fanza}", f"DMM {c_dmm}", f"らぶカル {c_lovecal}", f"DLsite {c_dl}", f"DigiKet {c_dk}"]
+        inventory_list = [f"DMM {c_dmm}", f"らぶカル {c_lovecal}", f"DLsite {c_dl}", f"DigiKet {c_dk}"]
         inventory_str = " / ".join(inventory_list) + " 件"
 
         attempts_str = "\n".join(tried_details) if tried_details else "（なし：全在庫切れ）"
@@ -730,13 +729,12 @@ def _execute_posting_flow(row, cursor, conn):
 
         # v18.0.0: 統合DB1本から在庫カウント
         _c = db_connect(DB_FILE_UNIFIED)
-        c_fanza   = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'FANZA%'").fetchone()[0]
         c_dmm     = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'DMM%'").fetchone()[0]
         c_lovecal = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'Lovecal%'").fetchone()[0]
         c_dl      = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND source_db='dlsite'").fetchone()[0]
         c_dk      = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND source_db='digiket'").fetchone()[0]
         _c.close()
-        inventory_list = [f"FANZA {c_fanza}", f"DMM {c_dmm}", f"らぶカル {c_lovecal}", f"DLsite {c_dl}", f"DigiKet {c_dk}"]
+        inventory_list = [f"DMM {c_dmm}", f"らぶカル {c_lovecal}", f"DLsite {c_dl}", f"DigiKet {c_dk}"]
         inventory_str = " / ".join(inventory_list) + " 件"
 
         notify_discord(

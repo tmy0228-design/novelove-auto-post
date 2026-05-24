@@ -44,9 +44,6 @@ FETCH_TARGETS = [
     # らぶカル（FANZA同人 BL/TL 専用フロア）
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "doujin_bl", "label": "らぶカル_BL", "keyword": None},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "doujin_tl", "label": "らぶカル_TL", "keyword": None},
-    # FANZA 商業R18（新規追加）
-    {"site": "FANZA",   "service": "ebook",  "floor": "bl",             "genre": "comic_bl",  "label": "FANZA商業_BL", "keyword": None},
-    {"site": "FANZA",   "service": "ebook",  "floor": "tl",             "genre": "comic_tl",  "label": "FANZA商業_TL", "keyword": None},
     # DMM.com 商業一般
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_bl",  "label": "DMM_BL",       "article": "category", "article_id": "66036", "keyword": None},
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_tl",  "label": "DMM_TL",       "article": "category", "article_id": "66060", "keyword": None},
@@ -65,9 +62,6 @@ FETCH_TARGETS = [
     # DMM.com 商業（小説）
     {"site": "DMM.com", "service": "ebook",  "floor": "novel",          "genre": "novel_bl",  "label": "DMM_BL小説",          "article": "category", "article_id": "66042", "keyword": None},
     {"site": "DMM.com", "service": "ebook",  "floor": "novel",          "genre": "novel_tl",  "label": "DMM_TL小説",          "article": "category", "article_id": "66064", "keyword": None},
-    # FANZA 商業（小説）
-    {"site": "FANZA",   "service": "ebook",  "floor": "bl",             "genre": "novel_bl",  "label": "FANZA商業_BL小説",    "keyword": "小説"},
-    {"site": "FANZA",   "service": "ebook",  "floor": "tl",             "genre": "novel_tl",  "label": "FANZA商業_TL小説",    "keyword": "小説"},
     # らぶカル 同人（小説）—— v15.5.0: 旧FANZA同人小説フロアをらぶカル専用フロアに統一
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "novel_bl",  "label": "らぶカル同人_BL小説", "keyword": "ノベル"},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "novel_tl",  "label": "らぶカル同人_TL小説", "keyword": "ノベル"},

@@ -267,13 +267,14 @@ def get_db_path(site_raw=None):
     return DB_FILE_UNIFIED
 
 def get_source_db(site_raw):
-    """site文字列からsource_dbグループ文字列を返す (v18.0.0)。
-    戻り値: 'fanza' / 'dlsite' / 'digiket'
+    """site文字列からsource_dbグループ文字列を返す。
+    戻り値: 'dmm' / 'lovecal' / 'dlsite' / 'digiket'
     """
     s = str(site_raw)
     if "DLsite"  in s: return "dlsite"
     if "DigiKet" in s: return "digiket"
-    return "fanza"
+    if "Lovecal" in s or "lovecal" in s: return "lovecal"
+    return "dmm"  # ※らぶカル以外のDMM一般・成人商業を 'dmm' に統合
 
 def db_connect(path, read_only=False):
     """

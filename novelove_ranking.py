@@ -458,7 +458,7 @@ def process_ranking_articles():
 
         sites = [target_site]
         medals = {1: "🥇 1位", 2: "🥈 2位", 3: "🥉 3位", 4: "4位", 5: "5位"}
-        site_labels = {"FANZA": "FANZA", "DMM": "DMM.com", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "らぶカル"}
+        site_labels = {"DMM": "DMM.com", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "らぶカル"}
         
         for i, site in enumerate(sites):
             logger.info(f"--- ランキング処理: {site} ---")

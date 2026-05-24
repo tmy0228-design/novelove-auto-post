@@ -362,9 +362,7 @@ def fetch_fanza_sale_product_ids():
     # 30%OFF以上のセール一覧ページを直接スクレイピングしてIDを網羅取得する。
     scrape_targets = [
         "https://book.dmm.com/list/?floor=Gbl&sale=discount&discount_rate=30&sort=ranking",    # DMM BL（人気順）
-        "https://book.dmm.com/list/?floor=Gtl&sale=discount&discount_rate=30&sort=ranking",    # DMM TL（人気順）
-        "https://book.dmm.co.jp/list/?category=670008&sale=discount&discount_rate=30&sort=ranking",  # FANZA BL（人気順）
-        "https://book.dmm.co.jp/list/?category=670009&sale=discount&discount_rate=30&sort=ranking"   # FANZA TL（人気順）
+        "https://book.dmm.com/list/?floor=Gtl&sale=discount&discount_rate=30&sort=ranking"     # DMM TL（人気順）
     ]
     
     session = requests.Session()
@@ -427,8 +425,6 @@ def fetch_fanza_ranking_product_ids():
         return ranking_ids
 
     floors = [
-        {"site": "FANZA", "service": "ebook",  "floor": "bl"},
-        {"site": "FANZA", "service": "ebook",  "floor": "tl"},
         {"site": "DMM.com", "service": "ebook", "floor": "comic"},
         {"site": "DMM.com", "service": "ebook", "floor": "novel"},
         # らぶカルBL/TL（専用フロアがすべての同人作品を網羅する）
