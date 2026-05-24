@@ -41,48 +41,62 @@ SCRAPE_FAIL_THRESHOLD = 5
 
 # === 取得対象ジャンル定義 ===
 FETCH_TARGETS = [
-    # らぶカル（FANZA同人 BL/TL 専用フロア）
+    # 1. らぶカル_BL（R18 / らぶカル / マンガ）
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "doujin_bl", "label": "らぶカル_BL", "keyword": None},
+    # 2. らぶカル_TL（R18 / らぶカル / マンガ）
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "doujin_tl", "label": "らぶカル_TL", "keyword": None},
-    # DMM.com 商業一般
-    {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_bl",  "label": "DMM_BL",       "article": "category", "article_id": "66036", "keyword": None},
-    {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_tl",  "label": "DMM_TL",       "article": "category", "article_id": "66060", "keyword": None},
-    # DLsite 同人（漫画）
-    {"site": "DLsite",  "service": None,     "floor": "bl",             "genre": "doujin_bl", "label": "DLsite同人_BL",       "keyword": None},
-    {"site": "DLsite",  "service": None,     "floor": "girls",          "genre": "doujin_tl", "label": "DLsite同人_TL",       "keyword": None},
-    # DLsite 商業（漫画）
-    {"site": "DLsite",  "service": None,     "floor": "bl-pro",         "genre": "comic_bl",  "label": "DLsite商業_BL",       "keyword": None},
-    {"site": "DLsite",  "service": None,     "floor": "girls-pro",      "genre": "comic_tl",  "label": "DLsite商業_TL",       "keyword": None},
-    # DLsite 同人（小説）
+    # 3. DLsite同人_BL小説（R18 / DLsite / 小説）
     {"site": "DLsite",  "service": None,     "floor": "bl",             "genre": "novel_bl",  "label": "DLsite同人_BL小説",   "keyword": None},
+    # 4. DLsite同人_TL小説（R18 / DLsite / 小説）
     {"site": "DLsite",  "service": None,     "floor": "girls",          "genre": "novel_tl",  "label": "DLsite同人_TL小説",   "keyword": None},
-    # DLsite 商業（小説）
-    {"site": "DLsite",  "service": None,     "floor": "bl-pro",         "genre": "novel_bl",  "label": "DLsite商業_BL小説",   "keyword": None},
-    {"site": "DLsite",  "service": None,     "floor": "girls-pro",      "genre": "novel_tl",  "label": "DLsite商業_TL小説",   "keyword": None},
-    # DMM.com 商業（小説）
-    {"site": "DMM.com", "service": "ebook",  "floor": "novel",          "genre": "novel_bl",  "label": "DMM_BL小説",          "article": "category", "article_id": "66042", "keyword": None},
-    {"site": "DMM.com", "service": "ebook",  "floor": "novel",          "genre": "novel_tl",  "label": "DMM_TL小説",          "article": "category", "article_id": "66064", "keyword": None},
-    # らぶカル 同人（小説）—— v15.5.0: 旧FANZA同人小説フロアをらぶカル専用フロアに統一
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "novel_bl",  "label": "らぶカル同人_BL小説", "keyword": "ノベル"},
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "novel_tl",  "label": "らぶカル同人_TL小説", "keyword": "ノベル"},
-    # v19.0.0: ボイス作品（らぶカル BL/TL） — v19.1.0で全設定有効化済み
+    # 5. DMM_BL（全年齢 / DMM / マンガ）
+    {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_bl",  "label": "DMM_BL",       "article": "category", "article_id": "66036", "keyword": None},
+    # 6. DMM_TL（全年齢 / DMM / マンガ）
+    {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_tl",  "label": "DMM_TL",       "article": "category", "article_id": "66060", "keyword": None},
+    # 7. らぶカル_BLボイス（R18 / らぶカル / ボイス）
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "voice_bl", "label": "らぶカル_BLボイス", "keyword": "ボイス", "enabled": True},
+    # 8. らぶカル_TLボイス（R18 / らぶカル / ボイス）
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "voice_tl", "label": "らぶカル_TLボイス", "keyword": "ボイス", "enabled": True},
-    # v19.0.0: ボイス作品（DLsite 同人 BL/TL）
-    {"site": "DLsite",  "service": None,     "floor": "bl",             "genre": "voice_bl", "label": "DLsite同人_BLボイス",  "keyword": None, "enabled": True},
-    {"site": "DLsite",  "service": None,     "floor": "girls",          "genre": "voice_tl", "label": "DLsite同人_TLボイス",  "keyword": None, "enabled": True},
-    # v19.0.0: ボイス作品（DLsite 商業 BL/TL）
-    {"site": "DLsite",  "service": None,     "floor": "bl-pro",         "genre": "voice_bl", "label": "DLsite商業_BLボイス",  "keyword": None, "enabled": True},
-    {"site": "DLsite",  "service": None,     "floor": "girls-pro",      "genre": "voice_tl", "label": "DLsite商業_TLボイス",  "keyword": None, "enabled": True},
-    # v19.5.0: DigiKet新規取得停止（CVR 0.0%・DLsite重複率高のため）。既存記事は残存。
-    # fetch_digiket_items() / scrape_digiket_description() 等の関数は既存記事サポートのため維持。
-    # DLsite 一般（全年齢）同人
-    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "doujin_bl", "label": "DLsite一般_BL",       "keyword": None, "enabled": True},
-    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "doujin_tl", "label": "DLsite一般_TL",       "keyword": None, "enabled": True},
-    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "novel_bl",  "label": "DLsite一般_BL小説",   "keyword": None, "enabled": True},
-    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "novel_tl",  "label": "DLsite一般_TL小説",   "keyword": None, "enabled": True},
+    # 9. らぶカル同人_BL小説（R18 / らぶカル / 小説）
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "novel_bl",  "label": "らぶカル同人_BL小説", "keyword": "ノベル"},
+    # 10. らぶカル同人_TL小説（R18 / らぶカル / 小説）
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "novel_tl",  "label": "らぶカル同人_TL小説", "keyword": "ノベル"},
+    # 11. DLsite一般_BLボイス（全年齢 / DLsite一般 / ボイス）
     {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "voice_bl",  "label": "DLsite一般_BLボイス", "keyword": None, "enabled": True},
+    # 12. DLsite一般_TLボイス（全年齢 / DLsite一般 / ボイス）
     {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "voice_tl",  "label": "DLsite一般_TLボイス", "keyword": None, "enabled": True},
+    # 13. DLsite同人_BL（R18 / DLsite / マンガ）
+    {"site": "DLsite",  "service": None,     "floor": "bl",             "genre": "doujin_bl", "label": "DLsite同人_BL",       "keyword": None},
+    # 14. DLsite同人_TL（R18 / DLsite / マンガ）
+    {"site": "DLsite",  "service": None,     "floor": "girls",          "genre": "doujin_tl", "label": "DLsite同人_TL",       "keyword": None},
+    # 15. DMM_BL小説（全年齢 / DMM / 小説）
+    {"site": "DMM.com", "service": "ebook",  "floor": "novel",          "genre": "novel_bl",  "label": "DMM_BL小説",          "article": "category", "article_id": "66042", "keyword": None},
+    # 16. DMM_TL小説（全年齢 / DMM / 小説）
+    {"site": "DMM.com", "service": "ebook",  "floor": "novel",          "genre": "novel_tl",  "label": "DMM_TL小説",          "article": "category", "article_id": "66064", "keyword": None},
+    # 17. DLsite同人_BLボイス（R18 / DLsite / ボイス）
+    {"site": "DLsite",  "service": None,     "floor": "bl",             "genre": "voice_bl", "label": "DLsite同人_BLボイス",  "keyword": None, "enabled": True},
+    # 18. DLsite同人_TLボイス（R18 / DLsite / ボイス）
+    {"site": "DLsite",  "service": None,     "floor": "girls",          "genre": "voice_tl", "label": "DLsite同人_TLボイス",  "keyword": None, "enabled": True},
+    # 19. DLsite一般_BL（全年齢 / DLsite一般 / マンガ）
+    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "doujin_bl", "label": "DLsite一般_BL",       "keyword": None, "enabled": True},
+    # 20. DLsite一般_TL（全年齢 / DLsite一般 / マンガ）
+    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "doujin_tl", "label": "DLsite一般_TL",       "keyword": None, "enabled": True},
+    # 21. DLsite商業_BL小説（R18 / DLsite / 小説）
+    {"site": "DLsite",  "service": None,     "floor": "bl-pro",         "genre": "novel_bl",  "label": "DLsite商業_BL小説",   "keyword": None},
+    # 22. DLsite商業_TL小説（R18 / DLsite / 小説）
+    {"site": "DLsite",  "service": None,     "floor": "girls-pro",      "genre": "novel_tl",  "label": "DLsite商業_TL小説",   "keyword": None},
+    # 23. DLsite商業_BLボイス（R18 / DLsite / ボイス）
+    {"site": "DLsite",  "service": None,     "floor": "bl-pro",         "genre": "voice_bl", "label": "DLsite商業_BLボイス",  "keyword": None, "enabled": True},
+    # 24. DLsite商業_TLボイス（R18 / DLsite / ボイス）
+    {"site": "DLsite",  "service": None,     "floor": "girls-pro",      "genre": "voice_tl", "label": "DLsite商業_TLボイス",  "keyword": None, "enabled": True},
+    # 25. DLsite商業_BL（R18 / DLsite / マンガ）
+    {"site": "DLsite",  "service": None,     "floor": "bl-pro",         "genre": "comic_bl",  "label": "DLsite商業_BL",       "keyword": None},
+    # 26. DLsite商業_TL（R18 / DLsite / マンガ）
+    {"site": "DLsite",  "service": None,     "floor": "girls-pro",      "genre": "comic_tl",  "label": "DLsite商業_TL",       "keyword": None},
+    # 27. DLsite一般_BL小説（全年齢 / DLsite一般 / 小説）
+    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "novel_bl",  "label": "DLsite一般_BL小説",   "keyword": None, "enabled": True},
+    # 28. DLsite一般_TL小説（全年齢 / DLsite一般 / 小説）
+    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "novel_tl",  "label": "DLsite一般_TL小説",   "keyword": None, "enabled": True},
 ]
 
 
