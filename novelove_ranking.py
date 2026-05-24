@@ -91,15 +91,9 @@ def fetch_ranking_dmm(site, genre):
             "api_id": DMM_API_ID, "affiliate_id": DMM_AFFILIATE_API_ID,
             "hits": 10, "sort": "rank", "output": "json",
         }
-        if site == "FANZA":
-            if dtype == "novel":
-                params.update({"site": "FANZA", "service": "ebook", "floor": "bl" if is_bl else "tl", "keyword": "小説"})
-            else:
-                params.update({"site": "FANZA", "service": "ebook", "floor": "bl" if is_bl else "tl"})
-        else:
-            floor = "novel" if dtype == "novel" else "comic"
-            art_id = ("66042" if dtype == "novel" else "66036") if is_bl else ("66064" if dtype == "novel" else "66060")
-            params.update({"site": "DMM.com", "service": "ebook", "floor": floor, "article": "category", "article_id": art_id})
+        floor = "novel" if dtype == "novel" else "comic"
+        art_id = ("66042" if dtype == "novel" else "66036") if is_bl else ("66064" if dtype == "novel" else "66060")
+        params.update({"site": "DMM.com", "service": "ebook", "floor": floor, "article": "category", "article_id": art_id})
 
         try:
             r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
@@ -476,7 +470,7 @@ def process_ranking_articles():
                     logger.info(f"  [{genre}総合] 今週の {site} {genre} は既に投稿済み（{slug}）。スキップします。")
                     continue
 
-                if site in ("FANZA", "DMM", "Lovecal"):
+                if site in ("DMM", "Lovecal"):
                     items = fetch_ranking_dmm(site, genre)
                 elif site == "DLsite":
                     items = fetch_ranking_dlsite(genre)
