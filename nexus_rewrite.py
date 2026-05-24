@@ -576,7 +576,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         # 🌟 v14.5.1: DLsite用にpid/floorを常に渡す（非DLsiteでは無視される）
         "affiliate_url": generate_affiliate_url(site_label, _product_url_val,
                                                 pid=row["product_id"],
-                                                floor="bl" if "bl" in str(genre).lower() else "girls"),
+                                                floor="home" if isinstance(site_raw, str) and "r18=0" in site_raw else ("bl" if "bl" in str(genre).lower() else "girls")),
         "image_url":     img_url,
         "release_date":  row["release_date"] or "",
         "ai_tags":       row["ai_tags"] or "",

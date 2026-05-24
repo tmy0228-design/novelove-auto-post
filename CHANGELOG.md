@@ -1,3 +1,19 @@
+## v20.0.0 — DLsite一般同人(全年齢)の自動フェッチ追加・アフィURL全年齢対応・DigiKet巡回およびDiscord通知の完全削除 (2026-05-24)
+
+### ✨ feat(fetcher): DLsite一般同人（全年齢）自動取得の追加
+- **対象 (`novelove_fetcher.py`)**: `FETCH_TARGETS` にDLsite全年齢版（一般同人）のBL・乙女向けの漫画・小説・ボイス（計6カテゴリ）を定義。
+- **検索URL自動構築**: 全年齢版のBLと乙女向け作品が混在しないよう、DLsiteの絞り込み検索（fsr）URLを自動組み立てして新着を取得するロジックを実装。
+- **HTMLパース対応**: 一般向け検索結果ページのHTML構造（`.search_result_img_box_inner`）から、作品リストを正確に抽出できるようクラス名を動的に選択・パースするよう改修。
+
+### ✨ feat(auto_post/rewrite): アフィリエイトURLの全年齢（homeフロア）自動対応
+- **対象 (`auto_post.py`, `nexus_rewrite.py`)**: 投稿時およびリライト時にアフィリエイトURLを生成する際、作品の `site` カラムに `r18=0` （全年齢）が含まれている場合、自動的に `floor="home"` に分岐するよう修正。これにより、全年齢作品が正しい一般向けアフィリエイトリンク（`dlaf.jp/home/...`）で生成・更新されるように担保。
+
+### 🗑️ refactor(nexus/auto_post): DigiKet巡回・Discord通知の完全削除
+- **自動巡回削除 (`nexus_revive.py`)**: 日次巡回処理（`run_nexus`）内のDigiKetのセール・ランキング取得処理を完全に削除（無効化）。これにより、DigiKetの巡回エラーや警告通知を排除。
+- **在庫通知削除 (`auto_post.py`)**: 在庫自動クリーンアップ処理の対象リスト、未投稿時および投稿成功時に送信されるDiscord通知の在庫リストから、DigiKet（`source_db='digiket'`）を完全に除外。
+
+---
+
 ## v19.5.1 — DigiKet既存記事削除とスマホフィルター非表示バグの修正 (2026-05-24)
 
 ### 🗑️ refactor(wordpress): DigiKet既存記事の完全削除と301リダイレクト設定

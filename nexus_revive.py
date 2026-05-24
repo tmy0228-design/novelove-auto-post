@@ -717,22 +717,7 @@ def run_nexus():
         logger.error(f"  🚨 {err_msg}")
         errors.append(err_msg)
 
-    # DigiKet（最も不安定なため、エラーに最も寛容）
-    try:
-        digiket_sales = fetch_digiket_sale_product_ids()
-        all_sale_ids.update(digiket_sales)
-    except Exception as e:
-        err_msg = f"[DigiKet セール] {e}"
-        logger.error(f"  🚨 {err_msg}")
-        errors.append(err_msg)
 
-    try:
-        digiket_ranks = fetch_digiket_ranking_product_ids()
-        all_ranking_ids.update(digiket_ranks)
-    except Exception as e:
-        err_msg = f"[DigiKet ランキング] {e}"
-        logger.error(f"  🚨 {err_msg}")
-        errors.append(err_msg)
 
     # エラー発生時のDiscord警告
     if errors:

@@ -365,7 +365,7 @@ def _run_main_logic():
 
     # ② source_dbごと・ジャンルごとにスコア上位の20件を残し、他をexcludedへ
     # source_dbで分離することで、各サイトの在庫バランスが崩れないよう管理する
-    for sdb in ['dmm', 'lovecal', 'dlsite', 'digiket']:
+    for sdb in ['dmm', 'lovecal', 'dlsite']:
         genres_in_sdb = [row[0] for row in c.execute(
             "SELECT DISTINCT genre FROM novelove_posts WHERE status='pending' AND source_db=?",
             (sdb,)
@@ -466,9 +466,8 @@ def _run_main_logic():
         c_dmm     = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'DMM%'").fetchone()[0]
         c_lovecal = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'Lovecal%'").fetchone()[0]
         c_dl      = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND source_db='dlsite'").fetchone()[0]
-        c_dk      = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND source_db='digiket'").fetchone()[0]
         _c.close()
-        inventory_list = [f"DMM {c_dmm}", f"らぶカル {c_lovecal}", f"DLsite {c_dl}", f"DigiKet {c_dk}"]
+        inventory_list = [f"DMM {c_dmm}", f"らぶカル {c_lovecal}", f"DLsite {c_dl}"]
         inventory_str = " / ".join(inventory_list) + " 件"
 
         attempts_str = "\n".join(tried_details) if tried_details else "（なし：全在庫切れ）"
@@ -602,7 +601,7 @@ def _execute_posting_flow(row, cursor, conn):
         # 🌟 v14.5.1: DLsite用にpid/floorを常に渡す（非DLsiteでは無視される）
         "affiliate_url": generate_affiliate_url(site_label, _product_url_val,
                                                 pid=pid,
-                                                floor="bl" if "bl" in str(row["genre"]).lower() else "girls"),
+                                                floor="home" if isinstance(site_raw, str) and "r18=0" in site_raw else ("bl" if "bl" in str(row["genre"]).lower() else "girls")),
         "image_url":     img_url,
         "thumb_url":     thumb_url,
         "release_date":  row["release_date"],
@@ -728,9 +727,8 @@ def _execute_posting_flow(row, cursor, conn):
         c_dmm     = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'DMM%'").fetchone()[0]
         c_lovecal = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND site LIKE 'Lovecal%'").fetchone()[0]
         c_dl      = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND source_db='dlsite'").fetchone()[0]
-        c_dk      = _c.execute("SELECT count(*) FROM novelove_posts WHERE status='pending' AND source_db='digiket'").fetchone()[0]
         _c.close()
-        inventory_list = [f"DMM {c_dmm}", f"らぶカル {c_lovecal}", f"DLsite {c_dl}", f"DigiKet {c_dk}"]
+        inventory_list = [f"DMM {c_dmm}", f"らぶカル {c_lovecal}", f"DLsite {c_dl}"]
         inventory_str = " / ".join(inventory_list) + " 件"
 
         notify_discord(

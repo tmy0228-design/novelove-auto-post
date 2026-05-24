@@ -76,6 +76,13 @@ FETCH_TARGETS = [
     {"site": "DLsite",  "service": None,     "floor": "girls-pro",      "genre": "voice_tl", "label": "DLsite商業_TLボイス",  "keyword": None, "enabled": True},
     # v19.5.0: DigiKet新規取得停止（CVR 0.0%・DLsite重複率高のため）。既存記事は残存。
     # fetch_digiket_items() / scrape_digiket_description() 等の関数は既存記事サポートのため維持。
+    # DLsite 一般（全年齢）同人
+    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "doujin_bl", "label": "DLsite一般_BL",       "keyword": None, "enabled": True},
+    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "doujin_tl", "label": "DLsite一般_TL",       "keyword": None, "enabled": True},
+    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "novel_bl",  "label": "DLsite一般_BL小説",   "keyword": None, "enabled": True},
+    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "novel_tl",  "label": "DLsite一般_TL小説",   "keyword": None, "enabled": True},
+    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "voice_bl",  "label": "DLsite一般_BLボイス", "keyword": None, "enabled": True},
+    {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "voice_tl",  "label": "DLsite一般_TLボイス", "keyword": None, "enabled": True},
 ]
 
 
@@ -752,7 +759,15 @@ def _fetch_dlsite_items(target):
     is_novel = genre in ("novel_bl", "novel_tl")
     is_voice = "voice_" in genre  # v19.0.0: ボイスジャンル判定
     work_type = "SOU" if is_voice else ("NRE" if is_novel else "MNG")
-    url = f"https://www.dlsite.com/{floor}/new/=/work_type/{work_type}/genre/all/"
+    if floor == "home":
+        work_type_fsr = "novel" if is_novel else work_type
+        is_bl = "bl" in genre.lower()
+        if is_bl:
+            url = f"https://www.dlsite.com/home/fsr/=/language/jp/sex_category[0]/female/sex_category[1]/gay/work_type_category[0]/{work_type_fsr}/order/release_d/"
+        else:
+            url = f"https://www.dlsite.com/home/fsr/=/language/jp/sex_category[0]/female/work_type_category[0]/{work_type_fsr}/order/release_d/"
+    else:
+        url = f"https://www.dlsite.com/{floor}/new/=/work_type/{work_type}/genre/all/"
     items = []
     VOICE_KEYWORDS = ["ボイス", "音声", "ASMR", "CV.", "CV:", "cv.", "cv:", "シチュエーションCD",
                       "バイノーラル", "ドラマCD", "全年齢ボイス", "簡体中文版", "繁体中文版",
@@ -764,7 +779,8 @@ def _fetch_dlsite_items(target):
         r = _fetch_with_retry(url, headers=headers, timeout=20, label=f"DLsite新着({work_type})")
         if r is None: return items
         soup = BeautifulSoup(r.text, "html.parser")
-        works = soup.select(".n_worklist_item")
+        item_selector = ".search_result_img_box_inner" if floor == "home" else ".n_worklist_item"
+        works = soup.select(item_selector)
         for work in works[:10]:
             title_tag = work.select_one(".work_name a")
             if not title_tag: continue
