@@ -55,7 +55,7 @@ else:
 # === システム設定定数 ===
 SCRIPT_DIR      = os.path.dirname(os.path.abspath(__file__))
 DB_FILE_UNIFIED = os.path.join(SCRIPT_DIR, "novelove_unified.db")  # v18.0.0: 統合DB
-DB_FILE_FANZA   = DB_FILE_UNIFIED  # 後方互換
+DB_FILE_FANZA   = DB_FILE_UNIFIED  # 後方互換（変数名は旧称。実体は統合DB）
 DB_FILE_DLSITE  = DB_FILE_UNIFIED  # 後方互換
 DB_FILE_DIGIKET = DB_FILE_UNIFIED  # 後方互換
 LOG_FILE        = os.path.join(SCRIPT_DIR, "novelove.log")
@@ -253,7 +253,7 @@ def generate_affiliate_url(site: str, product_url: str, **kwargs) -> str:
         if "lovecul.dmm.co.jp" in product_url:
             return f"https://al.dmm.com/?lurl={encoded}&af_id={af_id}{ch_params}"
             
-        if site == "FANZA":
+        if site in ("FANZA", "Lovecal"):
             return f"https://al.fanza.co.jp/?lurl={encoded}&af_id={af_id}{ch_params}"
         # DMM.com
         return f"https://al.dmm.com/?lurl={encoded}&af_id={af_id}{ch_params}"
@@ -268,12 +268,13 @@ def get_db_path(site_raw=None):
 
 def get_source_db(site_raw):
     """site文字列からsource_dbグループ文字列を返す (v18.0.0)。
-    戻り値: 'fanza' / 'dlsite' / 'digiket'
+    戻り値: 'lovecal' / 'dmm' / 'dlsite' / 'digiket'
     """
     s = str(site_raw)
     if "DLsite"  in s: return "dlsite"
     if "DigiKet" in s: return "digiket"
-    return "fanza"
+    if "Lovecal" in s: return "lovecal"
+    return "dmm"
 
 def db_connect(path, read_only=False):
     """
@@ -420,7 +421,7 @@ def init_db():
         # === HTML骨格パターン記録 (v16.0.0) ===
         ("article_pattern",   "TEXT DEFAULT ''"),      # 使用されたHTML骨格パターン (A/B/C/D/R)
         # === DB統合 (v18.0.0) ===
-        ("source_db",         "TEXT DEFAULT ''"),      # 旧DB所属: fanza / dlsite / digiket
+        ("source_db",         "TEXT DEFAULT ''"),      # DB所属: lovecal / dmm / dlsite / digiket
         # === 死に記事自動パージ・永久保護 (v18.6.0) ===
         ("is_protected",      "INTEGER DEFAULT 0"),    # 殿堂入り保護フラグ（1=永久保護、自動削除対象外）
     ]:

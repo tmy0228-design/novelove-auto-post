@@ -45,8 +45,8 @@ FETCH_TARGETS = [
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "doujin_bl", "label": "らぶカル_BL", "keyword": None},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "doujin_tl", "label": "らぶカル_TL", "keyword": None},
     # FANZA 商業R18（新規追加）
-    {"site": "FANZA",   "service": "ebook",  "floor": "bl",             "genre": "comic_bl",  "label": "FANZA商業_BL", "keyword": None},
-    {"site": "FANZA",   "service": "ebook",  "floor": "tl",             "genre": "comic_tl",  "label": "FANZA商業_TL", "keyword": None},
+    # {"site": "FANZA",   "service": "ebook",  "floor": "bl",             "genre": "comic_bl",  "label": "FANZA商業_BL", "keyword": None},
+    # {"site": "FANZA",   "service": "ebook",  "floor": "tl",             "genre": "comic_tl",  "label": "FANZA商業_TL", "keyword": None},
     # DMM.com 商業一般
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_bl",  "label": "DMM_BL",       "article": "category", "article_id": "66036", "keyword": None},
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_tl",  "label": "DMM_TL",       "article": "category", "article_id": "66060", "keyword": None},
@@ -66,8 +66,8 @@ FETCH_TARGETS = [
     {"site": "DMM.com", "service": "ebook",  "floor": "novel",          "genre": "novel_bl",  "label": "DMM_BL小説",          "article": "category", "article_id": "66042", "keyword": None},
     {"site": "DMM.com", "service": "ebook",  "floor": "novel",          "genre": "novel_tl",  "label": "DMM_TL小説",          "article": "category", "article_id": "66064", "keyword": None},
     # FANZA 商業（小説）
-    {"site": "FANZA",   "service": "ebook",  "floor": "bl",             "genre": "novel_bl",  "label": "FANZA商業_BL小説",    "keyword": "小説"},
-    {"site": "FANZA",   "service": "ebook",  "floor": "tl",             "genre": "novel_tl",  "label": "FANZA商業_TL小説",    "keyword": "小説"},
+    # {"site": "FANZA",   "service": "ebook",  "floor": "bl",             "genre": "novel_bl",  "label": "FANZA商業_BL小説",    "keyword": "小説"},
+    # {"site": "FANZA",   "service": "ebook",  "floor": "tl",             "genre": "novel_tl",  "label": "FANZA商業_TL小説",    "keyword": "小説"},
     # らぶカル 同人（小説）—— v15.5.0: 旧FANZA同人小説フロアをらぶカル専用フロアに統一
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "novel_bl",  "label": "らぶカル同人_BL小説", "keyword": "ノベル"},
     {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "novel_tl",  "label": "らぶカル同人_TL小説", "keyword": "ノベル"},
@@ -128,8 +128,8 @@ def _is_r18_item(item, site=None):
     # 1. サイト・ブランドごとの絶対判定ルール
     if site == "DMM.com":
         return False  # DMM(一般)は100%全年齢
-    if site == "FANZA":
-        return True   # FANZA(らぶカル含む)は年齢確認ありの成人サイトのため100%R-18
+    if site in ("FANZA", "Lovecal"):
+        return True   # FANZA/らぶカルは年齢確認ありの成人サイトのため100%R-18
     if site == "DigiKet":
         return True   # DigiKetは安全第一で一律R-18扱い
 
@@ -152,7 +152,7 @@ def _extract_author(item):
             if isinstance(val, str) and val.strip(): return val.strip()
     return ""
 
-def _run_emergency_ai_extraction(product_url, site_type="FANZA"):
+def _run_emergency_ai_extraction(product_url, site_type="DMM.com"):
     """
     【緊急AI自己修復機能】
     プログラムによるあらすじ抽出が完全に空振った場合（サイトの構造変更時等）に呼び出され、
@@ -166,7 +166,7 @@ def _run_emergency_ai_extraction(product_url, site_type="FANZA"):
             return ""
 
         # 本番と同じセッション・ヘッダーでアクセス（ボット対策回避）
-        session = _make_fanza_session()
+        session = _make_dmm_session()
         r = _fetch_with_retry(product_url, session=session,
                               headers={"User-Agent": "Mozilla/5.0", "Referer": "https://book.dmm.co.jp/"},
                               timeout=20, label="Emergency_AI")
@@ -310,7 +310,7 @@ def _fetch_with_retry(url, session=None, headers=None, params=None, timeout=15, 
 
 # === セッション / 画像チェック ===
 
-def _make_fanza_session():
+def _make_dmm_session():
     session = requests.Session()
     for domain in [".dmm.co.jp", ".book.dmm.co.jp", "book.dmm.co.jp", ".dmm.co.jp", ".lovecul.dmm.co.jp"]:
         session.cookies.set("age_check_done", "1", domain=domain)
@@ -322,7 +322,7 @@ def _check_image_ok(image_url):
     low_url = image_url.lower()
     if any(p in low_url for p in ["now_printing", "no_image", "noimage", "comingsoon", "dummy", "common/img"]):
         return False
-    session = _make_fanza_session()
+    session = _make_dmm_session()
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
         r = session.head(image_url, headers=headers, timeout=10, allow_redirects=False)
@@ -567,7 +567,7 @@ def scrape_digiket_description(url):
         logger.error(f"  [DigiKet] エラー発生: {e}")
         return "", "", None, None, "", False
 
-def scrape_description(product_url, site="FANZA", genre="", is_ranking=False):
+def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
     if not product_url: return ""
     if "dlsite" in str(product_url).lower():
         desc, _tags, _excl = scrape_dlsite_description(product_url)
@@ -575,7 +575,7 @@ def scrape_description(product_url, site="FANZA", genre="", is_ranking=False):
     if "digiket" in str(product_url).lower():
         desc, _, _, _, _, _excl = scrape_digiket_description(product_url)
         return desc
-    session = _make_fanza_session()
+    session = _make_dmm_session()
     _any_desc_found = False  # あらすじテキストが何らか存在したか（短くても）
     try:
         r = session.get(
@@ -604,7 +604,7 @@ def scrape_description(product_url, site="FANZA", genre="", is_ranking=False):
         # ランキング生成時（genreが単にBL/TL）は全形式を許容する
         is_ranking_final = is_ranking or (genre in ("BL", "TL"))
         if has_format_tag and not is_comic and not is_novel_target and not is_voice_target and not is_ranking_final:
-            logger.warning(f"[FANZA] マンガ以外の形式のため除外: {product_url}")
+            logger.warning(f"[DMM] マンガ以外の形式のため除外: {product_url}")
             return "__EXCLUDED_TYPE__"
         page_title_tag = soup.find("title")
         page_title_str = page_title_tag.text if page_title_tag else ""
@@ -615,10 +615,10 @@ def scrape_description(product_url, site="FANZA", genre="", is_ranking=False):
         bracket_contents = re.findall(r'[【\[\（\(]([^】\]\）\)]+)[】\]\）\)]', page_title_str)
         for bc in bracket_contents:
             if any(fp in bc for fp in FOREIGN_TITLE_PATTERNS):
-                logger.warning(f"[FANZA] 外国語版タイトルパターン（{bc}）のため除外: {product_url}")
+                logger.warning(f"[DMM] 外国語版タイトルパターン（{bc}）のため除外: {product_url}")
                 return "__EXCLUDED_TYPE__"
         if any(kw in text for kw in ["カテゴリー</th><td>写真集", "カテゴリー</th><td>グラビア", "カテゴリー</th><td>文芸・小説", "カテゴリー</th><td>ライトノベル"]):
-            logger.warning(f"[FANZA] 禁止カテゴリーを検知: {product_url}")
+            logger.warning(f"[DMM] 禁止カテゴリーを検知: {product_url}")
             return "__EXCLUDED_TYPE__"
         # === あらすじ抽出（MAX文字数採用型ハイブリッド） ===
         # JSON-LD と HTMLクラスの「両方」から取得し、文字数が多い方を自動採用する。
@@ -663,7 +663,7 @@ def scrape_description(product_url, site="FANZA", genre="", is_ranking=False):
             return best_desc.strip()
 
         # 取得失敗 → 緊急AI修復（JSON-LDもHTMLクラスも不十分 = サイト構造変更の可能性が高いため通知）
-        ai_desc = _run_emergency_ai_extraction(product_url, site_type="FANZA/DMM")
+        ai_desc = _run_emergency_ai_extraction(product_url, site_type="DMM.com")
         if ai_desc:
             return ai_desc
 
@@ -874,7 +874,7 @@ def fetch_and_stock_all():
         if not target.get("enabled", True):
             logger.info(f"  [{target.get('label', '?')}] enabled=False のためスキップ")
             continue
-        site = target.get("site", "FANZA")
+        site = target.get("site", "DMM.com")
         # v15.5.1: 通知・ログ表示用のサイト名（APIに渡す site とは別に管理）
         _is_lovecal_target = target.get("floor") in ("digital_doujin_bl", "digital_doujin_tl") or "らぶカル" in target.get("label", "")
         disp_site = "らぶカル" if _is_lovecal_target else site

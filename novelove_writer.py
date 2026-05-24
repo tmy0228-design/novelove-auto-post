@@ -659,7 +659,7 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
                 return ArticleResult(status="image_missing", model=model_name, level=level_name, proc_time=proc_time)
 
             img_html = f'<p style="text-align:center;margin:20px 0;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow"><img src="{target["image_url"]}" alt="{target["title"]}" style="max-width:500px;width:100%;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.18);" /></a></p>\n'
-            site_raw = target.get("site", "FANZA")
+            site_raw = target.get("site", "DMM.com")
             site_display = site_raw.split(":")[0] if isinstance(site_raw, str) and ":" in site_raw else str(site_raw)
             format_name = _genre_label(target["genre"], target["title"])
             icon = "📖"
@@ -673,7 +673,7 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             text_link = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:5px; margin-bottom:15px;"><a href="{target["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">{_link_text}</a></p>\n'
             _btn_label = "無料で試し聴きする" if _is_voice_genre else "無料で試し読みする"
             button_html = get_affiliate_button_html(target["affiliate_url"], _btn_label)
-            if "FANZA" in site_display or "らぶカル" in site_display:
+            if "FANZA" in site_display or "Lovecal" in site_display or "らぶカル" in site_display:
                 credit_html = (
                     f'<div class="novelove-credit" style="text-align:center; margin-top:40px; padding-top:15px; border-top:1px solid #eee;">\n'
                     f'<a href="https://affiliate.dmm.com/api/"><img src="https://pics.dmm.com/af/web_service/r18_135_17.gif" width="135" height="17" alt="WEB SERVICE BY FANZA" style="border:none;"></a>\n'
