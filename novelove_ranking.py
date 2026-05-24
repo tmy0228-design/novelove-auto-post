@@ -39,7 +39,7 @@ from novelove_writer import _call_deepseek_raw
 # post_to_wordpress は auto_post.py に残る（循環import回避のため関数内で遅延importする）
 
 # === ランキング記事 ===
-def fetch_ranking_dmm_fanza(site, genre):
+def fetch_ranking_dmm(site, genre):
     """v15.0: Lovecal対応 ＆ アナログな交互表示(偏り)の廃止。
     らぶカルは統合ランキングをそのまま取得。
     FANZA/DMMは漫画3枠・小説2枠を取得し、1位は漫画固定、残りはシャッフル。
@@ -477,7 +477,7 @@ def process_ranking_articles():
                     continue
 
                 if site in ("FANZA", "DMM", "Lovecal"):
-                    items = fetch_ranking_dmm_fanza(site, genre)
+                    items = fetch_ranking_dmm(site, genre)
                 elif site == "DLsite":
                     items = fetch_ranking_dlsite(genre)
                 else:

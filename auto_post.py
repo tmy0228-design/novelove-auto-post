@@ -192,7 +192,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     site_name = None
 
     if site_label:
-        normalized_labels = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "らぶカル"}
+        normalized_labels = {"DMM.com": "DMM", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "らぶカル"}
         site_name = normalized_labels.get(site_label, site_label)
         if site_name and site_name not in tag_names: tag_names.append(site_name)
 
@@ -410,7 +410,7 @@ def _run_main_logic():
 
         target_info = FETCH_TARGETS[(g_idx_base + i) % len(FETCH_TARGETS)]
         # v18.0.0: source_dbでサイトグループを絞り込み（FANZA/DLsite/DigiKetの混在防止）
-        source_db_val = get_source_db(target_info.get("site", "FANZA"))
+        source_db_val = get_source_db(target_info.get("site", "Lovecal"))
         genre = target_info["genre"]
         conn = db_connect(DB_FILE_UNIFIED)
         conn.row_factory = sqlite3.Row
@@ -666,9 +666,9 @@ def _execute_posting_flow(row, cursor, conn):
     # v13.5.1: 専売タグの付与（DBの is_exclusive フラグに基づく厳密なDOM判定結果）
     is_exclusive = (row["is_exclusive"] if "is_exclusive" in row.keys() else 0) == 1
     if is_exclusive:
-        _normalized = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "Lovecal"}
+        _normalized = {"DMM.com": "DMM", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "Lovecal"}
         _sn = _normalized.get(site_label, site_label)
-        excl_tag = {"DLsite": "DLsite専売", "FANZA": "FANZA専売", "DMM": "DMM独占", "DigiKet": "DigiKet限定", "Lovecal": "らぶカル専売"}.get(_sn, "")
+        excl_tag = {"DLsite": "DLsite専売", "DMM": "DMM独占", "DigiKet": "DigiKet限定", "Lovecal": "らぶカル専売"}.get(_sn, "")
         if not excl_tag and "らぶカル" in str(site_label):
             excl_tag = "らぶカル専売"
         if excl_tag and excl_tag not in final_ai_tags:
@@ -684,7 +684,7 @@ def _execute_posting_flow(row, cursor, conn):
         ai_tags_str = ",".join(final_ai_tags)
         # v12.8.0: wp_tags（WPへ実際に送信した完成品タグ一覧）を構築してDBへ書き戻す
         # ※ post_to_wordpress() 内のタグ構築ロジック(L746-778)と完全一致させること
-        _normalized_labels = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "らぶカル"}
+        _normalized_labels = {"DMM.com": "DMM", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "らぶカル"}
         _site_name_for_wp = _normalized_labels.get(site_label, site_label)
         _wp_tags_parts = []
         if _site_name_for_wp:
@@ -750,7 +750,7 @@ def _execute_posting_flow(row, cursor, conn):
         # v18.5.0: Bluesky投稿頻度制限（ハイブリッドフィルタ）+ 茉莉花SNS担当化
         # DLsite/FANZA/らぶカル: 専売(is_exclusive=1) かつ スコア5のみ投稿
         # DigiKet/DMM        : スコア5のみ投稿（専売条件なし）
-        _is_high_volume_site = any(site_raw.startswith(s) for s in ("DLsite", "FANZA", "Lovecal"))
+        _is_high_volume_site = any(site_raw.startswith(s) for s in ("DLsite", "Lovecal"))
         _is_exclusive_val    = is_exclusive  # L658で定義済みの bool 変数を流用
         _bsky_ok = False
         if _is_high_volume_site:
