@@ -1,3 +1,20 @@
+## v19.4.1 — 旧FANZA商業完全停止と関連処理の廃止（らぶカル対応維持）(2026-05-24)
+
+### 🧹 chore(ranking): novelove_ranking.py のデッドコード削除
+- **対象 (`novelove_ranking.py`)**: `fetch_ranking_dmm` および `process_ranking_articles`。
+- **問題**: 旧FANZA商業の停止に伴い、DMM/FANZAのランキング取得処理内に残っていた `site == "FANZA"` 用の条件分岐やパラメータ設定、および呼び出し元の `site in ("FANZA", "DMM", "Lovecal")` 判定が到達不能コードになっていた。
+- **修正内容**: `site == "FANZA"` 用の分岐を完全に削除し、常に DMM.com 用のパラメータを設定するよう整理。また、呼び出し元の条件から `"FANZA"` を排除。
+
+### ✨ feat(core/fetcher): 旧商業成人FANZAの完全停止と source_db の4分割整理
+- **対象**: `novelove_fetcher.py`, `novelove_core.py`, `auto_post.py`, `nexus_revive.py`, `nexus_dashboard.py` 等。
+- **詳細**:
+  - `novelove_fetcher.py` の `FETCH_TARGETS` から旧FANZA商業書籍（成人コミック・小説）の4つのターゲット定義を完全削除。
+  - `novelove_core.py` の `get_source_db` を改修し、らぶカル以外のDMM一般・残存商業を `dmm` に統合して、`dmm`, `lovecal`, `dlsite`, `digiket` の4つの source_db 区分に再整理。
+  - `auto_post.py` や `nexus_revive.py`, `nexus_dashboard.py` に残っていた旧商業FANZA関連の分岐や集計処理を完全に廃止。
+  - 本番データベースから `source_db = 'fanza'` の旧商業成人データを安全に物理削除。らぶカル（`source_db='lovecal'`）は完全に保護されて正常に稼働を継続。
+
+---
+
 ## v19.3.1 — ランキング安全性向上と後方互換性の担保 (2026-05-23)
 
 ### 🛡️ fix(ranking): DigiKet TLランキングでの一般作品混入防止

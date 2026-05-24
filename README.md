@@ -1,4 +1,4 @@
-# Novelove 自動投稿システム (v18.2.0)
+# Novelove 自動投稿システム (v19.4.1)
 
 > [!IMPORTANT]
 > **開発・修正時の注意**: 作業を開始する前に、必ず `git pull origin main` で最新版をプルしてから作業を行ってください。
@@ -10,7 +10,7 @@ Novelove（ノベラブ）のコンテンツ生成および自動投稿を行う
 BL・TL の女性向け作品（漫画・小説・同人）を全自動で紹介記事化して WordPress に投稿します。
 
 ## 🚀 システム概要
-- **目的**: FANZA(商業), DLsite, DMMブックス, DigiKet, らぶカル(Lovecal) の新着・ランキングを取得し、**DeepSeek V4-Flash**（直接API / OpenRouterフォールバック）で紹介記事を生成して WordPress に自動投稿する。
+- **目的**: DLsite, DMM.com(一般), DigiKet, らぶカル(Lovecal) の新着・ランキングを取得し、**DeepSeek V4-Flash**（直接API / OpenRouterフォールバック）で紹介記事を生成して WordPress に自動投稿する。
 - **主要言語**: Python 3.x
 - **データベース**: SQLite (`novelove_unified.db`)
 
@@ -41,7 +41,7 @@ BL・TL の女性向け作品（漫画・小説・同人）を全自動で紹介
 - 通常投稿: **90%が専門ジャンル担当 / 10%がゲスト（専門外）登板**
 - ランキング投稿: **MCとゲストの2名で掛け合い形式**（全10パターンの関係性マトリクス参照）
 
-## ✨ 主な機能 (v18.2.0)
+## ✨ 主な機能 (v19.4.1)
 
 ### 0. らぶカル(LoveCal) 完全統合 (v13.6.0)
 FANZAの同人新フロア「らぶカル」のBL/TLコンテンツを既存パイプラインに完全統合（2025年3月3日サイト分離）。
@@ -67,7 +67,7 @@ Googleの「Scaled Content Abuse（テンプレート量産）」ペナルティ
 - **クールダウン**: 通常投稿は35分待機（cron 20分間隔との組み合わせでタイミングズレのない実効40分間隔≈約36件/日）。ランキング記事は週１回の投稿を厳密に保証するため、「その週の対象データベースに完了記録(slug)があるか」を直接照合し、スキップミスを100%防止。
 - **重複防止**: DB全件 + WordPressの公開記事タイトルとの照合により二重投稿を100%排除し、SQLite固有の `ORDER BY 0` エラーも防ぐ堅牢なSQL構造。
 
-## 🤖 AIモデル構成 (v17.7.0以降)
+## 🤖 AIモデル構成 (v19.4.1)
 | 役割 | モデル |
 | :--- | :--- |
 | 全記事一括（審査 / 執筆 / SEO） | `deepseek-v4-flash` (DeepSeek直接API) |
@@ -84,7 +84,7 @@ Googleの「Scaled Content Abuse（テンプレート量産）」ペナルティ
 # 20分おきに通常投稿（cooldown 35分との組み合わせでタイミングズレのない実効40分間隔≈約36件/日）
 */20 * * * * /opt/kusanagi/bin/python3 /home/kusanagi/scripts/auto_post.py >> /home/kusanagi/scripts/novelove_auto.log 2>&1
 
-# ランキング生成（水=DigiKet, 木=DMM, 金=DLsite, 土=FANZA, 日=Lovecal / 厳選ピックアップ5選）
+# ランキング生成（水=DigiKet, 金=らぶカル, 土=DLsite, 日=DMM / 厳選ピックアップ5選）
 # ❗重要: BL（10:00）完了後にTLを処理するため、1日に2回起動必須。
 0 10 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove.log 2>&1
 30 10 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove.log 2>&1
