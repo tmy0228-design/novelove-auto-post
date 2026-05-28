@@ -7,6 +7,14 @@
   - **`auto_post.py`**: 投稿ラウンドロビンの `source_db_val` 解決を `target_info.get("source_db") or get_source_db(...)` に変更し、FETCH_TARGETSに明示キーがある場合はそれを優先するようフォールバック化。
 - **影響**: 5月24日以降、41件の投稿待ちが滞留していた。修正適用後、次回cronで自動的に投稿再開。
 
+### 🧹 chore(nexus/refactor): FANZA/DMM 関連関数の整理と DigiKet クリーンアップ
+- **対象 (`nexus_revive.py`)**:
+  - 旧FANZA商業除外に伴い、実態がDMM.comの一般及び商業、らぶカル（同人）の巡回処理となっていた `fetch_fanza_ranking_product_ids` および `fetch_fanza_sale_product_ids` 関数を、それぞれ `fetch_dmm_ranking_product_ids` および `fetch_dmm_sale_product_ids` にリネーム。
+  - ログ出力での表記を `[FANZA]` から `[DMM/らぶカル]` に変更。
+  - 不要になった `DB_FILE_FANZA` および `DB_FILE_DIGIKET` のインポート文を削除。
+- **対象 (データベース)**:
+  - DigiKetの巡回停止に伴い、データベース (`novelove_unified.db`) 上に `pending`（投稿待ち）状態のまま取り残されていた DigiKet 作品 6 件のステータスを一括して `excluded`（除外）へ変更。
+
 ---
 
 
