@@ -406,7 +406,7 @@ def _run_main_logic():
 
         target_info = FETCH_TARGETS[(g_idx_base + i) % len(FETCH_TARGETS)]
         # v18.0.0: source_dbでサイトグループを絞り込み（FANZA/DLsite/DigiKetの混在防止）
-        source_db_val = get_source_db(target_info.get("site", "Lovecal"))
+        source_db_val = target_info.get("source_db") or get_source_db(target_info.get("site", "Lovecal"))
         genre = target_info["genre"]
         conn = db_connect(DB_FILE_UNIFIED)
         conn.row_factory = sqlite3.Row

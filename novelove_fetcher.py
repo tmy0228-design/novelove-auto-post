@@ -42,9 +42,9 @@ SCRAPE_FAIL_THRESHOLD = 5
 # === 取得対象ジャンル定義 ===
 FETCH_TARGETS = [
     # 1. らぶカル_BL（R18 / らぶカル / マンガ）
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "doujin_bl", "label": "らぶカル_BL", "keyword": None},
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "doujin_bl", "source_db": "lovecal", "label": "らぶカル_BL", "keyword": None},
     # 2. らぶカル_TL（R18 / らぶカル / マンガ）
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "doujin_tl", "label": "らぶカル_TL", "keyword": None},
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "doujin_tl", "source_db": "lovecal", "label": "らぶカル_TL", "keyword": None},
     # 3. DLsite同人_BL小説（R18 / DLsite / 小説）
     {"site": "DLsite",  "service": None,     "floor": "bl",             "genre": "novel_bl",  "label": "DLsite同人_BL小説",   "keyword": None},
     # 4. DLsite同人_TL小説（R18 / DLsite / 小説）
@@ -54,13 +54,13 @@ FETCH_TARGETS = [
     # 6. DMM_TL（全年齢 / DMM / マンガ）
     {"site": "DMM.com", "service": "ebook",  "floor": "comic",          "genre": "comic_tl",  "label": "DMM_TL",       "article": "category", "article_id": "66060", "keyword": None},
     # 7. らぶカル_BLボイス（R18 / らぶカル / ボイス）
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "voice_bl", "label": "らぶカル_BLボイス", "keyword": "ボイス", "enabled": True},
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "voice_bl", "source_db": "lovecal", "label": "らぶカル_BLボイス", "keyword": "ボイス", "enabled": True},
     # 8. らぶカル_TLボイス（R18 / らぶカル / ボイス）
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "voice_tl", "label": "らぶカル_TLボイス", "keyword": "ボイス", "enabled": True},
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "voice_tl", "source_db": "lovecal", "label": "らぶカル_TLボイス", "keyword": "ボイス", "enabled": True},
     # 9. らぶカル同人_BL小説（R18 / らぶカル / 小説）
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "novel_bl",  "label": "らぶカル同人_BL小説", "keyword": "ノベル"},
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_bl", "genre": "novel_bl", "source_db": "lovecal", "label": "らぶカル同人_BL小説", "keyword": "ノベル"},
     # 10. らぶカル同人_TL小説（R18 / らぶカル / 小説）
-    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "novel_tl",  "label": "らぶカル同人_TL小説", "keyword": "ノベル"},
+    {"site": "FANZA",   "service": "doujin", "floor": "digital_doujin_tl", "genre": "novel_tl", "source_db": "lovecal", "label": "らぶカル同人_TL小説", "keyword": "ノベル"},
     # 11. DLsite一般_BLボイス（全年齢 / DLsite一般 / ボイス）
     {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "voice_bl",  "label": "DLsite一般_BLボイス", "keyword": None, "enabled": True},
     # 12. DLsite一般_TLボイス（全年齢 / DLsite一般 / ボイス）
