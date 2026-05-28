@@ -5,7 +5,7 @@
 Novelove Nexus — 自動セール検知 & 売れ筋タグ管理エンジン v1.0.0
 ==========================================================
 【概要】
-  FANZA / DLsite / DigiKet の3サイトを巡回し、
+  DMM / らぶカル / DLsite を巡回し、
   セール中作品 → 「🔥期間限定セール」タグ (slug: sale)
   ランキング上位 → 「🏆売れ筋作品」タグ (slug: best-seller)
   を既存の WordPress 記事に自動付与・自動剥奪する。
@@ -32,7 +32,7 @@ from datetime import datetime
 # 環境変数・.envの読み込みは novelove_core.py で一元管理
 from novelove_core import (
     logger,
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
+    DB_FILE_DLSITE, DB_FILE_UNIFIED,
     db_connect, notify_discord,
     WP_SITE_URL, HEADERS,
     WP_USER, WP_APP_PASSWORD,
@@ -293,11 +293,11 @@ def get_all_published_product_ids():
 
 
 # =====================================================================
-# 3. FANZA / DMM セール & ランキング取得
+# 3. DMM / らぶカル セール & ランキング取得
 # =====================================================================
-def fetch_fanza_sale_product_ids():
+def fetch_dmm_sale_product_ids():
     """
-    FANZA / DMM の公式セール中の商品IDを取得する。
+    DMM / らぶカル の公式セール中の商品IDを取得する。
     - らぶカル（同人等）はAPIで campaign フィールドの有無で判定（確実）。
     - 商業作品はAPIでセールフラグが出力されないため、ブラウザからセール指定URLを最大10ページスクレイピングする。
     戻り値: set of product_id (content_id)
@@ -355,9 +355,9 @@ def fetch_fanza_sale_product_ids():
                                 cid = item.get("content_id", "")
                                 if cid: sale_ids.add(cid.lower())
             except Exception as e:
-                logger.warning(f"  [FANZA] セール取得エラー (API / {fl.get('floor')}): {e}")
+                logger.warning(f"  [DMM/らぶカル] セール取得エラー (API / {fl.get('floor')}): {e}")
 
-    # === 2. DMM/FANZA 商業コミック セール抽出（スクレイピング方式） ===
+    # === 2. DMM 商業コミック セール抽出（スクレイピング方式） ===
     # 理由: 商業作品はAPIで「campaign」フラグが出力されない仕様のため、
     # 30%OFF以上のセール一覧ページを直接スクレイピングしてIDを網羅取得する。
     scrape_targets = [
@@ -388,7 +388,7 @@ def fetch_fanza_sale_product_ids():
                 product_links = [l for l in all_links if "/product/" in l]
                 
                 # 正規表現で商品IDを抽出
-                # 例: /product/824544/b412arvmj03374/ -> b412arvmj03374 を抽出する (DMM/FANZA商業)
+                # 例: /product/824544/b412arvmj03374/ -> b412arvmj03374 を抽出する (DMM商業)
                 found_ids = []
                 for l in product_links:
                     m_second = re.search(r'/product/[^/]+/([^/]+)/', l)
@@ -408,16 +408,16 @@ def fetch_fanza_sale_product_ids():
                 
                 time.sleep(1)  # サーバー負荷への配慮
             except Exception as e:
-                logger.warning(f"  [FANZA] スクレイピングエラー ({url}): {e}")
+                logger.warning(f"  [DMM/らぶカル] スクレイピングエラー ({url}): {e}")
                 break
 
-    logger.info(f"  [FANZA] セール作品 {len(sale_ids)}件 検知")
+    logger.info(f"  [DMM/らぶカル] セール作品 {len(sale_ids)}件 検知")
     return sale_ids
 
 
-def fetch_fanza_ranking_product_ids():
+def fetch_dmm_ranking_product_ids():
     """
-    FANZA / DMM のランキングAPI（sort=rank）でTOP10の商品IDを取得する。
+    DMM / らぶカル のランキングAPI（sort=rank）でTOP30の商品IDを取得する。
     戻り値: set of product_id (content_id)
     """
     ranking_ids = set()
@@ -455,9 +455,9 @@ def fetch_fanza_ranking_product_ids():
                 if cid:
                     ranking_ids.add(cid.lower())
         except Exception as e:
-            logger.warning(f"  [FANZA] ランキング取得エラー ({fl.get('floor')}): {e}")
+            logger.warning(f"  [DMM/らぶカル] ランキング取得エラー ({fl.get('floor')}): {e}")
 
-    logger.info(f"  [FANZA] ランキング作品 {len(ranking_ids)}件 検知")
+    logger.info(f"  [DMM/らぶカル] ランキング作品 {len(ranking_ids)}件 検知")
     return ranking_ids
 
 
@@ -689,20 +689,20 @@ def run_nexus():
     all_ranking_ids = set()
     errors = []
 
-    # FANZA
+    # DMM / らぶカル
     try:
-        fanza_sales = fetch_fanza_sale_product_ids()
-        all_sale_ids.update(fanza_sales)
+        dmm_sales = fetch_dmm_sale_product_ids()
+        all_sale_ids.update(dmm_sales)
     except Exception as e:
-        err_msg = f"[FANZA セール] {e}"
+        err_msg = f"[DMM/らぶカル セール] {e}"
         logger.error(f"  🚨 {err_msg}")
         errors.append(err_msg)
 
     try:
-        fanza_ranks = fetch_fanza_ranking_product_ids()
-        all_ranking_ids.update(fanza_ranks)
+        dmm_ranks = fetch_dmm_ranking_product_ids()
+        all_ranking_ids.update(dmm_ranks)
     except Exception as e:
-        err_msg = f"[FANZA ランキング] {e}"
+        err_msg = f"[DMM/らぶカル ランキング] {e}"
         logger.error(f"  🚨 {err_msg}")
         errors.append(err_msg)
 
