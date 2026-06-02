@@ -768,6 +768,19 @@ def _execute_posting_flow(row, cursor, conn):
         else:
             logger.info(f"  [Bluesky] スキップ (site={site_raw}, score={ai_score}, exclusive={_is_exclusive_val})")
 
+        # v20.0.3: トップページキャッシュのクリア（バックグラウンド実行）
+        # 旧: functions.php の transition_post_status フックで wp_site_cache を直接DELETEしていたが、
+        #      device_url カラムにインデックスがなくフルスキャンで100秒超のDBロックが発生していたため廃止。
+        # 新: 投稿成功後にkusanagiコマンドでキャッシュをクリアする（WordPress外で実行するためDBロックなし）。
+        try:
+            subprocess.Popen(
+                "kusanagi bcache clear myblog && kusanagi fcache clear myblog",
+                shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            logger.info("  [Cache] KUSANAGI bcache/fcache クリアをバックグラウンドで実行")
+        except Exception as cache_err:
+            logger.warning(f"  [Cache] キャッシュクリア失敗（続行）: {cache_err}")
+
         return True, None
     else:
         cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='wp_post_failed' WHERE product_id=?", (pid,))
