@@ -378,7 +378,7 @@ def process_ranking_articles():
     try:
         # 曜日判定 (0=月, 1=火, 2=水, 3=木, 4=金, 5=土, 6=日)
         weekday = datetime.now().weekday()
-        # スケジュール (v19.5.0): DigiKet廃止（CVR 0.0%）。水曜日はランキング非投稿日に。
+        # スケジュール (v19.5.0): 水曜日はランキング非投稿日。
         # 優先度: DLsite（最高・土曜最強枠）> らぶカル（金曜週末前）> DMM（日曜週末締め）
         schedule = {4: "Lovecal", 5: "DLsite", 6: "DMM"}
         
@@ -389,7 +389,7 @@ def process_ranking_articles():
 
         sites = [target_site]
         medals = {1: "🥇 1位", 2: "🥈 2位", 3: "🥉 3位", 4: "4位", 5: "5位"}
-        site_labels = {"DMM": "DMM.com", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "らぶカル"}
+        site_labels = {"DMM": "DMM.com", "DLsite": "DLsite", "Lovecal": "らぶカル"}
         
         for i, site in enumerate(sites):
             logger.info(f"--- ランキング処理: {site} ---")
@@ -463,7 +463,7 @@ def process_ranking_articles():
                     
                     pid = item.get("content_id", "")
                     if not pid:
-                        # DLsite/DigiKet 両方のパターンを考慮
+                        # DLsite のパターンを考慮
                         m_pid = re.search(r"(product_id/|ID=)([^/?&]+)", item["url"])
                         if m_pid: pid = m_pid.group(2).replace(".html", "")
                     

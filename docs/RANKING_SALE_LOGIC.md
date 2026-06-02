@@ -13,7 +13,6 @@
 3. [FANZA ブックス（アダルト商業）](#3-fanza-ブックスアダルト商業)
 4. [らぶカル（FANZA同人）](#4-らぶカルfanza同人)
 5. [DLsite](#5-dlsite)
-6. [DigiKet](#6-digiket)
 7. [タグの付与・剥奪フロー](#7-タグの付与剥奪フロー)
 8. [IDの形式・照合ルール](#8-idの形式照合ルール)
 9. [異常検知・Discord通知仕様](#9-異常検知discord通知仕様)
@@ -32,7 +31,6 @@
 | **FANZA（商業）** | API | 同上 | 各フロア30件 | `b876ashkm04726` 等 |
 | **らぶカル（同人）** | API | 同上 | 各フロア30件 | `d_724719` 等 |
 | **DLsite** | スクレイピング | `/ranking/week` ページ | 各フロア30件 | `rj123456` / `bj123456` |
-| **DigiKet** | XML API | `api.digiket.com/xml/api/getxml.php` sort=week | 各ターゲット30件 | `itm0012345` |
 
 ### セール取得
 
@@ -42,7 +40,6 @@
 | **FANZA（商業）** | スクレイピング | `book.dmm.co.jp/list/?category={670008,670009}&sale=discount&discount_rate=50&sort=ranking` | 上位10ページ前後想定 | `b876ashkm04726` 等 |
 | **らぶカル（同人）** | API | `api.dmm.com/v3/ItemList` → `campaign` フィールド判定 | 各フロア上位1,000件をoffsetページネーション | `d_724719` 等 |
 | **DLsite** | スクレイピング | `/fsr/=/language/jp/discount_rate_min/50/work_type_category[0]/manga/work_type_category[1]/novel/` ページ | 最大10ページ×100件 | `rj123456` / `bj123456` |
-| **DigiKet** | スクレイピング | `/result/_data/limit=300/camp=on/` ページ | 各フロア最大300件 | `itm0012345` |
 
 ---
 
@@ -170,40 +167,7 @@
 
 ---
 
-## 6. DigiKet
 
-### ランキング
-
-- **関数名**: `fetch_digiket_ranking_product_ids()`
-- **手法**: DigiKet公式XML API
-- **エンドポイント**: `https://api.digiket.com/xml/api/getxml.php`
-- **パラメータ**:
-  - `target=8` — 商業BL
-  - `target=6` — 商業TL
-  - `target=2` — 同人
-  - `sort=week` — 週間ランキング
-- **ID抽出方法**: XMLレスポンスから正規表現 `ITM(\d+)` でITM番号を抽出
-- **出力形式**: `itm{番号}`（小文字、接頭辞付き）
-- **件数**: 各ターゲット上位30件（出現順に重複除去 → 先頭30件を採用）
-- **エンコーディング**: UTF-8（errors=ignore）
-
-### セール
-
-- **関数名**: `fetch_digiket_sale_product_ids()`
-- **手法**: セール専用ページのHTMLスクレイピング
-- **対象URL**:
-  - `https://www.digiket.com/b/result/_data/limit=300/camp=on/sort=camp_end/` — 女性向け同人
-  - `https://www.digiket.com/bl/result/_data/limit=300/camp=on/sort=camp_end/` — BL商業
-- **URL内パラメータの意味**:
-  - `camp=on` — 本物のセール中作品のみに絞込（最重要）
-  - `sort=camp_end` — キャンペーン終了日順でソート
-  - `limit=300` — 最大300件取得
-- **ID抽出方法**: HTMLから正規表現 `ITM(\d+)` でITM番号を抽出
-- **出力形式**: `itm{番号}`（小文字、接頭辞付き）
-- **エンコーディング**: EUC-JP（errors=ignore） ← DigiKet独自の古い仕様
-- **ヘッダー**: `novelove_core.py` の共通 `HEADERS` を使用
-
----
 
 ## 7. タグの付与・剥奪フロー
 
@@ -222,15 +186,13 @@ Step 0: WPタグID確保
   └── get_or_create_tag("売れ筋作品", "best-seller")
 
 Step 1: 自社DB全published記事のproduct_id一覧を取得
-  └── 3つのDB（FANZA / DLsite / DigiKet）を横断検索
+  └── 統一DB（novelove_unified.db）内を検索
 
 Step 2: 各サイトから情報取得（すべて隔離実行）
   ├── FANZA/DMM/らぶカル セール取得 → all_sale_ids へ
   ├── FANZA/DMM/らぶカル ランキング取得 → all_ranking_ids へ
   ├── DLsite セール取得 → all_sale_ids へ
-  ├── DLsite ランキング取得 → all_ranking_ids へ
-  ├── DigiKet セール取得 → all_sale_ids へ
-  └── DigiKet ランキング取得 → all_ranking_ids へ
+  └── DLsite ランキング取得 → all_ranking_ids へ
 
 Step 3: DB突合 → 差分だけWP APIを叩く
   ├── 「新たにタグを付ける」対象を特定
@@ -256,7 +218,6 @@ Step 4: Discord通知（変更サマリー）
 | DMM/FANZA（商業） | `b876ashkm04726` | `/product/([^/]+)/` | 小文字 |
 | らぶカル（同人） | `d_724719` | `content_id` そのまま | 小文字 |
 | DLsite | `RJ123456` | `((?:RJ\|BJ\|VJ)\d{6,10})` | 小文字（`rj123456`） |
-| DigiKet | `ITM0012345` | `ITM(\d+)` | 小文字（`itm0012345`） |
 
 ### 照合ルール
 
@@ -279,7 +240,6 @@ Step 4: Discord通知（変更サマリー）
 | スクレイピングで取得ID数が0件だった | ⚠️ 警告 | `[DMM BL] セール作品が0件でした。ページ構造が変更された可能性あり` |
 | APIレスポンスの items が空だった | ⚠️ 警告 | `[FANZA BL] ランキング取得結果が0件でした` |
 | 正規表現で1件もマッチしなかった | ⚠️ 警告 | `[DLsite Girls] ランキングページからRJコードを抽出できませんでした` |
-| 例外が発生した（タイムアウト等） | 🚨 エラー | `[DigiKet] セール取得エラー: ConnectionTimeout` |
 | 前回実行時より取得件数が大幅に減少した（80%以上減） | ⚠️ 警告 | `[DMM BL] セール取得数が前回300件→今回12件と大幅減少` |
 
 ### 通知先
@@ -290,7 +250,7 @@ Step 4: Discord通知（変更サマリー）
 ### 実装上の注意
 
 - 「0件 = サイト仕様変更」と即断せず、**時間帯によるセール非実施の可能性**も考慮する
-  → DigiKetやDLsiteは「本当にセールが0件」のタイミングが存在する
+  → DLsiteは「本当にセールが0件」のタイミングが存在する
   → ランキングの0件は**あり得ない**ため、ランキング0件は即エラー扱いでよい
 - 各サイトの取得は隔離されているため、1サイトが死んでも他のサイトは継続実行される（既存設計を維持）
 
@@ -325,15 +285,6 @@ Step 4: Discord通知（変更サマリー）
 - **DLsiteのセールIDフロア重複問題は解決済み**
   → v15.6.0で高精度フィルター（`work_type_category`、`language/jp`、`discount_rate_min/50`）を導入し、各フロアが異なる結果を返すことを確認済み（Girls vs BL 重複=31件のみ）
 
-### DigiKet
-
-- **最も不安定なサイト**（サーバーダウン頻度が高い）
-  → エラーに最も寛容な設計（他サイトへの影響遮断を最優先）
-- HTMLエンコーディングが **EUC-JP**（2020年代でこれは珍しい）
-- XML APIは公式だが、ドキュメントが乏しく仕様変更の告知がない
-- セールURLの `camp=on` は非公式パラメータの可能性があり、予告なく無効化されるリスクあり
-- **⚠ 女性向け同人のセールが極端に少ない場合がある**（実測で2件のみ）
-
 ### 全体
 
 - セール/ランキングの「付与」は即時だが、「剥奪」はセール終了後の次回バッチ実行（最大12時間のタイムラグ）
@@ -358,9 +309,6 @@ Step 4: Discord通知（変更サマリー）
 | らぶカル TL | doujin/tl | 30件 | `d_690614` |
 | DLsite Girls | ranking/week | 30件 | `RJ01538553` |
 | DLsite BL | ranking/week | 30件 | `RJ01601946` |
-| DigiKet BL | target=8 | 30件 | `itm0336189` |
-| DigiKet TL | target=6 | 30件 | `itm0336078` |
-| DigiKet 同人 | target=2 | 30件 | `itm0336201` |
 
 ### セール（全PASS）
 
@@ -372,7 +320,5 @@ Step 4: Discord通知（変更サマリー）
 | DLsite BL同人 | 高精度フィルター | 200件 | スクレイピング |
 | DLsite Girls商業 | 高精度フィルター | 169件 | スクレイピング |
 | DLsite BL商業 | 高精度フィルター | 159件 | スクレイピング |
-| DigiKet 女性向 | camp=on | 2件 | スクレイピング |
-| DigiKet BL | camp=on | 300件 | スクレイピング |
 
 > **検証結果: 21テスト中 21 PASS / 0 FAIL**

@@ -55,9 +55,6 @@ else:
 # === システム設定定数 ===
 SCRIPT_DIR      = os.path.dirname(os.path.abspath(__file__))
 DB_FILE_UNIFIED = os.path.join(SCRIPT_DIR, "novelove_unified.db")  # v18.0.0: 統合DB
-DB_FILE_FANZA   = DB_FILE_UNIFIED  # 後方互換（変数名は旧称。実体は統合DB）
-DB_FILE_DLSITE  = DB_FILE_UNIFIED  # 後方互換
-DB_FILE_DIGIKET = DB_FILE_UNIFIED  # 後方互換
 LOG_FILE        = os.path.join(SCRIPT_DIR, "novelove.log")
 MAIN_LOCK_FILE  = os.path.join(SCRIPT_DIR, "main.lock")
 RANK_LOCK_FILE  = os.path.join(SCRIPT_DIR, "ranking.lock")
@@ -75,7 +72,7 @@ DMM_API_ID            = os.environ.get("DMM_API_ID", "")
 DMM_AFFILIATE_API_ID  = os.environ.get("DMM_AFFILIATE_API_ID", "")
 DMM_AFFILIATE_LINK_ID = os.environ.get("DMM_AFFILIATE_LINK_ID", "")
 DLSITE_AFFILIATE_ID   = os.environ.get("DLSITE_AFFILIATE_ID", "novelove")
-DIGIKET_AFFILIATE_ID  = os.environ.get("DIGIKET_AFFILIATE_ID", "novelove")
+
 # ※ セキュリティ上、デフォルト値なし。未設定時は呼び出し元がエラー終了する。
 SSH_PASS              = os.environ.get("SSH_PASS", "")
 # === WP-CLI / サーバー環境依存パス（移転時はここの環境変数を更新するだけでOK）===
@@ -221,8 +218,8 @@ def generate_affiliate_url(site: str, product_url: str, **kwargs) -> str:
     サイト別にアフィリエイトURLを生成して返す共通関数。
     
     Args:
-        site:        "FANZA" | "DMM.com" | "DLsite" | "DigiKet"
-        product_url: 商品ページURL（FANZA/DMM/DigiKet）または空文字（DLsite）
+        site:        "FANZA" | "DMM.com" | "DLsite"
+        product_url: 商品ページURL（FANZA/DMM）または空文字（DLsite）
         **kwargs:
             pid   (str): 商品ID（DLsite必須）
             floor (str): フロア名（DLsite必須: "bl", "girls", "bl-pro"等）
@@ -237,12 +234,7 @@ def generate_affiliate_url(site: str, product_url: str, **kwargs) -> str:
             aid   = DLSITE_AFFILIATE_ID
             return f"https://dlaf.jp/{floor}/dlaf/=/t/n/link/work/aid/{aid}/id/{pid}.html"
 
-        if site == "DigiKet":
-            url = product_url
-            if DIGIKET_AFFILIATE_ID:
-                if not url.endswith("/"): url += "/"
-                url += f"AFID={DIGIKET_AFFILIATE_ID}/"
-            return url
+
 
         # FANZA / DMM.com
         af_id      = DMM_AFFILIATE_LINK_ID or "novelove-001"
@@ -268,11 +260,10 @@ def get_db_path(site_raw=None):
 
 def get_source_db(site_raw):
     """site文字列からsource_dbグループ文字列を返す。
-    戻り値: 'dmm' / 'lovecal' / 'dlsite' / 'digiket'
+    戻り値: 'dmm' / 'lovecal' / 'dlsite'
     """
     s = str(site_raw)
     if "DLsite"  in s: return "dlsite"
-    if "DigiKet" in s: return "digiket"
     if "Lovecal" in s or "lovecal" in s: return "lovecal"
     return "dmm"  # ※らぶカル以外のDMM一般・成人商業を 'dmm' に統合
 
@@ -421,7 +412,7 @@ def init_db():
         # === HTML骨格パターン記録 (v16.0.0) ===
         ("article_pattern",   "TEXT DEFAULT ''"),      # 使用されたHTML骨格パターン (A/B/C/D/R)
         # === DB統合 (v18.0.0) ===
-        ("source_db",         "TEXT DEFAULT ''"),      # DB所属: lovecal / dmm / dlsite / digiket
+        ("source_db",         "TEXT DEFAULT ''"),      # DB所属: lovecal / dmm / dlsite
         # === 死に記事自動パージ・永久保護 (v18.6.0) ===
         ("is_protected",      "INTEGER DEFAULT 0"),    # 殿堂入り保護フラグ（1=永久保護、自動削除対象外）
     ]:

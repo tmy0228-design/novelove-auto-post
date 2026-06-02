@@ -739,8 +739,6 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
                 is_r18_val = False  # DMM(一般)は100%全年齢
             elif _site_brand in ("FANZA", "Lovecal"):
                 is_r18_val = True   # FANZA/らぶカルは100%R-18
-            elif _site_brand == "DigiKet":
-                is_r18_val = True   # DigiKetは安全第一で一律R-18
             elif _site_brand == "DLsite":
                 is_r18_val = ":r18=1" in _site_str  # DLsiteはDB保存値を参照
             else:

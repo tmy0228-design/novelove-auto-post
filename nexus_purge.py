@@ -144,7 +144,6 @@ def run_purge(dry_run=False):
         # v18.0.0: site_nameはsiteカラムから推定（DBパスの代わり）
         site_raw = row['site'] or ''
         if 'DLsite' in site_raw: site_name = 'dlsite'
-        elif 'DigiKet' in site_raw: site_name = 'digiket'
         else: site_name = 'fanza'
         
         logger.info(f"[{site_name}] 審査中: {title[:25]}...")

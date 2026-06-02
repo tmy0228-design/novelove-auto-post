@@ -1,3 +1,17 @@
+## v20.0.4 — DigiKet関連デッドコードおよび不要定数の完全クリーンアップ (2026-06-02)
+
+### 🧹 chore(digiket/cleanup): DigiKet関連のデッドコードおよび不要定義の完全撤去
+- **背景**: WordPress上のDigiKet過去記事がすべて削除されたことに伴い、これまで後方互換・サポート目的で維持されていた関連処理が100%不要になったため、完全なクリーンアップを実施しました。
+- **削除・修正内容**:
+  - **`novelove_fetcher.py`**: `scrape_digiket_description` 関数の丸ごと削除、R-18判定や初期除外処理・新着取得スキップ等からの判定排除。
+  - **`auto_post.py`**: サムネイルURL変換、高解像度画像URL置換、専売タグおよびストアタグ設定マップ、Blueskyコメント等の記述からDigiKetを完全排除。
+  - **`novelove_core.py`**: 古い互換用DB定数（`DB_FILE_FANZA`、`DB_FILE_DLSITE`、`DB_FILE_DIGIKET`）および環境変数（`DIGIKET_AFFILIATE_ID`）定義の完全削除。
+  - **`nexus_rewrite.py` / `nexus_purge.py` / `novelove_ranking.py` / `novelove_writer.py` / `nexus_dashboard.py`**: 年齢判定、専売バッジ判定、画像高解像度化、ランキングスケジュールなどの残存記述をすべて削除。
+- **ドキュメントの更新**:
+  - `CLAUDE.md`, `README.md`, `SPECIFICATIONS.md`, `docs/RANKING_SALE_LOGIC.md` に残っていたDigiKetに関する解説や古い注記、環境変数説明などを全て削除・更新。
+
+---
+
 ## v20.0.3 — キャッシュクリア方式移行によるNO IMAGE問題の抜本修正・WP-DB整合性修正・不要なDiscord通知の整理 (2026-06-02)
 
 ### 🐛 fix(cache/post): キャッシュクリア方式をauto_post.pyへ移行しNO IMAGE問題を解消

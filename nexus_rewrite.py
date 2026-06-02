@@ -39,7 +39,7 @@ from datetime import datetime
 # 環境変数・.envの読み込みは novelove_core.py で一元管理
 from novelove_core import (
     logger,
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
+    DB_FILE_UNIFIED,
     db_connect, notify_discord, generate_affiliate_url,
     WP_SITE_URL, SCRIPT_DIR,
     WP_USER, WP_APP_PASSWORD, SSH_PASS,
@@ -68,7 +68,7 @@ NORMALIZED_LABELS = {
     "DMM.com": "DMM",
     "FANZA":   "FANZA",
     "DLsite":  "DLsite",
-    "DigiKet": "DigiKet",
+
     "Lovecal": "らぶカル",
 }
 
@@ -278,9 +278,9 @@ def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected
 
     # 専売タグの付与（auto_post.py _execute_posting_flow と同一ルール）
     if is_exclusive:
-        _sn_map = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "Lovecal"}
+        _sn_map = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "Lovecal": "Lovecal"}
         _sn = _sn_map.get(site_label, site_label)
-        excl_tag = {"DLsite": "DLsite専売", "FANZA": "FANZA専売", "DMM": "DMM独占", "DigiKet": "DigiKet限定", "Lovecal": "らぶカル専売"}.get(_sn, "")
+        excl_tag = {"DLsite": "DLsite専売", "FANZA": "FANZA専売", "DMM": "DMM独占", "Lovecal": "らぶカル専売"}.get(_sn, "")
         if not excl_tag and "らぶカル" in str(site_label):
             excl_tag = "らぶカル専売"
         if excl_tag and excl_tag not in tag_names:
@@ -497,9 +497,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     desc_str = str(row["description"]) if row["description"] else ""
     img_url  = row["image_url"] or ""
 
-    # DigiKet 高解像度化（_execute_posting_flow L1130-1131 と同一）
-    if img_url and "img.digiket.net" in img_url and "_2.jpg" in img_url:
-        img_url = img_url.replace("_2.jpg", "_1.jpg")
+
 
     logger.info(f"  [対象] {title[:50]} ({site_label} / {genre})")
     logger.info(f"  [あらすじ文字数] {len(desc_str)}文字")

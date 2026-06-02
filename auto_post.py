@@ -27,7 +27,7 @@ Novelove 自動投稿エンジン v14.0.0
 【変更点 v11.3.5】
  - 改善: プロンプト刷新（感情モード/事実性ガード/NGフレーズ集）
 【変更点 v10.1.0】
- - 修正: DigiKet等のエンコーディング判定を強化（文字化け解消）
+ - 修正: エンコーディング判定を強化（文字化け解消）
  - 修正: FIFUアイキャッチ設定のメタキーを修正（画像欠落解消）
  - 修正: 関連記事（内部リンク）の取得ロジックを強化・安定化
  - 修正: AIタグ抽出を「部分一致マッチング」に改良（タグ消失解消）
@@ -36,7 +36,7 @@ Novelove 自動投稿エンジン v14.0.0
  - 統合: ジャンル・サイト・AI・R18の4層タグ構成を標準化
 ==========================================================
 【変更点 v9.5.3】
- - 修正: scrape_description()内のdigiket呼び出しをタプル対応に修正
+ - 修正: scrape_description()内の呼び出しをタプル対応に修正
 【変更点 v9.4.0】
  - 機能: FIFU外部リンク化（画像アップロード廃止）
 ==========================================================
@@ -107,9 +107,7 @@ def _get_thumbnail_url(image_url: str) -> str:
     # DMM ebook-assets: pl.jpg -> ps.jpg (16KB, 確認済み。doujin等はNOW PRINTINGになるため除外)
     if "ebook-assets.dmm" in image_url and image_url.endswith("pl.jpg"):
         return image_url[:-6] + "ps.jpg"
-    # DigiKet: _1.jpg / _2.jpg -> _a_200x150.jpg (10KB, 確認済み)
-    if "digiket.net" in image_url:
-        return re.sub(r'_\d+\.jpg$', '_a_200x150.jpg', image_url)
+
     # FANZA doujin-assets 等: 変換しない（NOW PRINTINGリダイレクト対策）
     return image_url
 
@@ -183,7 +181,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     site_name = None
 
     if site_label:
-        normalized_labels = {"DMM.com": "DMM", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "らぶカル"}
+        normalized_labels = {"DMM.com": "DMM", "DLsite": "DLsite", "Lovecal": "らぶカル"}
         site_name = normalized_labels.get(site_label, site_label)
         if site_name and site_name not in tag_names: tag_names.append(site_name)
 
@@ -346,7 +344,7 @@ def _run_main_logic():
 
 
     fetch_and_stock_all()
-    # v19.5.0: DigiKet新規取得停止（fetch_digiket_items()呼び出し削除）
+
 
     # --- 在庫クリーンアップ (v18.0.0: 統合DB対応) ---
     conn = db_connect(DB_FILE_UNIFIED)
@@ -397,7 +395,7 @@ def _run_main_logic():
             break
 
         target_info = FETCH_TARGETS[(g_idx_base + i) % len(FETCH_TARGETS)]
-        # v18.0.0: source_dbでサイトグループを絞り込み（FANZA/DLsite/DigiKetの混在防止）
+        # v18.0.0: source_dbでサイトグループを絞り込み（サイト間の混在防止）
         source_db_val = target_info.get("source_db") or get_source_db(target_info.get("site", "Lovecal"))
         genre = target_info["genre"]
         conn = db_connect(DB_FILE_UNIFIED)
@@ -570,10 +568,7 @@ def _execute_posting_flow(row, cursor, conn):
         
     logger.info(f"  ✅ スコア基準クリア ({eval_score}点)。執筆を開始します。")
 
-    # DigiKet高解像度化を一元処理
     img_url = row["image_url"] or ""
-    if img_url and "img.digiket.net" in img_url and "_2.jpg" in img_url:
-        img_url = img_url.replace("_2.jpg", "_1.jpg")
     # A+C方式: FIFUには軽量サムネ、記事本文には大きいURLを使う
     thumb_url = _get_thumbnail_url(img_url)
 
@@ -653,9 +648,9 @@ def _execute_posting_flow(row, cursor, conn):
     # v13.5.1: 専売タグの付与（DBの is_exclusive フラグに基づく厳密なDOM判定結果）
     is_exclusive = (row["is_exclusive"] if "is_exclusive" in row.keys() else 0) == 1
     if is_exclusive:
-        _normalized = {"DMM.com": "DMM", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "Lovecal"}
+        _normalized = {"DMM.com": "DMM", "DLsite": "DLsite", "Lovecal": "Lovecal"}
         _sn = _normalized.get(site_label, site_label)
-        excl_tag = {"DLsite": "DLsite専売", "DMM": "DMM独占", "DigiKet": "DigiKet限定", "Lovecal": "らぶカル専売"}.get(_sn, "")
+        excl_tag = {"DLsite": "DLsite専売", "DMM": "DMM独占", "Lovecal": "らぶカル専売"}.get(_sn, "")
         if not excl_tag and "らぶカル" in str(site_label):
             excl_tag = "らぶカル専売"
         if excl_tag and excl_tag not in final_ai_tags:
@@ -671,7 +666,7 @@ def _execute_posting_flow(row, cursor, conn):
         ai_tags_str = ",".join(final_ai_tags)
         # v12.8.0: wp_tags（WPへ実際に送信した完成品タグ一覧）を構築してDBへ書き戻す
         # ※ post_to_wordpress() 内のタグ構築ロジック(L746-778)と完全一致させること
-        _normalized_labels = {"DMM.com": "DMM", "DLsite": "DLsite", "DigiKet": "DigiKet", "Lovecal": "らぶカル"}
+        _normalized_labels = {"DMM.com": "DMM", "DLsite": "DLsite", "Lovecal": "らぶカル"}
         _site_name_for_wp = _normalized_labels.get(site_label, site_label)
         _wp_tags_parts = []
         if _site_name_for_wp:
@@ -735,7 +730,7 @@ def _execute_posting_flow(row, cursor, conn):
 
         # v18.5.0: Bluesky投稿頻度制限（ハイブリッドフィルタ）+ 茉莉花SNS担当化
         # DLsite/FANZA/らぶカル: 専売(is_exclusive=1) かつ スコア5のみ投稿
-        # DigiKet/DMM        : スコア5のみ投稿（専売条件なし）
+        # DMM                : スコア5のみ投稿（専売条件なし）
         _is_high_volume_site = any(site_raw.startswith(s) for s in ("DLsite", "Lovecal"))
         _is_exclusive_val    = is_exclusive  # L658で定義済みの bool 変数を流用
         _bsky_ok = False

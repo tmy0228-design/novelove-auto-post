@@ -5,7 +5,7 @@
 novelove_fetcher.py — Novelove 新着取得・スクレイピング・フィルタリングモジュール
 ==========================================================
 このモジュールは auto_post.py から分離された「データ取得」専任ファイルです。
-各サイト（FANZA/DMM/DLsite/DigiKet）からのスクレイピング・API通信・
+各サイト（FANZA/DMM/DLsite）からのスクレイピング・API通信・
 初期フィルタリング・DB格納（pendingストック）を担います。
 
 ★ 依存関係（一方通行ルール）:
@@ -139,8 +139,7 @@ def _is_r18_item(item, site=None):
         return False  # DMM(一般)は100%全年齢
     if site in ("FANZA", "Lovecal"):
         return True   # FANZA/らぶカルは年齢確認ありの成人サイトのため100%R-18
-    if site == "DigiKet":
-        return True   # DigiKetは安全第一で一律R-18扱い
+
 
     # 2. DLsiteのHTMLバッジ判定（_fetch_dlsite_itemsで取得したもの）
     if site == "DLsite":
@@ -271,7 +270,7 @@ def _is_thin_content(title, item=None, pages=None):
     if not any(kw in title for kw in THIN_CONTENT_KEYWORDS):
         return False  # キーワードなし → 除外しない
 
-    # 引数 pages が直接渡された場合（DLsite/DigiKet のスクレイピング結果など）
+    # 引数 pages が直接渡された場合（DLsite のスクレイピング結果など）
     if pages is not None:
         return pages < 50  # 50P 以上なら合冊版等として除外しない
 
@@ -415,175 +414,12 @@ def scrape_dlsite_description(url):
         return "", "", False
 
 
-def scrape_digiket_description(url):
-    """
-    DigiKetの商品詳細ページからあらすじ、og:image、ページ数、公式メディア種別、登録日をタプルで返す。
-    戻り値: (description: str, og_img_url: str, pages: int or None, official_format: str or None, release_date: str)
-    official_format: "comic" / "novel" / None（判定不能時）
-    release_date: "YYYY-MM-DD" 形式、取得できなければ ""
-    """
-    try:
-        with requests.Session() as session:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-            }
-            session.headers.update(headers)
-            if "/show/_/" in url:
-                url = url.replace("/show/_/", "/show/_data/")
-            parsed = urllib.parse.urlparse(url)
-            encoded_url = urllib.parse.quote(parsed.path, safe='')
-            age_check_url = f"https://www.digiket.com/age_check.php?declared=yes&url={encoded_url}"
-            session.get(age_check_url, timeout=20)
-            r = session.get(url, timeout=20)
-            if r.status_code != 200:
-                logger.warning(f"  [DigiKet] HTTPエラー {r.status_code}: {url}")
-                return "", "", None, None, ""
-            # v15.3.3: エンコーディング自動判別 — DigiKetはUTF-8が増加中のため、UTF-8から優先的に試す
-            try:
-                html_text = r.content.decode('utf-8')
-            except UnicodeDecodeError:
-                try:
-                    html_text = r.content.decode('euc-jp')
-                except Exception:
-                    html_text = r.content.decode('cp932', errors='replace')
-            soup = BeautifulSoup(html_text, 'html.parser')
-
-            # v11.3.1: ページ数の抽出ｗ
-            pages = None
-            spec_table = soup.select_one(".spec_table")
-            if spec_table:
-                # dl/dt/dd 形式または table/tr/th/td 形式を探す
-                remarks_text = ""
-                for dt in spec_table.select("dt"):
-                    if "備考" in dt.text:
-                        dd = dt.find_next_sibling("dd")
-                        if dd: remarks_text = dd.text
-                        break
-                if not remarks_text:
-                    for tr in spec_table.select("tr"):
-                        th = tr.select_one("th")
-                        td = tr.select_one("td")
-                        if th and td and "備考" in th.text:
-                            remarks_text = td.text
-                            break
-                if remarks_text:
-                    m_p = re.search(r"(\d+)ページ", remarks_text)
-                    if m_p:
-                        pages = int(m_p.group(1))
-
-            labels = ["作品内容", "作品説明", "作品詳細", "作品概要", "ストーリー", "商品の説明"]
-            description = ""
-            for label in labels:
-                target_tag = soup.find(string=re.compile(label))
-                if not target_tag: continue
-                candidate = target_tag.find_next(['td', 'div', 'p', 'span'])
-                if candidate:
-                    t = candidate.get_text("\n", strip=True)
-                    if t == label:
-                        candidate = candidate.find_next(['td', 'div', 'p', 'span'])
-                        if candidate:
-                            t = candidate.get_text("\n", strip=True)
-                    if len(t) > 20:
-                        description = t
-                        logger.info(f"  [DigiKet] 取得成功 (ラベル: {label})")
-                        break
-            if not description:
-                long_texts = [tag.get_text(strip=True) for tag in soup.find_all(['td', 'div', 'p'])
-                              if len(tag.find_all()) <= 5 and len(tag.get_text(strip=True)) > 100]
-                if long_texts:
-                    description = max(long_texts, key=len)
-                    logger.info("  [DigiKet] 取得成功 (フォールバック)")
-            og_img_url = ""
-            og_img = soup.select_one('meta[property="og:image"]')
-            if og_img and og_img.get('content'):
-                og_img_url = og_img.get('content')
-
-            # v12.2.3: 登録日（発売日）の取得
-            release_date = ""
-            for label_text in ["登録日", "発売日", "発行日", "配信日"]:
-                dt_tag = soup.find("div", class_="sub2", string=lambda t: t and label_text in t)
-                if dt_tag:
-                    dd_tag = dt_tag.find_next_sibling("div", class_="sub-data2")
-                    if dd_tag:
-                        raw = dd_tag.text.strip()
-                        m_d = re.match(r"(\d{4})年(\d{1,2})月(\d{1,2})日", raw)
-                        if m_d:
-                            release_date = f"{m_d.group(1)}-{m_d.group(2).zfill(2)}-{m_d.group(3).zfill(2)}"
-                    break
-
-            if description:
-                description = html.unescape(description)
-                description = _clean_description(description)
-
-                # v11.3.2: 詳細ページの「カテゴリー」ラベルから公式メディア種別を確定
-                # v15.3.3: DigiKetの構造変更(table -> div/dd)に伴う「ジャンル：」表示への対応
-                official_format = None
-                
-                # 1. 新構造対応 (dl/dd等による「ジャンル：」表示)
-                for tag in soup.find_all(string=re.compile(r"ジャンル[：:]")):
-                    parent = tag.find_parent()
-                    if parent:
-                        parent_dl = parent.find_parent("dl")
-                        t = parent_dl.get_text() if parent_dl else parent.parent.get_text()
-                        if any(x in t for x in ["コミック", "マンガ", "漫画"]):
-                            official_format = "comic"
-                            break
-                        elif any(x in t for x in ["小説", "ノベル", "ライトノベル"]):
-                            official_format = "novel"
-                            break
-                
-                # 2. 旧構造対応 (tableによる「カテゴリー」表示)
-                if not official_format:
-                    for tbl in soup.find_all("table"):
-                        if "カテゴリー" in tbl.get_text():
-                            for tr in tbl.find_all("tr"):
-                                tr_text = tr.get_text()
-                                if "カテゴリー" in tr_text:
-                                    if any(x in tr_text for x in ["コミック", "マンガ", "漫画"]):
-                                        official_format = "comic"
-                                    elif any(x in tr_text for x in ["小説", "ノベル", "ライトノベル"]):
-                                        official_format = "novel"
-                                    break
-                            if official_format:
-                                break
-                
-                # 専売・限定 判定 (v13.5.1 改修: 厳格なDOM・画像判定)
-                is_exclusive = False
-                
-                # ユーザーからのご指摘通り、DigiKet限定作品には必ず専用のバッジ画像が付与される
-                if soup.find('img', src=lambda s: s and 'digiket.gif' in s.lower()):
-                    is_exclusive = True
-                else:
-                    # サブデータ内のテキスト（例：キーワード: DiGiket限定）を念のため確認。
-                    # aタグ完全一致のみとする（本文中テキストは絶対に拾わない）
-                    for a_tag in soup.find_all('a'):
-                        if a_tag.text.strip() == "DiGiket限定":
-                            is_exclusive = True
-                            break
-
-                # 戻り値: (description, og_img_url, pages, official_format, release_date, is_exclusive)
-                # A-5: 6要素タプルは unpack エラーの温床（過去 v13.7.2/v13.7.3 で2回発生）。
-                #      要素を増やす際は必ず全呼び出し箇所を更新し、NamedTuple化も検討すること。
-                return description, og_img_url, pages, official_format, release_date, is_exclusive
-            logger.warning(f"  [DigiKet] あらすじ特定失敗: {url}")
-            # 最終フォールバック（完全0文字ならAI起動）
-            ai_desc = _run_emergency_ai_extraction(url, site_type="DigiKet")
-            if ai_desc:
-                return ai_desc, og_img_url, pages, None, release_date, False
-            return "", og_img_url, pages, None, release_date, False
-    except Exception as e:
-        logger.error(f"  [DigiKet] エラー発生: {e}")
-        return "", "", None, None, "", False
-
 def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
     if not product_url: return ""
     if "dlsite" in str(product_url).lower():
         desc, _tags, _excl = scrape_dlsite_description(product_url)
         return desc
-    if "digiket" in str(product_url).lower():
-        desc, _, _, _, _, _excl = scrape_digiket_description(product_url)
-        return desc
+
     session = _make_dmm_session()
     _any_desc_found = False  # あらすじテキストが何らか存在したか（短くても）
     try:
@@ -814,7 +650,7 @@ def fetch_and_stock_all():
         # v15.5.1: 通知・ログ表示用のサイト名（APIに渡す site とは別に管理）
         _is_lovecal_target = target.get("floor") in ("digital_doujin_bl", "digital_doujin_tl") or "らぶカル" in target.get("label", "")
         disp_site = "らぶカル" if _is_lovecal_target else site
-        if site == "DigiKet": continue
+
         db_path = get_db_path(site)
         api_items = []
         if site == "DLsite":

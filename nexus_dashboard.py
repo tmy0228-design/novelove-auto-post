@@ -114,8 +114,6 @@ def load_all_data() -> pd.DataFrame:
                         return "らぶカル"
                     if "DLsite" in site_val:
                         return "DLsite"
-                    if "DigiKet" in site_val:
-                        return "DigiKet"
                     if "DMM" in site_val:
                         return "DMM"
                     return "DMM"
