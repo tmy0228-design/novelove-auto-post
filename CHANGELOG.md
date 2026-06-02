@@ -1,3 +1,26 @@
+## v20.0.3 — キャッシュクリア方式移行によるNO IMAGE問題の抜本修正・WP-DB整合性修正・不要なDiscord通知の整理 (2026-06-02)
+
+### 🐛 fix(cache/post): キャッシュクリア方式をauto_post.pyへ移行しNO IMAGE問題を解消
+- **根本原因**: functions.phpの `transition_post_status` フックが、記事公開時に `wp_site_cache` テーブルをDELETEする際、インデックス未設定によるフルスキャンで100秒以上のDBロックを発生させていた。このため、アイキャッチ画像プラグイン（FIFU）が画像設定処理（`fifu_dev_set_image`）でタイムアウトし、記事が「NO IMAGE」のまま公開される問題が発生していた。
+- **修正内容**:
+  - `functions.php` から該当フックを完全に削除し、PHP側のDBロック要因を排除。
+  - `auto_post.py` に移行し、記事投稿成功直後に非同期（`subprocess.Popen`）で KUSANAGI コマンド（`kusanagi bcache clear` / `fcache clear`）を実行する方式に変更。
+  - 「NO IMAGE」になっていた過去記事9件に対し、`fifu_dev_set_image` を `wp eval-file` 経由で実行し画像を再設定して完全復旧。
+
+### 🧹 chore(db/integrity): WordPressとデータベース（novelove_unified.db）の整合性一括修正
+- **修正内容**:
+  - 過去のエラーや再試行で生成された、重複する `-2` サフィックス付きのWP記事17件を `wp post delete --force` で完全削除。
+  - データベース（`novelove_unified.db`）の `wp_post_id` を正しいオリジナルIDに修正。
+  - 除外や削除状態のレコード7件を published へ更新、新規6件をインサート、ゾンビ1件を deleted へステータス更新し、WPとDBの記事件数を100%一致。
+
+### 🔇 chore(discord): 不要なDiscord通知の整理（ノイズ削減）
+- **修正内容**:
+  - `nexus_revive.py`: あらすじ更新検知の通知を廃止（ダッシュボードで確認可能なため）。
+  - `novelove_fetcher.py`: 「あらすじ短すぎスキップ」の通知を廃止。
+  - ※異常検知のための「スクレイピング失敗」通知は、従来通り送信を継続。
+
+---
+
 ## v20.0.2 — らぶカル投稿停止バグの修正（source_db不一致） (2026-05-29)
 
 ### 🐛 fix(auto_post/fetcher): らぶカル作品が5日間投稿されなくなっていたバグを修正
