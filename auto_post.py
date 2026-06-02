@@ -73,6 +73,7 @@ from novelove_core import (
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
     DLSITE_AFFILIATE_ID,
     WP_PHP_PATH, WP_CLI_PATH, WP_DOC_ROOT,
+    normalize_title, super_normalize_title,
 )
 
 from novelove_fetcher import (
@@ -494,24 +495,30 @@ def _run_main_logic():
     logger.info("=" * 60)
 
 # === [v12.2.0] クロスDB重複排除（Fuzzy Matching）===
-def normalize_title(title):
-    """タイトルから装飾（括弧とその中身）とスペースを除去し、スッピン文字列を返す。"""
-    t = re.sub(r'[\[\(（【〈《「『].*?[\]\)）】〉》」』]', '', str(title))
-    t = re.sub(r'[\s　]+', '', t)
-    return t.strip()
-
 def is_cross_db_duplicate(new_title, current_pid, threshold=0.90):
     """全DBを横断し、スッピンタイトルの類似度が閾値以上の published 記事があるか判定する。"""
-    norm_new = normalize_title(new_title)
-    if not norm_new:
+    norm_new_clean = super_normalize_title(new_title)
+    if not norm_new_clean:
         return False, "", 0.0
+    
+    # 記号・スペースを排除した純粋なスッピンタイトルの先頭5文字を部分一致のキーにする
+    clean_prefix = norm_new_clean[:5]
+    if not clean_prefix:
+        clean_prefix = norm_new_clean[:2]  # フォールバック
+    if not clean_prefix:
+        return False, "", 0.0
+        
+    query_pattern = f"%{clean_prefix}%"
+    norm_new = normalize_title(new_title)
+    
     # v18.0.0: 統合DB1本で全サイト横断検索（検索漏れがなくなり改善）
     try:
         c2 = db_connect(DB_FILE_UNIFIED)
         c2.row_factory = sqlite3.Row
+        # SQL側で正規化タイトルに対する部分一致で高速絞り込み（LIMIT制限なし）
         rows = c2.execute(
-            "SELECT product_id, title FROM novelove_posts WHERE status='published' AND product_id!=? ORDER BY published_at DESC LIMIT 1500",
-            (current_pid,)
+            "SELECT product_id, title FROM novelove_posts WHERE status='published' AND product_id!=? AND super_normalize_title(title) LIKE ?",
+            (current_pid, query_pattern)
         ).fetchall()
         c2.close()
         for r in rows:

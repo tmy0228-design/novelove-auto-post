@@ -267,6 +267,25 @@ def get_source_db(site_raw):
     if "Lovecal" in s or "lovecal" in s: return "lovecal"
     return "dmm"  # ※らぶカル以外のDMM一般・成人商業を 'dmm' に統合
 
+def normalize_title(title):
+    """タイトルから装飾（括弧とその中身）とスペースを除去し、スッピン文字列を返す。"""
+    t = str(title)
+    # 全体が括弧で囲まれている場合、括弧のみを除去して中身を保護する
+    brackets = [('「', '」'), ('『', '』'), ('【', '】'), ('（', '）'), ('(', ')'), ('[', ']')]
+    for start, end in brackets:
+        if t.startswith(start) and t.endswith(end):
+            t = t[1:-1]
+            break
+    t = re.sub(r'[\[\(（【〈《「『].*?[\]\)）】〉》」』]', '', t)
+    t = re.sub(r'[\s　]+', '', t)
+    return t.strip()
+
+def super_normalize_title(title):
+    """normalize_titleを適用後、さらに記号類をすべて排除した純粋な文字列を返す。"""
+    t = normalize_title(title)
+    return re.sub(r'[^\w]', '', t)
+
+
 def db_connect(path, read_only=False):
     """
     SQLite 接続を取得する共通関数。
@@ -284,6 +303,8 @@ def db_connect(path, read_only=False):
         conn = sqlite3.connect(path, timeout=60, isolation_level="IMMEDIATE")
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA busy_timeout=60000;")
+    conn.create_function("normalize_title", 1, normalize_title)
+    conn.create_function("super_normalize_title", 1, super_normalize_title)
     return conn
 
 def calculate_local_priority(title: str, desc: str, tags: str = "", original_tags: str = "", release_date_raw: str = "", is_exclusive: bool = False) -> int:
