@@ -276,7 +276,30 @@ def normalize_title(title):
         if t.startswith(start) and t.endswith(end):
             t = t[1:-1]
             break
+
+    # 数字を含む話数・巻数の括弧を一時的に保護する
+    # 例: (1), (15), （2）, [3], #4, vol.5, Vol.6, ①, ②, (3話) など
+    temp_placeholders = []
+    def replace_digit_bracket(match):
+        placeholder = f"__DIGIT_BRACKET_{len(temp_placeholders)}__"
+        temp_placeholders.append((placeholder, match.group(0)))
+        return placeholder
+
+    # 数字のみ、またはvol/Vol付きの数字、巻・話などの漢字を含む括弧を一時置換
+    t = re.sub(
+        r'([\[\(（【〈《「『](?:\d+|[0-9]+|vol\.\d+|Vol\.\d+|[①-⑨]|[a-zA-Z0-9]+話|[a-zA-Z0-9]+巻)[\]\)）】〉》」』])',
+        replace_digit_bracket,
+        t
+    )
+
+    # 通常の装飾用の括弧とその中身を除去
     t = re.sub(r'[\[\(（【〈《「『].*?[\]\)）】〉》」』]', '', t)
+
+    # 一時退避させていた話数括弧を戻す
+    for placeholder, original in temp_placeholders:
+        t = t.replace(placeholder, original)
+
+    # スペース除去
     t = re.sub(r'[\s　]+', '', t)
     return t.strip()
 

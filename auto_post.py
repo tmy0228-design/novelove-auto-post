@@ -495,7 +495,7 @@ def _run_main_logic():
     logger.info("=" * 60)
 
 # === [v12.2.0] クロスDB重複排除（Fuzzy Matching）===
-def is_cross_db_duplicate(new_title, current_pid, threshold=0.90):
+def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90):
     """全DBを横断し、スッピンタイトルの類似度が閾値以上の published 記事があるか判定する。"""
     norm_new_clean = super_normalize_title(new_title)
     if not norm_new_clean:
@@ -517,7 +517,7 @@ def is_cross_db_duplicate(new_title, current_pid, threshold=0.90):
         c2.row_factory = sqlite3.Row
         # SQL側で正規化タイトルに対する部分一致で高速絞り込み（LIMIT制限なし）
         rows = c2.execute(
-            "SELECT product_id, title FROM novelove_posts WHERE status='published' AND product_id!=? AND super_normalize_title(title) LIKE ?",
+            "SELECT product_id, title, description FROM novelove_posts WHERE status='published' AND product_id!=? AND super_normalize_title(title) LIKE ?",
             (current_pid, query_pattern)
         ).fetchall()
         c2.close()
@@ -527,6 +527,13 @@ def is_cross_db_duplicate(new_title, current_pid, threshold=0.90):
                 continue
             ratio = difflib.SequenceMatcher(None, norm_new, norm_existing).ratio()
             if ratio >= threshold:
+                # あらすじ（description）の類似度セーフガード
+                existing_desc = r['description']
+                if new_desc and existing_desc:
+                    desc_ratio = difflib.SequenceMatcher(None, str(new_desc), str(existing_desc)).ratio()
+                    if desc_ratio < 0.30:
+                        logger.info(f"  [重複回避(救済)] タイトル類似度 {ratio:.0%} ({r['title'][:20]}) ですが、あらすじ類似度 {desc_ratio:.0%} のため別作品と判定します")
+                        continue
                 return True, r['title'], ratio
     except Exception as e:
         logger.warning(f"  [重複チェック] DB読み込みエラー: {e}")
@@ -606,7 +613,7 @@ def _execute_posting_flow(row, cursor, conn):
     }
 
     # v12.2.0: 統合DB・Fuzzy Matching重複チェック (旧24hガードレールを完全置換)
-    is_dup, dup_title, dup_ratio = is_cross_db_duplicate(title, pid)
+    is_dup, dup_title, dup_ratio = is_cross_db_duplicate(title, desc_str, pid)
     if is_dup:
         logger.warning(f"  [重複ブロック] スッピンタイトル '{normalize_title(title)}' は '{normalize_title(dup_title)}' と類似度 {dup_ratio:.0%} のためスキップ (元: {dup_title[:40]})")
         cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='duplicate_fuzzy' WHERE product_id=?", (pid,))
