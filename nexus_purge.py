@@ -13,7 +13,7 @@ import logging
 
 # novelove_core から必要な設定・関数を読み込む
 from novelove_core import (
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
+    DB_FILE_UNIFIED,
     db_connect, DEEPSEEK_API_KEY,
 )
 from novelove_writer import MODEL_ECONOMY, DEEPSEEK_API_URL

@@ -17,20 +17,19 @@ from novelove_soul import REVIEWERS, get_relationship, FACT_GUARD, NG_PHRASES, M
 
 from novelove_core import (
     logger, notify_discord,
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET,
+
     _get_reviewer_for_genre, _genre_label,
     get_db_path, get_source_db, db_connect, init_db,
     WP_SITE_URL, RANK_LOCK_FILE,
     is_emergency_stop,
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
-    DLSITE_AFFILIATE_ID, DIGIKET_AFFILIATE_ID,
+    DLSITE_AFFILIATE_ID,
     generate_affiliate_url,
 )
 
 from novelove_fetcher import (
     mask_input,
     scrape_description,
-    scrape_digiket_description,
     _is_noise_content,
 )
 
@@ -221,108 +220,6 @@ def fetch_ranking_dlsite(genre):
         
     return items[:5]
 
-def fetch_ranking_digiket(genre):
-    """v11.2.0: DigiKetのランキングを取得"""
-    items = []
-    is_bl = (genre == "BL")
-    seen_ids = set()
-    # BLは専用ページ、TLは一般コミックまたはXML API(target=6)を活用
-    if is_bl:
-        url = "https://www.digiket.com/bl/ranking_week.php"
-    else:
-        # 乙女・TLは独立したランキングページがないため、一般コミックランキングからTLタグのあるものを抽出
-        url = "https://www.digiket.com/comics/ranking_week.php"
-        tl_keywords = ["TL", "ティーンズラブ", "乙女", "女性向け"]
-        try:
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-            r.encoding = 'cp932'
-            soup = BeautifulSoup(r.text, 'html.parser')
-            # ランキング上位30件からTL系を探す
-            rank_items = []
-            for anchor in soup.find_all("a", href=True):
-                if "ID=ITM" not in anchor.get("href"): continue
-                t = anchor.text.strip()
-                if not t: continue
-                # TL系キーワードが含まれるか、乙女向けラベルがあるか
-                if any(kw in t for kw in tl_keywords) or "乙女" in str(anchor.parent):
-                    link = anchor.get("href")
-                    if not link.startswith("http"): link = "https://www.digiket.com" + link
-                    _m = re.search(r"ID=(ITM\d+)", link)
-                    if not _m: continue  # IDパターン不一致: AttributeError防止
-                    itm_id = _m.group(1)
-                    if itm_id in seen_ids: continue
-                    seen_ids.add(itm_id)
-                    desc, img, _, _, _, _ = scrape_digiket_description(link)
-                    aff_url = link
-                    if DIGIKET_AFFILIATE_ID:
-                        if not aff_url.endswith("/"): aff_url += "/"
-                        aff_url += f"AFID={DIGIKET_AFFILIATE_ID}/"
-                    rank_items.append({"title": t, "url": aff_url, "image_url": img, "description": mask_input(desc, 1)})
-                    if len(rank_items) >= 5: break
-            if rank_items: return rank_items
-        except Exception as e:
-            logger.error(f"  [DigiKet TL Ranking] フォールバック失敗: {e}")
-        
-        # さらに見つからない場合は XML API (sort=new) を最終手段に使用
-        xml_url = "https://api.digiket.com/xml/api/getxml.php?target=6&sort=new"
-        try:
-            r = requests.get(xml_url, timeout=15)
-            soup = BeautifulSoup(r.text, "html.parser")
-            for entry in soup.find_all("item")[:15]:
-                title = entry.find("title").text
-                link = entry.find("link").text
-                # 詳細を取得
-                desc, img, _, _, _, _ = scrape_digiket_description(link)
-                # 漫画・小説・ボイス (DigiKetはカテゴリ名に文字列が含まれる)
-                if not any(x in str(entry) for x in ["コミック", "小説", "マンガ", "ノベル", "ボイス", "音声", "ASMR", "ドラマCD", "シチュエーション"]):
-                    continue
-                aff_url = link
-                if DIGIKET_AFFILIATE_ID:
-                    if not aff_url.endswith("/"): aff_url += "/"
-                    aff_url += f"AFID={DIGIKET_AFFILIATE_ID}/"
-                items.append({"title": title, "url": aff_url, "image_url": img, "description": desc})
-                if len(items) >= 5: return items
-        except Exception as e:
-            logger.warning(f"  [DigiKet XML API失敗] {e}")
-        url = "https://www.digiket.com/comics/ranking_week.php" # フォールバック
-
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        r = requests.get(url, headers=headers, timeout=15)
-        r.encoding = 'cp932'
-        soup = BeautifulSoup(r.text, 'html.parser')
-        for anchor in soup.find_all("a", href=True):
-            href = anchor.get("href")
-            if "ID=ITM" not in href: continue
-            # ID抽出
-            itm_id = re.search(r"ID=(ITM\d+)", href)
-            if not itm_id: continue
-            pid = itm_id.group(1)
-            
-            title = anchor.text.strip()
-            if not title or len(title) < 2: continue
-            if pid in seen_ids: continue
-            seen_ids.add(pid)
-            
-            link = href
-            if not link.startswith("http"): link = "https://www.digiket.com" + link
-            # 種別確認
-            desc, img, _, _, _, _ = scrape_digiket_description(link)
-            if not any(x in (title + desc) for x in ["コミック", "小説", "マンガ", "ノベル", "ボイス", "音声", "ASMR", "ドラマCD", "シチュエーション"]): continue
-            # TLジャンルの場合はフォールバック時もTLキーワードによる絞り込みを強制（一般作品の混入を防ぐ）
-            if not is_bl:
-                tl_keywords = ["TL", "ティーンズラブ", "乙女", "女性向け"]
-                if not any(kw in (title + desc) for kw in tl_keywords):
-                    continue
-            aff_url = link
-            if DIGIKET_AFFILIATE_ID:
-                if not aff_url.endswith("/"): aff_url += "/"
-                aff_url += f"AFID={DIGIKET_AFFILIATE_ID}/"
-            items.append({"title": title, "url": aff_url, "image_url": img, "description": desc})
-            if len(items) >= 5: break
-    except Exception as e:
-        logger.error(f"DigiKet Ranking Error ({genre}): {e}")
-    return items
 
 def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
     """
@@ -515,7 +412,8 @@ def process_ranking_articles():
                 elif site == "DLsite":
                     items = fetch_ranking_dlsite(genre)
                 else:
-                    items = fetch_ranking_digiket(genre)
+                    logger.warning(f"  [{site}] 未対応サイトのためスキップ")
+                    continue
                     
                 if len(items) < 5:
                     logger.warning(f"  -> データ不足のためスキップ (取得数: {len(items)})")

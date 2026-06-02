@@ -15,7 +15,7 @@ else:
 # novelove_core から必要な設定をインポート
 from novelove_core import (
     logger,
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
+    DB_FILE_UNIFIED,
     db_connect,
 )
 

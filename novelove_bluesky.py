@@ -26,7 +26,6 @@ novelove_bluesky.py — Novelove Bluesky自動投稿モジュール
 
 import os
 import json
-import random
 import datetime
 import requests
 from atproto import Client, client_utils, models

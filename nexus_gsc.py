@@ -35,7 +35,7 @@ else:
 
 from novelove_core import (
     logger,
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
+    DB_FILE_UNIFIED,
     db_connect, notify_discord,
 )
 

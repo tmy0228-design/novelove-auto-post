@@ -32,7 +32,7 @@ from datetime import datetime
 # 環境変数・.envの読み込みは novelove_core.py で一元管理
 from novelove_core import (
     logger,
-    DB_FILE_DLSITE, DB_FILE_UNIFIED,
+    DB_FILE_UNIFIED,
     db_connect, notify_discord,
     WP_SITE_URL, HEADERS,
     WP_USER, WP_APP_PASSWORD,
@@ -48,12 +48,6 @@ BESTSELLER_TAG_NAME = "売れ筋作品"
 BESTSELLER_TAG_SLUG = "best-seller"
 
 
-# DigiKet XML API のターゲットID
-DIGIKET_TARGETS = [
-    {"target": "8", "label": "商業BL"},
-    {"target": "6", "label": "商業TL"},
-    {"target": "2", "label": "同人"},
-]
 
 
 # =====================================================================
@@ -552,112 +546,6 @@ def fetch_dlsite_ranking_product_ids():
     logger.info(f"  [DLsite] ランキング作品 {len(ranking_ids)}件 検知")
     return ranking_ids
 
-
-# =====================================================================
-# 5. DigiKet ランキング取得（公式XML API sort=week）
-# =====================================================================
-def fetch_digiket_ranking_product_ids():
-    """
-    DigiKet公式XML API の sort=week を使って週間ランキングTOP30の作品IDを取得する。
-    各ターゲットあたり30件（FANZA=20×4フロアとのバランス調整、v12.7.0）。
-    """
-    RANKING_TOP_N = 30  # 各ターゲットから取得するTOP件数（FANZA=20×4フロア に合わせたバランス調整）
-    ranking_ids = set()
-    for tgt in DIGIKET_TARGETS:
-        for sort_type in ["week"]:  # 週間のみ（各サイト統一：月間は除外）
-            try:
-                url = f"https://api.digiket.com/xml/api/getxml.php?target={tgt['target']}&sort={sort_type}"
-                r = requests.get(url, timeout=15)
-                if r.status_code != 200:
-                    continue
-                content = r.content.decode("utf-8", errors="ignore")
-                # 出現順を保持して重複除去→先頭30件のみ取得
-                item_ids = list(dict.fromkeys(re.findall(r"ITM(\d+)", content)))[:RANKING_TOP_N]
-                for iid in item_ids:
-                    ranking_ids.add(f"itm{iid}")
-            except Exception as e:
-                logger.warning(f"  [DigiKet] ランキング取得エラー ({tgt['label']}/{sort_type}): {e}")
-
-    logger.info(f"  [DigiKet] ランキング作品 {len(ranking_ids)}件 検知")
-    return ranking_ids
-
-
-def fetch_digiket_sale_product_ids():
-    """
-    DigiKetのセール情報をジャンル別専用URLからスクレイピングで取得する（v12.7.0刷新, v19.1.0改修）。
-    camp=on パラメータにより本物のセール中作品のみを厳密に取得。
-    v19.1.0: 割引率30%未満の作品を除外するフィルタリングを追加。
-    取得に失敗しても他サイトの処理に影響しない（隔離設計）。
-    """
-    MIN_DISCOUNT_RATE = 30  # セール対象とみなす最低割引率（%）
-    sale_ids = set()
-    skipped_count = 0
-    # 女性向けジャンル別のセール専用URL（camp=on で本物のセール中のみに絞込）
-    sale_urls = [
-        "https://www.digiket.com/b/result/_data/limit=300/camp=on/sort=camp_end/",   # 女性向同人
-        "https://www.digiket.com/bl/result/_data/limit=300/camp=on/sort=camp_end/",  # BL商業
-    ]
-    for url in sale_urls:
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=15)
-            if r.status_code != 200:
-                logger.warning(f"  [DigiKet] セールページ取得失敗: status={r.status_code} url={url}")
-                continue
-            html_text = r.content.decode("EUC-JP", errors="ignore")
-            soup = BeautifulSoup(html_text, "html.parser")
-
-            for dl in soup.find_all("dl"):
-                name_dt = dl.find("dt", class_="item_name")
-                if not name_dt:
-                    continue
-                a_tag = name_dt.find("a")
-                if not a_tag:
-                    continue
-                href = a_tag.get("href", "")
-                m_id = re.search(r"ID=ITM(\d+)", href)
-                if not m_id:
-                    continue
-
-                item_id = f"itm{m_id.group(1)}"
-                discount_pct = None
-
-                # 方法A: item-discount_bk > item-title_prcent から直接取得（BL商業ページ）
-                discount_dt = dl.find("dt", class_="item-discount_bk")
-                if discount_dt:
-                    pct_span = discount_dt.find("span", class_="item-title_prcent")
-                    if pct_span:
-                        m_pct = re.search(r"(\d+)%", pct_span.text)
-                        if m_pct:
-                            discount_pct = int(m_pct.group(1))
-
-                # 方法B: 価格差から計算（女性向同人ページ等、方法Aが使えない場合）
-                if discount_pct is None:
-                    price_dt = dl.find("dt", class_="item-price")
-                    price2_dt = dl.find("dt", class_="item_price2")
-                    if price_dt and price2_dt:
-                        strong = price_dt.find("strong")
-                        current_text = strong.text if strong else ""
-                        m_cur = re.search(r"(\d+)", current_text.replace(",", ""))
-                        s_tag = price2_dt.find("s")
-                        orig_text = s_tag.text if s_tag else ""
-                        m_orig = re.search(r"(\d+)", orig_text.replace(",", ""))
-                        if m_cur and m_orig:
-                            current_price = int(m_cur.group(1))
-                            original_price = int(m_orig.group(1))
-                            if original_price > 0:
-                                discount_pct = round((1 - current_price / original_price) * 100)
-
-                # 割引率フィルタリング
-                if discount_pct is not None and discount_pct >= MIN_DISCOUNT_RATE:
-                    sale_ids.add(item_id)
-                else:
-                    skipped_count += 1
-
-        except Exception as e:
-            logger.warning(f"  [DigiKet] セール取得エラー ({url}): {e}")
-
-    logger.info(f"  [DigiKet] セール作品 {len(sale_ids)}件 検知（{skipped_count}件は{MIN_DISCOUNT_RATE}%OFF未満のため除外）")
-    return sale_ids
 
 
 # =====================================================================

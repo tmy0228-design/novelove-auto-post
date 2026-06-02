@@ -57,12 +57,12 @@ import argparse
 
 # --- Discord通知機能 ---
 # --- ライター性格設定・執筆ルール（novelove_soul.py に分離管理）---
-from novelove_soul import REVIEWERS, MOOD_PATTERNS, FACT_GUARD, NG_PHRASES, get_relationship
+from novelove_soul import REVIEWERS
 from novelove_bluesky import post_to_bluesky
 
 from novelove_core import (
     logger, ERROR_LABELS, notify_discord,
-    DB_FILE_FANZA, DB_FILE_DLSITE, DB_FILE_DIGIKET, DB_FILE_UNIFIED,
+    DB_FILE_UNIFIED,
     get_affiliate_button_html, generate_affiliate_url,
     _get_reviewer_for_genre, _genre_label,
     get_db_path, get_source_db, db_connect, init_db, get_genre_index, save_genre_index,
@@ -71,20 +71,14 @@ from novelove_core import (
     is_emergency_stop, trigger_emergency_stop,
     OPENROUTER_API_KEY, WP_USER, WP_APP_PASSWORD,
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
-    DLSITE_AFFILIATE_ID, DIGIKET_AFFILIATE_ID,
+    DLSITE_AFFILIATE_ID,
     WP_PHP_PATH, WP_CLI_PATH, WP_DOC_ROOT,
 )
 
-# === 取得ロジックは novelove_fetcher.py に分離 ===
 from novelove_fetcher import (
     fetch_and_stock_all,
     FETCH_TARGETS,
-    AI_TAG_WHITELIST,
     mask_input,
-    scrape_description,
-    scrape_digiket_description,
-    _is_noise_content,
-    _check_image_ok,
 )
 
 from novelove_writer import (
@@ -94,8 +88,6 @@ from novelove_writer import (
     call_deepseek,
     make_excerpt,
     generate_article,
-    DEEPSEEK_API_URL,
-    DEEPSEEK_MODEL,
 )
 
 from novelove_ranking import process_ranking_articles
