@@ -1015,8 +1015,7 @@ def run_desc_check():
     else:
         summary += f"┗ ✅ 全件正常取得完了"
 
-    if updated_count > 0:
-        notify_discord(summary, username="📝 あらすじ更新検知")
+
 
     logger.info(summary.replace("**", "").replace("┣", "  ").replace("┗", "  "))
     logger.info("=" * 60)

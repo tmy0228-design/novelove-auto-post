@@ -998,7 +998,6 @@ def fetch_and_stock_all():
                 # あらすじは存在するが文字数が少なすぎる商品（サイト構造変化ではない）
                 last_error = "desc_too_short"
                 desc = ""
-                notify_discord(f"ℹ️ [{disp_site}] あらすじ短すぎスキップ: {item.get('title','')[:40]}\nURL: {item.get('URL', '')}", username="スクレイピング監視")
             elif not desc:
                 last_error = "no_description"
                 failed_titles.append(item.get("title", "不明"))
