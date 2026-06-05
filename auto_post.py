@@ -494,6 +494,41 @@ def _run_main_logic():
         )
     logger.info("=" * 60)
 
+# === [v20.0.7] 末尾数字（話数・巻数）抽出用ヘルパー ===
+def extract_tail_number(title_str):
+    if not title_str:
+        return None
+    import re
+    s = title_str.strip()
+    
+    circled_map = {
+        '①': 1, '②': 2, '③': 3, '④': 4, '⑤': 5, '⑥': 6, '⑦': 7, '⑧': 8, '⑨': 9, '⑩': 10,
+        '⑪': 11, '⑫': 12, '⑬': 13, '⑭': 14, '⑮': 15, '⑯': 16, '⑰': 17, '⑱': 18, '⑲': 19, '⑳': 20
+    }
+    
+    if s and s[-1] in circled_map:
+        return circled_map[s[-1]]
+        
+    m = re.search(r'[\(\[（【〈《「『]\s*([0-9０-９]+)\s*[話巻]?\s*[\)\]）】〉》」』]$', s)
+    if m:
+        num_str = m.group(1)
+        num_str = "".join(chr(ord(c) - 0xfee0) if '０' <= c <= '９' else c for c in num_str)
+        try:
+            return int(num_str)
+        except ValueError:
+            return None
+            
+    m2 = re.search(r'([0-9０-９]+)\s*[話巻]?\s*[！？\?\!\.…\s]*$', s)
+    if m2:
+        num_str = m2.group(1)
+        num_str = "".join(chr(ord(c) - 0xfee0) if '０' <= c <= '９' else c for c in num_str)
+        try:
+            return int(num_str)
+        except ValueError:
+            return None
+            
+    return None
+
 # === [v12.2.0] クロスDB重複排除（Fuzzy Matching）===
 def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90):
     """全DBを横断し、スッピンタイトルの類似度が閾値以上の published 記事があるか判定する。"""
@@ -510,6 +545,7 @@ def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90):
         
     query_pattern = f"%{clean_prefix}%"
     norm_new = normalize_title(new_title)
+    new_tail_num = extract_tail_number(new_title)
     
     # v18.0.0: 統合DB1本で全サイト横断検索（検索漏れがなくなり改善）
     try:
@@ -525,6 +561,13 @@ def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90):
             norm_existing = normalize_title(r['title'])
             if not norm_existing:
                 continue
+                
+            # 話数・巻数（末尾数字）の異なる作品を重複から除外（救済）
+            existing_tail_num = extract_tail_number(r['title'])
+            if new_tail_num is not None and existing_tail_num is not None and new_tail_num != existing_tail_num:
+                logger.info(f"  [重複回避(話数違い)] 新規末尾: {new_tail_num}, 既存末尾: {existing_tail_num} のため別作品と判定します (既存: {r['title'][:20]})")
+                continue
+                
             ratio = difflib.SequenceMatcher(None, norm_new, norm_existing).ratio()
             if ratio >= threshold:
                 # あらすじ（description）の類似度セーフガード
