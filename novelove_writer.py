@@ -9,7 +9,7 @@ import re
 import time
 import requests
 
-from novelove_soul import REVIEWERS, MOOD_PATTERNS, get_relationship, AI_TAG_WHITELIST
+from novelove_soul import REVIEWERS, MOOD_PATTERNS, get_relationship, AI_TAG_WHITELIST, TAGS_COMMON, TAGS_VOICE_ONLY
 
 from novelove_core import (
     logger, ArticleResult,
@@ -323,18 +323,19 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
             f"今回の吹き出しコメントのどこかで、自然な流れの中で「{catchphrase}」という表現を1回だけ使ってください。\n"
         )
 
-    # v20.1.0: AI_TAG_WHITELIST 整理に追従 (ダミーヘッドマイク、強引、腹黒等を削除、トレンドタグを追加)
+    # v20.1.0: タグ定義をnovelove_soul.pyから動的生成（BL/TL分離を廃止し、一元管理）
+    _common_str = "/".join(TAGS_COMMON)
     if is_voice:
+        _voice_str = "/".join(TAGS_VOICE_ONLY)
         tags_block = (
             "TAGS: （作品に合うものを最大3つ、カンマ区切り。該当なしは「なし」）\n"
-            "音声特有: ASMR/バイノーラル/シチュエーションボイス/囁き声/耳かき/添い寝/耳舐め/吐息/ドラマCD/耳元/KU100/癒し\n"
-            "共通テーマ: 執着/ヤンデレ/年の差/一途/運命/溺愛/独占欲/年下攻め/幼なじみ/主従/身分差/ハッピーエンド"
+            f"音声特有: {_voice_str}\n"
+            f"共通テーマ: {_common_str}"
         )
     else:
         tags_block = (
             "TAGS: （作品に合うものを最大3つ、カンマ区切り。該当なしは「なし」）\n"
-            "BL系: オメガバース/ヤンデレ/スパダリ/執着/年下攻め/幼なじみ/ケンカップル/主従/オフィスラブ/年の差/転生/再会/一途/運命/ハッピーエンド\n"
-            "TL系: 溺愛/身分差/契約結婚/御曹司/オフィスラブ/独占欲/初恋/記憶喪失/年の差/ハッピーエンド/ざまぁ/悪役令嬢/婚約破棄/異世界/健気/身代わり/冷遇"
+            f"タグ候補: {_common_str}"
         )
 
     return f"""あなたは「Novelove」のライター「{reviewer["name"]}」です。
