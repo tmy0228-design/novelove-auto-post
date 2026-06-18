@@ -377,7 +377,8 @@ def calculate_local_priority(title: str, desc: str, tags: str = "", original_tag
         score += 8
 
     # 3. パワーワード加点（需要高タグ）
-    power_words = ["溺愛", "ヤンデレ", "スパダリ", "オメガバース", "執着", "独占欲", "幼なじみ", "NTR", "身分差", "再会", "契約結婚", "一途", "初恋"]
+    power_words = ["溺愛", "ヤンデレ", "スパダリ", "オメガバース", "執着", "独占欲", "幼なじみ", "NTR", "身分差", "再会", "契約結婚", "一途", "初恋",
+                   "ざまぁ", "悪役令嬢", "婚約破棄", "異世界", "健気", "身代わり", "冷遇"]  # v20.0.0: トレンドワード追加
     for pw in power_words:
         if pw in full_text:
             score += 2
