@@ -366,8 +366,8 @@ def _run_main_logic():
                 "SELECT product_id FROM novelove_posts WHERE status='pending' AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
                 (genre, sdb)
             ).fetchall()
-            if len(rows) > 20:
-                to_exclude = [r[0] for r in rows[20:]]
+            if len(rows) > 60:
+                to_exclude = [r[0] for r in rows[60:]]
                 placeholders = ",".join(["?"] * len(to_exclude))
                 c.execute(
                     f"UPDATE novelove_posts SET status='excluded', last_error='inventory_full' WHERE product_id IN ({placeholders})",

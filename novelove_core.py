@@ -353,13 +353,15 @@ def calculate_local_priority(title: str, desc: str, tags: str = "", original_tag
             today_dt = datetime.datetime.now().date()
             days_ago = (today_dt - release_dt).days
             if days_ago == 0:
-                score += 50   # 当日発売
+                score += 30   # 当日発売
             elif days_ago == 1:
-                score += 30   # 昨日
+                score += 25   # 昨日
             elif days_ago == 2:
-                score += 15   # 2日前
+                score += 20   # 2日前
             elif days_ago == 3:
-                score += 5    # 3日前
+                score += 15   # 3日前
+            elif 4 <= days_ago <= 7:
+                score += 10   # 4〜7日前
         except (ValueError, TypeError):
             pass
 
