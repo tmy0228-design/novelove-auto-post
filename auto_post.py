@@ -712,6 +712,44 @@ def _execute_posting_flow(row, cursor, conn):
             excl_tag = "らぶカル専売"
         if excl_tag and excl_tag not in final_ai_tags:
             final_ai_tags.append(excl_tag)
+
+        # v20.0.5: 新規投稿時の専売タイトルプレフィックス＆専用バナー初期付与
+        _sn_excl = _sn or ("Lovecal" if "らぶカル" in str(site_label) else "")
+        excl_prefix = ""
+        excl_banner = ""
+        if _sn_excl == "DLsite":
+            excl_prefix = "【DLsite専売】"
+            excl_banner = (
+                "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+                '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #7b1fa2, #e91e63); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(123, 31, 162, 0.2);">\n'
+                "    【DLsite専売】 ここでしか読めない限定配信作品です！\n"
+                "</div>\n"
+                "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+            )
+        elif _sn_excl == "Lovecal":
+            excl_prefix = "【らぶカル専売】"
+            excl_banner = (
+                "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+                '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #ff5722, #ff9800); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(255, 87, 34, 0.2);">\n'
+                "    【らぶカル専売】 ここでしか読めない限定配信作品です！\n"
+                "</div>\n"
+                "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+            )
+        elif _sn_excl == "DMM":
+            excl_prefix = "【DMM独占】"
+            excl_banner = (
+                "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+                '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #0d47a1, #29b6f6); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(13, 71, 161, 0.2);">\n'
+                "    【DMM独占】 ここでしか読めない限定配信作品です！\n"
+                "</div>\n"
+                "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+            )
+            
+        if excl_prefix:
+            wp_title = f"{excl_prefix}{wp_title}"
+        if excl_banner:
+            content = excl_banner + content
+
     link, wp_post_id = post_to_wordpress(
         wp_title, content, row["genre"], img_url,
         excerpt=excerpt, seo_title=seo_title, slug=pid, is_r18=is_r18,

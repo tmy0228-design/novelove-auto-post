@@ -267,20 +267,24 @@ def _wp_get_posts_with_tag(tag_id):
 # =====================================================================
 def get_all_published_product_ids():
     """
-    統合DBから status='published' の product_id と site を返す。
-    戻り値: { product_id: site_string, ... }
+    統合DBから status='published' の product_id, site, is_exclusive を返す。
+    戻り値: { product_id: {"site": site_string, "is_exclusive": is_exclusive_value}, ... }
     """
     result = {}
     # v18.0.0: 統合DB1本から取得
+    # v20.0.5: is_exclusive も併せて取得
     try:
         conn = db_connect(DB_FILE_UNIFIED)
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT product_id, site FROM novelove_posts WHERE status='published'"
+            "SELECT product_id, site, is_exclusive FROM novelove_posts WHERE status='published'"
         ).fetchall()
         conn.close()
         for r in rows:
-            result[r["product_id"].lower()] = r["site"] or ""
+            result[r["product_id"].lower()] = {
+                "site": r["site"] or "",
+                "is_exclusive": r["is_exclusive"] if "is_exclusive" in r.keys() else 0
+            }
     except Exception as e:
         logger.warning(f"  [DB] 読み込みエラー: {e}")
     return result
@@ -651,26 +655,114 @@ def run_nexus():
 
     SALE_BANNER_HTML = (
         "<!-- NOVELOVE_SALE_BANNER_START -->\n"
-        '<div class="novelove-sale-banner" style="background: linear-gradient(135deg, #ff4e50, #f9d423); color: #fff; padding: 8px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; box-shadow: 0 2px 10px rgba(255, 78, 80, 0.2);">\n'
-        "    🔥 【期間限定セール中！】今だけお得に購入できるチャンスです！\n"
+        '<div class="novelove-sale-banner" style="background: linear-gradient(135deg, #ff4e50, #f9d423); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(255, 78, 80, 0.2);">\n'
+        "    【期間限定セール中！】 今だけお得に購入できるチャンスです！\n"
         "</div>\n"
         "<!-- NOVELOVE_SALE_BANNER_END -->\n"
     )
 
     RANK_BANNER_HTML = (
         "<!-- NOVELOVE_RANK_BANNER_START -->\n"
-        '<div class="novelove-rank-banner" style="background: linear-gradient(135deg, #f5af19, #f12711); color: #fff; padding: 8px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; box-shadow: 0 2px 10px rgba(245, 175, 25, 0.2);">\n'
-        "    🏆 【売れ筋！】週間ランキング入りした、今売れている作品です\n"
+        '<div class="novelove-rank-banner" style="background: linear-gradient(135deg, #f5af19, #f12711); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(245, 175, 25, 0.2);">\n'
+        "    【売れ筋！】 週間ランキング入りした人気作品です！\n"
         "</div>\n"
         "<!-- NOVELOVE_RANK_BANNER_END -->\n"
     )
 
     COMBINED_BANNER_HTML = (
         "<!-- NOVELOVE_COMBINED_BANNER_START -->\n"
-        '<div class="novelove-combined-banner" style="background: linear-gradient(135deg, #ff4e50, #f5af19); color: #fff; padding: 8px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; box-shadow: 0 2px 10px rgba(255, 78, 80, 0.2);">\n'
-        "    🔥🏆 【セール＆売れ筋！】週間ランキング入り！今だけお得な注目作\n"
+        '<div class="novelove-combined-banner" style="background: linear-gradient(135deg, #ff4e50, #f5af19); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(255, 78, 80, 0.2);">\n'
+        "    【セール＆売れ筋！】 週間ランキング入り！今だけお得な注目作！\n"
         "</div>\n"
         "<!-- NOVELOVE_COMBINED_BANNER_END -->\n"
+    )
+
+    # === v20.0.5: 専売バナー定義（共通マーカー NOVELOVE_EXCLUSIVE_BANNER を使用） ===
+    DLSITE_EXCL_BANNER_HTML = (
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+        '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #7b1fa2, #e91e63); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(123, 31, 162, 0.2);">\n'
+        "    【DLsite専売】 ここでしか読めない限定配信作品です！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+    )
+    DLSITE_EXCL_SALE_BANNER_HTML = (
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+        '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #7b1fa2, #e91e63); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(123, 31, 162, 0.2);">\n'
+        "    【DLsite専売・セール中！】 今だけお得に購入できるチャンスです！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+    )
+    DLSITE_EXCL_RANK_BANNER_HTML = (
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+        '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #7b1fa2, #e91e63); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(123, 31, 162, 0.2);">\n'
+        "    【DLsite専売・売れ筋！】 週間ランキング入りした限定注目作です！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+    )
+    DLSITE_EXCL_TRIPLE_BANNER_HTML = (
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+        '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #7b1fa2, #e91e63); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(123, 31, 162, 0.2);">\n'
+        "    【DLsite専売・セール＆売れ筋！】 週間ランキング入り！今だけお得な限定注目作！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+    )
+
+    LOVECAL_EXCL_BANNER_HTML = (
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+        '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #ff5722, #ff9800); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(255, 87, 34, 0.2);">\n'
+        "    【らぶカル専売】 ここでしか読めない限定配信作品です！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+    )
+    LOVECAL_EXCL_SALE_BANNER_HTML = (
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+        '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #ff5722, #ff9800); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(255, 87, 34, 0.2);">\n'
+        "    【らぶカル専売・セール中！】 今だけお得に購入できるチャンスです！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+    )
+    LOVECAL_EXCL_RANK_BANNER_HTML = (
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+        '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #ff5722, #ff9800); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(255, 87, 34, 0.2);">\n'
+        "    【らぶカル専売・売れ筋！】 週間ランキング入りした限定注目作です！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+    )
+    LOVECAL_EXCL_TRIPLE_BANNER_HTML = (
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+        '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #ff5722, #ff9800); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(255, 87, 34, 0.2);">\n'
+        "    【らぶカル専売・セール＆売れ筋！】 週間ランキング入り！今だけお得な限定注目作！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+    )
+
+    DMM_EXCL_BANNER_HTML = (
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+        '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #0d47a1, #29b6f6); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(13, 71, 161, 0.2);">\n'
+        "    【DMM独占】 ここでしか読めない限定配信作品です！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+    )
+    DMM_EXCL_SALE_BANNER_HTML = (
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+        '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #0d47a1, #29b6f6); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(13, 71, 161, 0.2);">\n'
+        "    【DMM独占・セール中！】 今だけお得に購入できるチャンスです！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+    )
+    DMM_EXCL_RANK_BANNER_HTML = (
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+        '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #0d47a1, #29b6f6); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(13, 71, 161, 0.2);">\n'
+        "    【DMM独占・売れ筋！】 週間ランキング入りした限定注目作です！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
+    )
+    DMM_EXCL_TRIPLE_BANNER_HTML = (
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->\n"
+        '<div class="novelove-exclusive-banner" style="background: linear-gradient(135deg, #0d47a1, #29b6f6); color: #fff; padding: 10px 12px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 10px rgba(13, 71, 161, 0.2);">\n'
+        "    【DMM独占・セール＆売れ筋！】 週間ランキング入り！今だけお得な限定注目作！\n"
+        "</div>\n"
+        "<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n"
     )
 
     for pid in all_targets:
@@ -685,6 +777,14 @@ def run_nexus():
         
         logs = []
         wp_payload = {}
+
+        # 専売（独占）状態の取得 (v20.0.5)
+        post_info = published_pids.get(pid.lower())
+        is_exclusive = False
+        site_str = ""
+        if post_info:
+            is_exclusive = post_info.get("is_exclusive", 0) == 1
+            site_str = post_info.get("site", "")
 
         # 現在および更新後のセール状態を決定
         is_sale = False
@@ -712,16 +812,42 @@ def run_nexus():
         clean_title = current_title
         while True:
             prev_title = clean_title
+            # 新旧すべてのプレフィックスを安全に除去
             clean_title = re.sub(r"^【期間限定セール中！】", "", clean_title).strip()
             clean_title = re.sub(r"^【人気売れ筋！】", "", clean_title).strip()
+            clean_title = re.sub(r"^【セール中】", "", clean_title).strip()
+            clean_title = re.sub(r"^【売れ筋】", "", clean_title).strip()
+            clean_title = re.sub(r"^【DLsite専売】", "", clean_title).strip()
+            clean_title = re.sub(r"^【らぶカル専売】", "", clean_title).strip()
+            clean_title = re.sub(r"^【DMM独占】", "", clean_title).strip()
+            clean_title = re.sub(r"^【セール＆売れ筋！】", "", clean_title).strip()
             if clean_title == prev_title:
                 break
 
+        # ストア別の専売プレフィックス決定
+        excl_prefix = ""
+        if is_exclusive:
+            if "DLsite" in site_str:
+                excl_prefix = "【DLsite専売】"
+            elif "Lovecal" in site_str or "らぶカル" in site_str:
+                excl_prefix = "【らぶカル専売】"
+            elif "DMM" in site_str or "FANZA" in site_str:
+                excl_prefix = "【DMM独占】"
+
+        # 重複制御ルール：
+        # - 専売 ＆ セール ＆ 売れ筋 ➔ 【専売】【セール中】 に制限（売れ筋を非表示）
+        # - それ以外は最大2つまで並べる
         prefix = ""
-        if is_sale:
-            prefix += "【期間限定セール中！】"
-        if is_rank:
-            prefix += "【人気売れ筋！】"
+        if is_exclusive and is_sale and is_rank:
+            prefix = f"{excl_prefix}【セール中】"
+        else:
+            if is_exclusive and excl_prefix:
+                prefix += excl_prefix
+            if is_sale:
+                prefix += "【セール中】"
+            if is_rank:
+                prefix += "【売れ筋】"
+
         new_title = f"{prefix}{clean_title}"
 
         # --- 本文バナーのクリーンアップ & 再構築 ---
@@ -744,14 +870,53 @@ def run_nexus():
             clean_content,
             flags=re.DOTALL
         )
+        # 専売バナー（共通マーカー仕様）を一括除去
+        clean_content = re.sub(
+            r"<!-- NOVELOVE_EXCLUSIVE_BANNER_START -->.*?<!-- NOVELOVE_EXCLUSIVE_BANNER_END -->\n?",
+            "",
+            clean_content,
+            flags=re.DOTALL
+        )
+
+        # ストア別の専売バナーHTMLの決定
+        excl_banner = ""
+        excl_sale_banner = ""
+        excl_rank_banner = ""
+        excl_triple_banner = ""
+        if "DLsite" in site_str:
+            excl_banner = DLSITE_EXCL_BANNER_HTML
+            excl_sale_banner = DLSITE_EXCL_SALE_BANNER_HTML
+            excl_rank_banner = DLSITE_EXCL_RANK_BANNER_HTML
+            excl_triple_banner = DLSITE_EXCL_TRIPLE_BANNER_HTML
+        elif "Lovecal" in site_str or "らぶカル" in site_str:
+            excl_banner = LOVECAL_EXCL_BANNER_HTML
+            excl_sale_banner = LOVECAL_EXCL_SALE_BANNER_HTML
+            excl_rank_banner = LOVECAL_EXCL_RANK_BANNER_HTML
+            excl_triple_banner = LOVECAL_EXCL_TRIPLE_BANNER_HTML
+        elif "DMM" in site_str or "FANZA" in site_str:
+            excl_banner = DMM_EXCL_BANNER_HTML
+            excl_sale_banner = DMM_EXCL_SALE_BANNER_HTML
+            excl_rank_banner = DMM_EXCL_RANK_BANNER_HTML
+            excl_triple_banner = DMM_EXCL_TRIPLE_BANNER_HTML
 
         new_content = clean_content
-        if is_sale and is_rank:
-            new_content = COMBINED_BANNER_HTML + new_content
-        elif is_sale:
-            new_content = SALE_BANNER_HTML + new_content
-        elif is_rank:
-            new_content = RANK_BANNER_HTML + new_content
+        # 帯の全8パターン・排他統合挿入ロジック
+        if is_exclusive:
+            if is_sale and is_rank:
+                new_content = excl_triple_banner + new_content
+            elif is_sale:
+                new_content = excl_sale_banner + new_content
+            elif is_rank:
+                new_content = excl_rank_banner + new_content
+            else:
+                new_content = excl_banner + new_content
+        else:
+            if is_sale and is_rank:
+                new_content = COMBINED_BANNER_HTML + new_content
+            elif is_sale:
+                new_content = SALE_BANNER_HTML + new_content
+            elif is_rank:
+                new_content = RANK_BANNER_HTML + new_content
 
         # ログメッセージの生成
         if sale_tag_id not in original_tags and sale_tag_id in new_tags:
@@ -775,6 +940,9 @@ def run_nexus():
         # 何かしら変更がある場合のみ一括更新APIを叩く
         if wp_payload:
             if update_post_data(wp_post_id, wp_payload):
+                # タイトルや本文の更新があった場合もキャッシュクリアのトリガーにするためのステータス加算
+                if new_title != current_title or new_content != current_content:
+                    stats["sale_added"] += 1  # キャッシュクリアを強制発動するためのダミー加算
                 for stat_key, log_msg in logs:
                     stats[stat_key] += 1
                     logger.info(log_msg)
