@@ -275,6 +275,9 @@ def run_gsc():
     # --- Discord 通知 ---
     _send_discord_summary(dead_lv1, dead_lv2, dead_lv3)
 
+    # --- v20.6.0: GSCクリック上位記事をWordPressに同期 ---
+    sync_popular_to_wp()
+
     logger.info("=" * 60)
     logger.info("🏁 GSC 死に記事検知バッチ完了")
     logger.info("=" * 60)
@@ -313,7 +316,47 @@ def _send_discord_summary(lv1: list, lv2: list, lv3: list):
 
 
 # =====================================================================
-# 6. エントリーポイント
+# 6. GSCクリック上位記事のWordPress同期 (v20.6.0)
+# =====================================================================
+def sync_popular_to_wp():
+    """GSCクリック数の上位10件のwp_post_idを取得し、
+    WordPressのwp_optionsに 'novelove_popular_ids' として保存する。
+    functions.php側でこのオプションを読み取り、注目作品セクションを表示する。
+    """
+    import subprocess, json
+    try:
+        conn = db_connect(DB_FILE_UNIFIED)
+        cursor = conn.execute(
+            "SELECT wp_post_id FROM novelove_posts "
+            "WHERE status='published' AND gsc_clicks > 0 AND wp_post_id IS NOT NULL AND wp_post_id > 0 "
+            "ORDER BY gsc_clicks DESC LIMIT 10"
+        )
+        ids = [row[0] for row in cursor.fetchall()]
+        conn.close()
+
+        if not ids:
+            logger.info("  [Popular] GSCクリック実績のある記事が0件のため同期スキップ")
+            return
+
+        ids_json = json.dumps(ids)
+        wp_path = "/home/kusanagi/myblog/DocumentRoot"
+        # WP-CLIでwp_optionsに保存（autoload=yes で高速読み込み）
+        result = subprocess.run(
+            ["wp", "option", "update", "novelove_popular_ids", ids_json, f"--path={wp_path}", "--allow-root"],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            logger.info(f"  [Popular] WordPress同期完了: {len(ids)}件のwp_post_idを保存 {ids}")
+        else:
+            logger.error(f"  [Popular] WordPress同期失敗: {result.stderr}")
+
+    except Exception as e:
+        logger.error(f"  [Popular] 同期エラー: {e}")
+
+
+# =====================================================================
+# 7. エントリーポイント
 # =====================================================================
 if __name__ == "__main__":
     run_gsc()
+
