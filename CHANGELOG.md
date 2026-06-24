@@ -1,4 +1,21 @@
-## v20.6.0 — YARPP最適化 & GSC連動「注目作品」内部リンクセクション新設 (2026-06-24)
+## v20.6.1 — 注目作品セクション 表示順序修正・デザイン調整 (2026-06-24)
+
+### 🔧 fix(seo/popular): 注目作品セクションの表示順序とデザインを修正
+- **表示順序の修正**:
+  - `the_content` フィルター（priority: 1201）による追記方式から、`wp_footer` フック + JavaScriptの DOM 操作方式に変更。
+  - JavaScript で `document.querySelector('.yarpp.yarpp-related')` を取得し、`.nextSibling` に `insertBefore` で挿入することで、YARPP関連記事の**直後**に確実に表示。
+- **デザインの調整**:
+  - クラス名を `novelove-popular-*` → `nlv-popular-*`、`nlv-pop-link` にリファクタリング。
+  - 余白を削減（`margin-top/bottom: 20px/15px` → `padding: 8px 0 4px`）。
+  - 見出しラベルを `font-size: 11px` / `color: #bbb` に変更し、ページになじむ控えめなデザインに。
+  - リンクを `font-size: 12px` / `color: #999` に調整（ホバーで `#d81b60` に変化）。
+- **KUSANAGIキャッシュのクリア**:
+  - `kusanagi fcache clear myblog` と `kusanagi bcache clear myblog` を実行し、新HTMLが確実に配信されることを確認。
+  - 本番動作確認: `nlv-pop-link` × 1（スクリプトブロック） ✅ / 旧 `novelove-popular-section` 0件 ✅
+
+---
+
+
 
 ### ✨ feat(seo/internal-linking): GSCクリック上位記事の「注目作品」セクション自動表示
 - **GSCデータ連動の人気記事セクション**:
