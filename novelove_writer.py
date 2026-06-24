@@ -550,10 +550,6 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
     _has_tags = bool(str(target.get("original_tags", "")).strip())
     article_pattern = _select_html_pattern(target.get("desc_score", 4), _desc_len, _has_tags)
 
-    final_error = "content_block"
-    final_model = DEEPSEEK_MODEL
-    final_proc_time = 0.0
-    
     # v17.1.0/v17.5.0: 全記事 DeepSeek-V4-Flash に統一（MODEL_PREMIUMへの切り替え廃止）
     model_id = MODEL_ECONOMY
     logger.info(f"  [🦋DeepSeek-V4-Flash] 全記事統一モード (score={target.get('desc_score', 4)})")
@@ -802,11 +798,11 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             )
         if error_type == "rate_limit":
             logger.warning("  レート制限 → フィルター試行を中断")
-            break
+            return ArticleResult(status=final_error, model=final_model, level="None", proc_time=final_proc_time)
         if error_type == "api_error":
             # A-1: サーバーエラー/タイムアウトはマスクレベルと無関係のため即中断（無駄なAPI課金を防止）
             logger.warning("  APIエラー（サーバー側障害） → フィルター試行を中断")
-            break
+            return ArticleResult(status=final_error, model=final_model, level="None", proc_time=final_proc_time)
         logger.warning(f"  [{level_name}] 失敗 → 次のフィルターレベルへ")
     return ArticleResult(status=final_error, model=final_model, level="None", proc_time=final_proc_time)
 
