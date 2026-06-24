@@ -182,7 +182,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     site_name = None
 
     if site_label:
-        normalized_labels = {"DMM.com": "DMM", "DLsite": "DLsite", "Lovecal": "らぶカル"}
+        normalized_labels = {"DMM.com": "DMM", "DLsite": "DLsite（がるまに）", "Lovecal": "らぶカル"}
         site_name = normalized_labels.get(site_label, site_label)
         if site_name and site_name not in tag_names: tag_names.append(site_name)
 
@@ -773,7 +773,7 @@ def _execute_posting_flow(row, cursor, conn):
         ai_tags_str = ",".join(final_ai_tags)
         # v12.8.0: wp_tags（WPへ実際に送信した完成品タグ一覧）を構築してDBへ書き戻す
         # ※ post_to_wordpress() 内のタグ構築ロジック(L746-778)と完全一致させること
-        _normalized_labels = {"DMM.com": "DMM", "DLsite": "DLsite", "Lovecal": "らぶカル"}
+        _normalized_labels = {"DMM.com": "DMM", "DLsite": "DLsite（がるまに）", "Lovecal": "らぶカル"}
         _site_name_for_wp = _normalized_labels.get(site_label, site_label)
         _wp_tags_parts = []
         if _site_name_for_wp:
