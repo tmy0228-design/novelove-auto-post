@@ -632,8 +632,9 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             content = re.sub(r'^#{1}\s+(.+)$', r'<h2>\1</h2>', content, flags=re.MULTILINE)
             content = content.strip()
 
-            # === v20.6.3: speech-bubble 閉じ漏れ＆HTML構文崩れ検出 → 投稿中止 + Discord通知 ===
-            # トークン切れ等による </div></div> 閉じ漏れや、AIの出力バグによる class="speech-text" の閉じ括弧 > 欠落を検知。
+            # === v20.6.4: speech-bubble 閉じ漏れ＆HTML構文崩れ＆div開閉数不整合の汎用検知 ===
+            # トークン切れ等による </div></div> 閉じ漏れ、AIの出力バグによる class="speech-text" の閉じ括弧 > 欠落、
+            # および一般的な div タグの開閉数不整合（表示崩れの主原因）を検知。
             import re as _re
             # 1. 吹き出し開始タグと閉じタグのカウント整合性（左右両方チェック）
             _open_count_left  = len(_re.findall(r'class="speech-bubble-left"', content))
@@ -646,19 +647,35 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             _text_open_count = content.count('<div class="speech-text">')
             _is_text_corrupted = _text_raw_count > _text_open_count
             
-            if (_open_count > 0 and _close_count < _open_count) or _is_text_corrupted:
+            # 3. 汎用的な class 属性の閉じクォート破損チェック (class="...「 のような不正パターン)
+            _is_class_corrupted = bool(_re.search(r'class="[a-zA-Z0-9_\-\s]+[^a-zA-Z0-9_\-\s" >]', content))
+            
+            # 4. 汎用的な div タグの開閉数不整合チェック (表示崩れを引き起こす致命的エラー)
+            _div_open_count = len(_re.findall(r'<div[^>]*>', content))
+            _div_close_count = content.count('</div>')
+            _is_div_mismatched = _div_open_count != _div_close_count
+            
+            if (_open_count > 0 and _close_count < _open_count) or _is_text_corrupted or _is_class_corrupted or _is_div_mismatched:
                 from novelove_core import notify_discord
                 
-                if _is_text_corrupted:
-                    _corrupt_count = _text_raw_count - _text_open_count
+                if _is_text_corrupted or _is_class_corrupted:
                     logger.warning(
-                        f"  [HTML異常] speech-text タグの崩れ検出: {_corrupt_count}箇所異常 "
-                        f"(raw={_text_raw_count}, normal_open={_text_open_count}) → この試行をスキップ"
+                        f"  [HTML属性異常] タグ属性の崩れ検出 (text={_is_text_corrupted}, class={_is_class_corrupted}) → スキップ"
                     )
                     notify_discord(
-                        f"⚠️ **HTML構文エラー検出** [{target.get('product_id', '?')}]\n"
-                        f"speech-text タグの「>」が閉じていない箇所が {_corrupt_count}箇所あります。\n"
-                        f"レイアウト崩れを防ぐため投稿をスキップし、次の試行に移ります。",
+                        f"⚠️ **HTML属性値エラー検出** [{target.get('product_id', '?')}]\n"
+                        f"吹き出しタグの class 属性値または閉じ括弧「>」が正常に閉じられていません。\n"
+                        f"表示崩れ防止のため投稿を自動スキップし、次の試行に移ります。",
+                        username="⚠️ 構造異常通知"
+                    )
+                elif _is_div_mismatched:
+                    logger.warning(
+                        f"  [HTML構造異常] divタグの開閉数不整合検出 (open={_div_open_count}, close={_div_close_count}) → スキップ"
+                    )
+                    notify_discord(
+                        f"⚠️ **HTML開閉タグ不整合検出** [{target.get('product_id', '?')}]\n"
+                        f"記事内の div タグの開始数（{_div_open_count}）と閉じ数（{_div_close_count}）が一致しません。\n"
+                        f"レイアウト崩れを防ぐため投稿を自動スキップし、次の試行に移ります。",
                         username="⚠️ 構造異常通知"
                     )
                 else:
