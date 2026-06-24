@@ -366,7 +366,7 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
 
 SEO_META:
 seo_title=（32文字以内。上記TAGSで選んだワードを1〜2個自然に組み込み、読者の感情を揺さぶる）
-meta_desc=（80字程度。あらすじに基づき誰に刺さるか断言する）
+meta_desc=（120字程度。あらすじに基づき、どのような読者に刺さるかを具体的に説明する）
 {catchphrase_instruction}
 """
 
