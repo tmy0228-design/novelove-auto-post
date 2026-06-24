@@ -632,27 +632,48 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             content = re.sub(r'^#{1}\s+(.+)$', r'<h2>\1</h2>', content, flags=re.MULTILINE)
             content = content.strip()
 
-            # === v17.7.0: speech-bubble 閉じ漏れ検出 → 投稿中止 + Discord通知 ===
-            # トークン切れ等でAIが末尾の </div></div> を出力し損ねた場合、
-            # 記事が不完全な状態のまま投稿することを防ぐ。
-            # 黙って補完するのではなく、異常として検出・通知して次のmask_levelに回す。
+            # === v20.6.3: speech-bubble 閉じ漏れ＆HTML構文崩れ検出 → 投稿中止 + Discord通知 ===
+            # トークン切れ等による </div></div> 閉じ漏れや、AIの出力バグによる class="speech-text" の閉じ括弧 > 欠落を検知。
             import re as _re
-            _open_count  = len(_re.findall(r'class="speech-bubble-left"', content))
+            # 1. 吹き出し開始タグと閉じタグのカウント整合性（左右両方チェック）
+            _open_count_left  = len(_re.findall(r'class="speech-bubble-left"', content))
+            _open_count_right = len(_re.findall(r'class="speech-bubble-right"', content))
+            _open_count = _open_count_left + _open_count_right
             _close_count = content.count('</div></div>')
-            if _open_count > 0 and _close_count < _open_count:
-                _missing = _open_count - _close_count
-                logger.warning(
-                    f"  [v17.7.0] speech-bubble 閉じ漏れ検出: {_missing}箇所不足 "
-                    f"(open={_open_count}, close={_close_count}) → この試行をスキップ"
-                )
+            
+            # 2. speech-text のタグ構成崩れチェック ( > の欠落検知)
+            _text_raw_count = content.count('speech-text')
+            _text_open_count = content.count('<div class="speech-text">')
+            _is_text_corrupted = _text_raw_count > _text_open_count
+            
+            if (_open_count > 0 and _close_count < _open_count) or _is_text_corrupted:
                 from novelove_core import notify_discord
-                notify_discord(
-                    f"⚠️ **トークン切れ検出** [{target.get('product_id', '?')}]\n"
-                    f"speech-bubble の閉じタグが {_missing}箇所不足しています。\n"
-                    f"記事が途中で切れているため投稿をスキップし、次の試行に移ります。\n"
-                    f"（max_tokens不足またはAPIの応答切断が原因）",
-                    username="⚠️ 構造異常通知"
-                )
+                
+                if _is_text_corrupted:
+                    _corrupt_count = _text_raw_count - _text_open_count
+                    logger.warning(
+                        f"  [HTML異常] speech-text タグの崩れ検出: {_corrupt_count}箇所異常 "
+                        f"(raw={_text_raw_count}, normal_open={_text_open_count}) → この試行をスキップ"
+                    )
+                    notify_discord(
+                        f"⚠️ **HTML構文エラー検出** [{target.get('product_id', '?')}]\n"
+                        f"speech-text タグの「>」が閉じていない箇所が {_corrupt_count}箇所あります。\n"
+                        f"レイアウト崩れを防ぐため投稿をスキップし、次の試行に移ります。",
+                        username="⚠️ 構造異常通知"
+                    )
+                else:
+                    _missing = _open_count - _close_count
+                    logger.warning(
+                        f"  [トークン切れ] speech-bubble 閉じ漏れ検出: {_missing}箇所不足 "
+                        f"(open={_open_count}, close={_close_count}) → この試行をスキップ"
+                    )
+                    notify_discord(
+                        f"⚠️ **トークン切れ検出** [{target.get('product_id', '?')}]\n"
+                        f"speech-bubble の閉じタグが {_missing}箇所不足しています。\n"
+                        f"記事が途中で切れているため投稿をスキップし、次の試行に移ります。\n"
+                        f"（max_tokens不足またはAPIの応答切断が原因）",
+                        username="⚠️ 構造異常通知"
+                    )
                 continue  # 次のmask_levelで再試行
 
             if not _check_image_ok(target["image_url"]):
