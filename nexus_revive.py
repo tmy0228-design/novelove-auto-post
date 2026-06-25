@@ -277,7 +277,7 @@ def get_all_published_product_ids():
         conn = db_connect(DB_FILE_UNIFIED)
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT product_id, site, is_exclusive FROM novelove_posts WHERE status='published'"
+            "SELECT product_id, site, is_exclusive FROM novelove_posts WHERE status='published' AND post_type='regular'"
         ).fetchall()
         conn.close()
         for r in rows:
@@ -1003,7 +1003,7 @@ def run_desc_check():
         rows = conn.execute(
             """SELECT product_id, product_url, description, site, genre
                FROM novelove_posts
-               WHERE status='published' AND product_url != '' AND product_url IS NOT NULL"""
+               WHERE status='published' AND post_type='regular' AND product_url != '' AND product_url IS NOT NULL"""
         ).fetchall()
         conn.close()
     except Exception as e:
