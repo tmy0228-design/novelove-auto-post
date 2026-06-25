@@ -158,16 +158,18 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         is_novel = False
 
     is_ranking = "ranking" in str(slug).lower() or "ランキング" in title
+    is_curation = str(genre).startswith("curation")
+    is_bl = "bl" in str(genre).lower()
     
     if is_ranking:
         cat_name = "ランキング"
+    elif is_curation:
+        cat_name = "まとめ"
     elif is_voice:
         # v19.0.0: ボイス作品用カテゴリ
-        is_bl = "bl" in genre.lower() or "BL" in genre
         cat_name = "BLボイス" if is_bl else "TLボイス"
     else:
         # 小説か漫画かでカテゴリを分ける
-        is_bl = "bl" in genre.lower() or "BL" in genre
         if is_novel:
             cat_name = "BL小説" if is_bl else "TL小説"
         else:
@@ -205,11 +207,24 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
                 if t in tag_names and t not in allowed_ranking_tags:
                     allowed_ranking_tags.append(t)
         tag_names = allowed_ranking_tags
-
+    elif is_curation:
+        # まとめ記事用の特例処理：BL/TL、担当者、まとめ対象のタグ、および「クロスタグ」のタグを付与
+        allowed_curation_tags = ["BL" if is_bl else "TL"]
+        if reviewer: allowed_curation_tags.append(reviewer)
+        if ai_tags:
+            for t in ai_tags:
+                allowed_curation_tags.append(t)
+        # 複数タグがある場合は「クロスタグ」タグを付与
+        if ai_tags and len(ai_tags) >= 2:
+            allowed_curation_tags.append("クロスタグ")
+        tag_names = allowed_curation_tags
 
     
     # 完全に廃止された単体タグ・不要な複合タグの徹底排除 (v10.6.0)
     exclude_list = ("BL", "TL", "コミック", "小説", "漫画", "BLコミック", "TLコミック", "BL同人", "TL同人", "商業BL", "同人BL", "商業TL", "同人TL", "商業BL小説", "商業TL小説")
+    if is_curation:
+        # まとめ記事では BL/TL は排除しない
+        exclude_list = ("コミック", "小説", "漫画", "BLコミック", "TLコミック", "BL同人", "TL同人", "商業BL", "同人BL", "商業TL", "同人TL", "商業BL小説", "商業TL小説")
     tag_names = [t for t in tag_names if t not in exclude_list]
 
     # WordPress側にカテゴリやタグを問い合わせてID化
