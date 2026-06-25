@@ -12,7 +12,6 @@ novelove_curator.py — テーマ別まとめ記事自動生成バッチ
 
 import os
 import sys
-import sqlite3
 import datetime
 import random
 import argparse
@@ -26,7 +25,7 @@ if SCRIPT_DIR not in sys.path:
 
 from novelove_core import (
     logger, DB_FILE_UNIFIED, db_connect, WP_SITE_URL,
-    _get_reviewer_for_genre, get_affiliate_button_html, notify_discord
+    get_affiliate_button_html, notify_discord
 )
 from novelove_soul import REVIEWERS, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS
 from novelove_writer import _call_deepseek_raw, make_excerpt
@@ -99,7 +98,6 @@ def _determine_genre_for_week(week, conn):
 # === タグと作品の選定ロジック ===
 def select_theme_and_works(conn, week, forced_tag=None, forced_genre=None):
     """テーマ（タグ）と5作品を選定する"""
-    init_curation_db(conn)
     cooldown_tags = get_cooldown_tags(conn)
     logger.info(f"[Curator] Cooldown tags: {cooldown_tags}")
     
@@ -163,7 +161,8 @@ def select_theme_and_works(conn, week, forced_tag=None, forced_genre=None):
     if forced_tag:
         # タグが強制指定されている場合
         selected_tag = forced_tag
-        all_matching = [w for w in works if forced_tag in w['tags']]
+        forced_tags = [t.strip() for t in forced_tag.split(",") if t.strip()]
+        all_matching = [w for w in works if all(ft in w['tags'] for ft in forced_tags)]
         all_matching.sort(key=lambda x: x['clicks'])
         selected_works = all_matching[:5]
         # ジャンルは作品比率から動的判定
@@ -254,7 +253,7 @@ def generate_intro_column(reviewer, tag_name, genre_group):
 【あなたの設定】
 性格: {reviewer['personality']}
 口調: {reviewer['tone']}
-今回の感情感情: {mood}
+今回の感情: {mood}
 
 【コラムのテーマ】
 「{display_tag}」のおすすめ作品まとめ
@@ -291,7 +290,7 @@ def generate_mini_review(work, tag_name, reviewer):
     
     # 伏字処理
     safe_title = mask_input(work['title'], level=0)
-    safe_desc = mask_input(work['description'], level=0)
+    safe_desc = mask_input(work['description'] or "", level=0)
     
     prompt = f"""あなたは「Novelove」のライター「{reviewer['name']}」です。
 以下の作品あらすじを読み、なぜこの作品が「{display_tag}」というテーマでおすすめなのかを、特化した視点で語るミニレビューを執筆してください。
@@ -326,7 +325,7 @@ def generate_mini_review(work, tag_name, reviewer):
     text, err = _call_deepseek_raw(messages, max_tokens=1000, temperature=0.7, thinking_disabled=True)
     if err != "ok" or not text:
         logger.error(f"[Curator] Failed to generate review for {work['title']}. Using default synopsis snippet.")
-        return work['description'][:150] + "..."
+        return (work['description'] or "")[:150] + "..."
         
     return text.strip()
 
@@ -418,7 +417,7 @@ def get_tag_slug_from_wp(name):
         logger.error(f"[Curator] Failed to get slug for tag '{name}': {e}")
     return None
 
-def build_footer(tag_name, conn):
+def build_footer(tag_name):
     """アーカイブリンクを含むフッターHTMLを生成する (関連記事はYARPPが自動表示するため含めない)"""
     # 1. アーカイブへの誘導
     tags_list = tag_name.split(",")
@@ -486,7 +485,10 @@ def assemble_article(intro_html, works, reviews_html, table_html, footer_html):
         badge_html = f'<p style="text-align:center; margin-bottom:15px;"><span style="background:#fefefe; border:1px solid #ddd; padding:5px 15px; border-radius:20px; font-weight:bold; color:#444; display:inline-block;">{media_icon} {site_display} {format_name}</span></p>'
         
         # 画像
-        img_html = f'<p style="text-align:center; margin:20px 0;"><a href="{w["affiliate_url"]}" target="_blank" rel="nofollow"><img src="{w["image_url"]}" alt="{w["title"]}" style="max-width:400px;width:100%;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);" /></a></p>'
+        if w.get('image_url'):
+            img_html = f'<p style="text-align:center; margin:20px 0;"><a href="{w["affiliate_url"]}" target="_blank" rel="nofollow"><img src="{w["image_url"]}" alt="{w["title"]}" style="max-width:400px;width:100%;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);" /></a></p>'
+        else:
+            img_html = ""
         
         # 発売日
         release_html = ""
@@ -590,7 +592,7 @@ def main():
     table_html = build_comparison_table(selected_works, conn)
     
     # 4. フッターの組み立て
-    footer_html = build_footer(tag_name, conn)
+    footer_html = build_footer(tag_name)
     
     # 5. 全体の組み立て
     full_content = assemble_article(intro_html, selected_works, reviews_html, table_html, footer_html)
