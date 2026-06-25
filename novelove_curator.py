@@ -403,42 +403,44 @@ def build_comparison_table(works, conn):
     return html
 
 # === フッターHTMLの組み立て ===
+def get_tag_slug_from_wp(name):
+    """WordPress REST API から日本語タグ名に対応する英字スラッグを取得する"""
+    from novelove_core import WP_USER, WP_APP_PASSWORD, WP_SITE_URL
+    auth = (WP_USER, WP_APP_PASSWORD)
+    try:
+        import requests
+        r = requests.get(f"{WP_SITE_URL}/wp-json/wp/v2/tags", auth=auth, params={"search": name}, timeout=15)
+        hits = r.json()
+        for hit in hits:
+            if hit.get("name") == name:
+                return hit.get("slug")
+    except Exception as e:
+        logger.error(f"[Curator] Failed to get slug for tag '{name}': {e}")
+    return None
+
 def build_footer(tag_name, conn):
-    """アーカイブリンクと最新ランキングリンクを含むフッターHTMLを生成する"""
+    """アーカイブリンクを含むフッターHTMLを生成する (関連記事はYARPPが自動表示するため含めない)"""
     # 1. アーカイブへの誘導
     tags_list = tag_name.split(",")
     archive_links = []
     for t in tags_list:
-        archive_links.append(f'<a href="/tag/{t}/" style="color:#d81b60; font-weight:bold; text-decoration:none;">#{t}の作品一覧</a>')
+        slug = get_tag_slug_from_wp(t)
+        if slug:
+            archive_links.append(f'<a href="/tag/{slug}/" style="color:#d81b60; font-weight:bold; text-decoration:none;">#{t}の作品一覧</a>')
+        else:
+            # 万が一取得できない場合は安全のために元のタグ名でフォールバック
+            import urllib.parse
+            escaped = urllib.parse.quote(t)
+            archive_links.append(f'<a href="/tag/{escaped}/" style="color:#d81b60; font-weight:bold; text-decoration:none;">#{t}の作品一覧</a>')
     
     links_html = "・".join(archive_links)
     html = (
         f'<div class="curation-footer" style="margin-top:50px; padding:20px; background:#fafafa; border-radius:8px; border-left:4px solid #d81b60;">\n'
         f'<p style="font-weight:bold; margin-bottom:10px;">もっと作品を探すならこちら</p>\n'
         f'<p style="margin-bottom:15px;">今回ご紹介した属性の作品は、以下のリンクからさらに詳しく探すことができます！</p>\n'
-        f'<p style="font-size:1.1em; margin-bottom:20px;">👉 {links_html}</p>\n'
+        f'<p style="font-size:1.1em; margin-bottom:0px;">👉 {links_html}</p>\n'
+        f'</div>\n'
     )
-    
-    # 2. 最新ランキング記事への内部リンク
-    c = conn.cursor()
-    c.execute("""
-        SELECT title, wp_post_url 
-        FROM novelove_posts 
-        WHERE post_type = 'ranking' AND status = 'published' AND wp_post_url != ''
-        ORDER BY published_at DESC LIMIT 1
-    """)
-    row = c.fetchone()
-    if row:
-        r_title, r_url = row
-        if r_url.startswith("/"):
-            r_url = WP_SITE_URL + r_url
-        html += (
-            f'<p style="font-weight:bold; margin-bottom:10px;">あわせて読みたい人気記事</p>\n'
-            f'<p>ノベラブで今本当に売れている人気作品をランキング形式でご紹介しています。</p>\n'
-            f'<p style="font-size:1.1em;">👉 <a href="{r_url}" style="color:#d81b60; font-weight:bold; text-decoration:none;">{r_title}</a></p>\n'
-        )
-        
-    html += '</div>\n'
     return html
 
 # === 記事全体の組み立て ===
@@ -617,9 +619,13 @@ def main():
     # スラッグの生成
     # 例: curation-yandere-20260625
     # 英字タグでなければタイムスタンプ等を含める
-    import urllib.parse
-    slug_tag = urllib.parse.quote(tag_name.replace(",", "-"))
     date_str = datetime.datetime.now().strftime("%Y%m%d")
+    is_eng_tag = bool(re.match(r'^[a-zA-Z0-9\-_,]+$', tag_name))
+    if is_eng_tag:
+        slug_tag = tag_name.replace(",", "-").lower()
+    else:
+        slug_tag = f"{genre_group.lower()}-w{week}"
+        
     slug = f"curation-{slug_tag}-{date_str}"
     if len(slug) > 100:
         slug = f"curation-{date_str}-{random.randint(1000, 9999)}"
