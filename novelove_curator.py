@@ -27,33 +27,16 @@ from novelove_core import (
     logger, DB_FILE_UNIFIED, db_connect, WP_SITE_URL,
     get_affiliate_button_html, notify_discord
 )
-from novelove_soul import REVIEWERS, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS
+from novelove_soul import REVIEWERS, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS, AI_TAG_WHITELIST
 from novelove_writer import _call_deepseek_raw, make_excerpt
 from novelove_fetcher import mask_input
-
-# === データベース初期化 ===
-def init_curation_db(conn):
-    """まとめ記事の履歴テーブルを作成する"""
-    c = conn.cursor()
-    try:
-        c.execute('''CREATE TABLE IF NOT EXISTS curation_history (
-            id INTEGER PRIMARY KEY,
-            tag_name TEXT,
-            genre_group TEXT,
-            wp_post_id INTEGER,
-            wp_post_url TEXT,
-            generated_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
-        )''')
-        conn.commit()
-    except Exception as e:
-        logger.error(f"[Curator DB] Table init failed: {e}")
 
 # === クールダウン処理 ===
 def get_cooldown_tags(conn, days=90):
     """過去N日間に使用されたタグを取得して除外対象とする"""
     c = conn.cursor()
     limit_date = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-    c.execute("SELECT tag_name FROM curation_history WHERE generated_at >= ?", (limit_date,))
+    c.execute("SELECT wp_tags FROM novelove_posts WHERE post_type = 'curation' AND published_at >= ?", (limit_date,))
     rows = c.fetchall()
     
     cooldown = set()
@@ -82,13 +65,13 @@ def _determine_genre_for_week(week, conn):
     elif week == 3:
         # 前回と逆のジャンルにする
         c = conn.cursor()
-        c.execute("SELECT genre_group FROM curation_history ORDER BY id DESC LIMIT 1")
+        c.execute("SELECT genre FROM novelove_posts WHERE post_type = 'curation' ORDER BY published_at DESC LIMIT 1")
         row = c.fetchone()
         if row:
             last = row[0]
-            if last == "BL":
+            if last == "curation-bl":
                 return "TL"
-            elif last == "TL":
+            elif last == "curation-tl":
                 return "BL"
         return "BL"  # 履歴なし時のデフォルト
     elif week == 4:
@@ -101,19 +84,19 @@ def select_theme_and_works(conn, week, forced_tag=None, forced_genre=None):
     cooldown_tags = get_cooldown_tags(conn)
     logger.info(f"[Curator] Cooldown tags: {cooldown_tags}")
     
-    # 1. 公開中の記事データをロード
+    # 1. 公開中の記事データをロード (wp_tags からロードし、post_type = 'regular' に限定)
     c = conn.cursor()
     c.execute("""
-        SELECT product_id, title, genre, ai_tags, gsc_clicks, affiliate_url, image_url, site, release_date, description
+        SELECT product_id, title, genre, wp_tags, gsc_clicks, affiliate_url, image_url, site, release_date, description
         FROM novelove_posts
-        WHERE status = 'published' AND ai_tags != ''
+        WHERE status = 'published' AND wp_tags != '' AND post_type = 'regular'
     """)
     rows = c.fetchall()
     
     works = []
     for r in rows:
-        pid, title, genre, ai_tags_str, clicks, aff_url, img_url, site, r_date, desc = r
-        tags = [t.strip() for t in ai_tags_str.split(",") if t.strip()]
+        pid, title, genre, wp_tags_str, clicks, aff_url, img_url, site, r_date, desc = r
+        tags = [t.strip() for t in wp_tags_str.split(",") if t.strip()]
         works.append({
             "product_id": pid,
             "title": title,
@@ -177,6 +160,8 @@ def select_theme_and_works(conn, week, forced_tag=None, forced_genre=None):
         # 候補タグの分析
         candidates = []
         for tag, tag_w_list in tag_map.items():
+            if tag not in AI_TAG_WHITELIST:  # ★ ホワイトリストガード
+                continue
             if tag in cooldown_tags:
                 continue
             if len(tag_w_list) < 10:  # 通常タグは公開記事10件以上
@@ -205,8 +190,8 @@ def select_theme_and_works(conn, week, forced_tag=None, forced_genre=None):
         cross_candidates = []
         
         for g_name, tag_map, genre_w_list in [("BL", tag_to_bl_works, bl_works), ("TL", tag_to_tl_works, tl_works)]:
-            # 5件以上の作品があるタグを抽出 (cooldown対象外)
-            valid_tags = [tag for tag, tag_w in tag_map.items() if len(tag_w) >= 5 and tag not in cooldown_tags]
+            # 5件以上の作品があるタグを抽出 (cooldown対象外 & ホワイトリスト内限定)
+            valid_tags = [tag for tag, tag_w in tag_map.items() if tag in AI_TAG_WHITELIST and len(tag_w) >= 5 and tag not in cooldown_tags]
             
             for i in range(len(valid_tags)):
                 for j in range(i+1, len(valid_tags)):
@@ -229,7 +214,7 @@ def select_theme_and_works(conn, week, forced_tag=None, forced_genre=None):
             # アルファベット/五十音順に並べ替えて結合
             sorted_tags = sorted([t1, t2])
             selected_tag = f"{sorted_tags[0]},{sorted_tags[1]}"
-            genre_group = cross_candidates[0]['genre']
+            genre_group = f"cross-{cross_candidates[0]['genre'].lower()}"  # "cross-bl" または "cross-tl" に詳細化
             
             sorted_works = sorted(cross_candidates[0]['works'], key=lambda x: x['clicks'])
             selected_works = sorted_works[:5]
@@ -544,7 +529,6 @@ def main():
     
     # 接続
     conn = db_connect(DB_FILE_UNIFIED)
-    init_curation_db(conn)
     
     # 週番号とジャンルの決定
     week = _get_week_number()
@@ -567,8 +551,7 @@ def main():
     # レビュアーの決定
     # BL: 紫苑 (shion) / 葵 (aoi) / 蓮 (ren) からランダム
     # TL: 桃香 (momoka) / 茉莉花 (marika) からランダム
-    # genre_group は大文字の 'BL' または 'TL' に標準化されていることを想定
-    if genre_group.upper() == "BL":
+    if "bl" in genre_group.lower():
         candidates = [r for r in REVIEWERS if r['id'] in ("shion", "aoi", "ren")]
     else:
         candidates = [r for r in REVIEWERS if r['id'] in ("momoka", "marika")]
@@ -601,12 +584,13 @@ def main():
     # 例: 【まとめ】「執着」属性の隠れた名作BL作品5選
     # クロスタグは「AとB」
     display_tag = tag_name.replace(",", "×")
-    title = f"【まとめ】「{display_tag}」属性の隠れた名作{genre_group}作品5選"
+    display_genre = "BL" if "bl" in genre_group.lower() else "TL"
+    title = f"【まとめ】「{display_tag}」属性の隠れた名作{display_genre}作品5選"
     
     # 抜粋 (メタディスクリプション)
     excerpt_tags = tag_name.split(",")
     excerpt = make_excerpt(
-        description=f"「{display_tag}」をテーマに、露出は低くとも非常に魅力的なおすすめの隠れた名作{genre_group}作品を5選紹介します。",
+        description=f"「{display_tag}」をテーマに、露出は低くとも非常に魅力的なおすすめの隠れた名作{display_genre}作品を5選紹介します。",
         title=title,
         genre=selected_works[0]['genre'],
         reviewer_name=reviewer['name'],
@@ -614,7 +598,7 @@ def main():
     )
     
     # SEOタイトル
-    seo_title = f"【まとめ】「{display_tag}」属性の隠れた名作{genre_group}作品5選 | Novelove"
+    seo_title = f"【まとめ】「{display_tag}」属性の隠れた名作{display_genre}作品5選 | Novelove"
     if len(seo_title) > 65:
         seo_title = seo_title[:63] + "…"
         
@@ -623,10 +607,11 @@ def main():
     # 英字タグでなければタイムスタンプ等を含める
     date_str = datetime.datetime.now().strftime("%Y%m%d")
     is_eng_tag = bool(re.match(r'^[a-zA-Z0-9\-_,]+$', tag_name))
+    sub_genre_lower = "bl" if "bl" in genre_group.lower() else "tl"
     if is_eng_tag:
         slug_tag = tag_name.replace(",", "-").lower()
     else:
-        slug_tag = f"{genre_group.lower()}-w{week}"
+        slug_tag = f"{sub_genre_lower}-w{week}"
         
     slug = f"curation-{slug_tag}-{date_str}"
     if len(slug) > 100:
@@ -657,7 +642,7 @@ def main():
         from auto_post import post_to_wordpress
         
         # 投稿ジャンルの設定 (curation-bl / curation-tl)
-        post_genre = f"curation-{genre_group.lower()}"
+        post_genre = f"curation-{sub_genre_lower}"
         
         link, wp_post_id = post_to_wordpress(
             title=title,
@@ -677,17 +662,26 @@ def main():
         if wp_post_id:
             logger.info(f"[Curator] Published successfully! ID: {wp_post_id}, URL: {link}")
             
-            # 履歴テーブルへ書き込み
+            # 元々の記事管理テーブル novelove_posts へインサートして保存
             c = conn.cursor()
             try:
                 c.execute("""
-                    INSERT INTO curation_history (tag_name, genre_group, wp_post_id, wp_post_url, generated_at)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (tag_name, genre_group, wp_post_id, link, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                    INSERT INTO novelove_posts (
+                        product_id, title, genre, site, status, published_at, post_type, 
+                        wp_post_id, wp_post_url, reviewer, wp_tags, ai_tags, desc_score, 
+                        article_pattern, image_url, affiliate_url, is_protected, source_db,
+                        original_tags, author, description, product_url, last_error
+                    ) VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                """, (
+                    slug, title, post_genre, "Novelove", "published", "curation", 
+                    wp_post_id, link, reviewer['name'], tag_name, tag_name, 5, 
+                    "C", thumb_url, link, 1, "curation",
+                    genre_group, "", "", "", ""
+                ))
                 conn.commit()
-                logger.info("[Curator] Curation history saved to DB.")
+                logger.info("[Curator] Curation post details saved to novelove_posts DB.")
             except Exception as e:
-                logger.error(f"[Curator] Failed to save history to DB: {e}")
+                logger.error(f"[Curator] Failed to save curation details to DB: {e}")
                 
             # Discord通知
             disc_msg = (

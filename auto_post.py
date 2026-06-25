@@ -208,15 +208,12 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
                     allowed_ranking_tags.append(t)
         tag_names = allowed_ranking_tags
     elif is_curation:
-        # まとめ記事用の特例処理：BL/TL、担当者、まとめ対象のタグ、および「クロスタグ」のタグを付与
-        allowed_curation_tags = ["BL" if is_bl else "TL"]
+        # まとめ記事用の特例処理：担当者、まとめ対象のタグを付与（余計なBL/TL/クロスタグは廃止）
+        allowed_curation_tags = []
         if reviewer: allowed_curation_tags.append(reviewer)
         if ai_tags:
             for t in ai_tags:
                 allowed_curation_tags.append(t)
-        # 複数タグがある場合は「クロスタグ」タグを付与
-        if ai_tags and len(ai_tags) >= 2:
-            allowed_curation_tags.append("クロスタグ")
         tag_names = allowed_curation_tags
 
     
