@@ -151,8 +151,19 @@ def _is_r18_item(item, site=None):
     return True
 
 def _extract_author(item):
+    # 1. 直下フィールドの探索
     for field in ["article", "author", "writer", "artist"]:
         val = item.get(field)
+        if val:
+            if isinstance(val, list) and val:
+                return val[0].get("name", "") if isinstance(val[0], dict) else str(val[0])
+            if isinstance(val, dict): return val.get("name", "")
+            if isinstance(val, str) and val.strip(): return val.strip()
+            
+    # 2. iteminfo 配下の探索
+    iteminfo = item.get("iteminfo", {}) or {}
+    for field in ["author", "writer", "artist", "maker"]:
+        val = iteminfo.get(field)
         if val:
             if isinstance(val, list) and val:
                 return val[0].get("name", "") if isinstance(val[0], dict) else str(val[0])
@@ -787,12 +798,20 @@ def fetch_and_stock_all():
                 
                 # 著者
                 authors = []
+                # 一般作品
                 for field in ["author", "writer", "artist"]:
                     vals = iteminfo.get(field, []) or []
                     for v in vals:
                         name = v.get("name", "") if isinstance(v, dict) else str(v)
-                        if name and name not in authors:
-                            authors.append(name)
+                        role_label = {"author": "著者", "writer": "作者", "artist": "イラスト"}.get(field, "著者")
+                        if name and f"{role_label}:{name}" not in authors:
+                            authors.append(f"{role_label}:{name}")
+                # 同人作品 (maker)
+                makers = iteminfo.get("maker", []) or []
+                for m in makers:
+                    name = m.get("name", "") if isinstance(m, dict) else str(m)
+                    if name and f"サークル:{name}" not in authors:
+                        authors.append(f"サークル:{name}")
                 item["_author_detail"] = ",".join(authors) if authors else ""
                 
                 # 声優
@@ -804,10 +823,14 @@ def fetch_and_stock_all():
                 series_list = iteminfo.get("series", []) or []
                 item["_series_name"] = series_list[0].get("name", "") if series_list else ""
                 
-                # ページ数
+                # ページ数 (同人作品のみ volume からページ数を抽出)
+                service_code = str(item.get("service_code", "")).lower()
+                floor_code = str(item.get("floor_code", "")).lower()
+                is_doujin = "doujin" in service_code or "doujin" in floor_code
+                
                 volume = item.get("volume", "")
                 page_count = 0
-                if volume:
+                if is_doujin and volume:
                     m = re.search(r"(\d+)", str(volume))
                     if m:
                         page_count = int(m.group(1))
