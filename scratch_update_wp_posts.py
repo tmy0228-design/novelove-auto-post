@@ -17,8 +17,13 @@ def build_specs_html(release_date, author_detail, cast_info, page_count, fallbac
         formatted_date = release_date[:10].replace("-", "/")
         specs.append(f"発売日: {formatted_date}")
     
+    def clean_txt(t):
+        if not t: return ""
+        return t.replace("\r", "").replace("\n", "").replace("\xa0", " ").strip()
+
     # 著者詳細のパース
     if author_detail:
+        author_detail = clean_txt(author_detail)
         if ":" in author_detail:
             parts = author_detail.split(",")
             for part in parts:
@@ -29,11 +34,20 @@ def build_specs_html(release_date, author_detail, cast_info, page_count, fallbac
         else:
             specs.append(f"著者: {author_detail}")
     elif fallback_author:
-        if is_dlsite:
-            specs.append(f"サークル: {fallback_author}")
+        fallback_author = clean_txt(fallback_author)
+        if is_dlsite and "/" in fallback_author:
+            sub_parts = [p.strip() for p in fallback_author.split("/") if p.strip()]
+            if len(sub_parts) >= 2:
+                specs.append(f"レーベル: {sub_parts[0]}")
+                specs.append(f"著者: {sub_parts[1]}")
+            else:
+                specs.append(f"サークル: {fallback_author}")
         else:
-            specs.append(f"著者: {fallback_author}")
-            
+            if is_dlsite:
+                specs.append(f"サークル: {fallback_author}")
+            else:
+                specs.append(f"著者: {fallback_author}")
+        
     # 声優
     if cast_info:
         specs.append(f"声優(CV): {cast_info}")
