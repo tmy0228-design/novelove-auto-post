@@ -606,7 +606,7 @@ def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90):
         logger.warning(f"  [重複チェック] DB読み込みエラー: {e}")
     return False, "", 0.0
 
-def build_specs_html(author_detail, cast_info, series_name, page_count):
+def build_specs_html(author_detail, cast_info, series_name, page_count, fallback_author=None, site_label=None):
     specs = []
     if author_detail:
         if ":" in author_detail:
@@ -618,6 +618,11 @@ def build_specs_html(author_detail, cast_info, series_name, page_count):
                         specs.append(f"{r.strip()}: {n.strip()}")
         else:
             specs.append(f"著者: {author_detail}")
+    elif fallback_author:
+        if site_label and "DLsite" in site_label:
+            specs.append(f"サークル: {fallback_author}")
+        else:
+            specs.append(f"著者: {fallback_author}")
     if cast_info:
         specs.append(f"声優(CV): {cast_info}")
     if series_name:
@@ -808,7 +813,7 @@ def _execute_posting_flow(row, cursor, conn):
     ser_name = row.get("series_name", "") or ""
     pg_count = row.get("page_count", 0) or 0
     
-    spec_html = build_specs_html(auth_det, cast_inf, ser_name, pg_count)
+    spec_html = build_specs_html(auth_det, cast_inf, ser_name, pg_count, fallback_author=row.get("author"), site_label=site_label)
     if spec_html:
         # 二重挿入防止ガードレール
         content = re.sub(r'<!-- NOVELOVE_SPECS_START -->.*?<!-- NOVELOVE_SPECS_END -->\s*', '', content, flags=re.DOTALL)
