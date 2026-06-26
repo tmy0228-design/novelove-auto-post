@@ -418,7 +418,7 @@ def _run_main_logic():
         # v15.7.0: ORDER BY に desc_score DESC を追加し、品質スコアの高い記事を優先投稿する
         # v18.0.0: AND source_db=? を追加し、サイトグループ内でのみ選択する
         rows = c.execute(
-            "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive FROM novelove_posts WHERE status='pending' AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
+            "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive, author_detail, cast_info, series_name, page_count FROM novelove_posts WHERE status='pending' AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
             (genre, source_db_val)
         ).fetchall()
         
@@ -606,8 +606,14 @@ def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90):
         logger.warning(f"  [重複チェック] DB読み込みエラー: {e}")
     return False, "", 0.0
 
-def build_specs_html(author_detail, cast_info, series_name, page_count, fallback_author=None, site_label=None):
+def build_specs_html(release_date, author_detail, cast_info, series_name, page_count, fallback_author=None, site_label=None):
     specs = []
+    
+    # 発売日の追加
+    if release_date and isinstance(release_date, str) and len(release_date) >= 4:
+        formatted_date = release_date[:10].replace("-", "/")
+        specs.append(f"発売日: {formatted_date}")
+        
     if author_detail:
         if ":" in author_detail:
             parts = author_detail.split(",")
@@ -625,16 +631,19 @@ def build_specs_html(author_detail, cast_info, series_name, page_count, fallback
             specs.append(f"著者: {fallback_author}")
     if cast_info:
         specs.append(f"声優(CV): {cast_info}")
-    if series_name:
-        specs.append(f"シリーズ: {series_name}")
-    if page_count and page_count > 0:
-        specs.append(f"{page_count}P")
+    if page_count:
+        try:
+            pg_val = int(page_count)
+            if pg_val > 0:
+                specs.append(f"{pg_val}P")
+        except (ValueError, TypeError):
+            pass
     if not specs:
         return ""
     specs_text = " ｜ ".join(specs)
     html = f"""<!-- NOVELOVE_SPECS_START -->
 <div class="novelove-specs" style="background:#fafafa; border-top:1px solid #eee; border-bottom:1px solid #eee; padding:6px 10px; margin:12px 0; font-size:0.85em; color:#666; text-align:center; line-height:1.5;">
-  <strong style="color:#d81b60; margin-right:5px;">💡 作品情報</strong> {specs_text}
+  {specs_text}
 </div>
 <!-- NOVELOVE_SPECS_END -->\n"""
     return html
@@ -808,28 +817,38 @@ def _execute_posting_flow(row, cursor, conn):
             content = excl_banner + content
 
     # 🌟 SPEC TABLE AUTO INSERTION 🌟
-    auth_det = row.get("author_detail", "") or ""
-    cast_inf = row.get("cast_info", "") or ""
-    ser_name = row.get("series_name", "") or ""
-    pg_count = row.get("page_count", 0) or 0
+    row_dict = dict(row)
+    auth_det = row_dict.get("author_detail", "") or ""
+    cast_inf = row_dict.get("cast_info", "") or ""
+    ser_name = row_dict.get("series_name", "") or ""
+    pg_count = row_dict.get("page_count", 0) or 0
     
-    spec_html = build_specs_html(auth_det, cast_inf, ser_name, pg_count, fallback_author=row.get("author"), site_label=site_label)
+    spec_html = build_specs_html(row["release_date"], auth_det, cast_inf, ser_name, pg_count, fallback_author=row["author"], site_label=site_label)
     if spec_html:
         # 二重挿入防止ガードレール
         content = re.sub(r'<!-- NOVELOVE_SPECS_START -->.*?<!-- NOVELOVE_SPECS_END -->\s*', '', content, flags=re.DOTALL)
         
-        # 最初の <h2> を探してその手前にスペック表を挿入
-        h2_match = re.search(r'<h2[^>]*>', content)
-        if h2_match:
-            pos = h2_match.start()
-            content = content[:pos] + spec_html + content[pos:]
+        # 既存の「発売日：xxxx/xx/xx」の段落があれば削除（二重表示防止ガードレール）
+        content = re.sub(r'<p style="text-align:\s*center;\s*color:\s*#666;\s*font-size:\s*0.9em;\s*margin-bottom:\s*10px;?">発売日：\d{4}[-/]\d{2}[-/]\d{2}</p>\s*', '', content)
+        
+        # アイキャッチ画像の段落の直後にスペック表を挿入
+        img_match = re.search(r'(<p style="text-align:\s*center;\s*margin:\s*20px\s*0;?"><a[^>]*><img[^>]*></a></p>)', content)
+        if img_match:
+            pos = img_match.end()
+            content = content[:pos] + "\n" + spec_html + content[pos:]
         else:
-            bubble_close = re.search(r'</div>\s*</div>', content)
-            if bubble_close:
-                pos = bubble_close.end()
-                content = content[:pos] + "\n" + spec_html + content[pos:]
+            # フォールバック: 最初の <h2> を探してその手前にスペック表を挿入
+            h2_match = re.search(r'<h2[^>]*>', content)
+            if h2_match:
+                pos = h2_match.start()
+                content = content[:pos] + spec_html + content[pos:]
             else:
-                content = spec_html + content
+                bubble_close = re.search(r'</div>\s*</div>', content)
+                if bubble_close:
+                    pos = bubble_close.end()
+                    content = content[:pos] + "\n" + spec_html + content[pos:]
+                else:
+                    content = spec_html + content
 
     link, wp_post_id = post_to_wordpress(
         wp_title, content, row["genre"], img_url,
