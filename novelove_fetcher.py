@@ -352,7 +352,7 @@ def _check_image_ok(image_url):
 def scrape_dlsite_description(url):
     try:
         r = _fetch_with_retry(url, headers=HEADERS, timeout=15, label="DLsite詳細")
-        if r is None or r.status_code != 200: return "", "", False
+        if r is None or r.status_code != 200: return "", "", False, "", "", "", 0
         text = r.text
         soup_pre = BeautifulSoup(text, 'html.parser')
         wg_links = [a.get("href", "") for a in soup_pre.select(".work_genre a")]
@@ -366,14 +366,46 @@ def scrape_dlsite_description(url):
             detected = [name for code, name in type_map.items()
                         if any(f"/work_type/{code}" in link for link in wg_links)]
             logger.warning(f"[DLsite] 漫画・ノベル・ボイス以外の形式（{', '.join(detected) or '不明'}）のため除外: {url}")
-            return "__EXCLUDED_TYPE__", "", False
+            return "__EXCLUDED_TYPE__", "", False, "", "", "", 0
         lang_labels = [a.text.strip() for a in soup_pre.select(".work_genre a")]
         FOREIGN_LABELS = ["韓国語", "中国語", "繁體中文", "繁体中文", "简体中文", "English", "英語"]
         for lbl in lang_labels:
             if any(fl in lbl for fl in FOREIGN_LABELS):
                 logger.warning(f"[DLsite] 外国語版ラベル（{lbl}）のため除外: {url}")
-                return "__EXCLUDED_TYPE__", "", False
+                return "__EXCLUDED_TYPE__", "", False, "", "", "", 0
         soup = BeautifulSoup(text, 'html.parser')
+        
+        # === 追加スペックの抽出 (work_outline が消される前に実行) ===
+        author_detail = ""
+        cast_info = ""
+        series_name = ""
+        page_count = 0
+        outline_table = soup.select_one("#work_outline")
+        if outline_table:
+            authors = []
+            for tr in outline_table.select("tr"):
+                th = tr.select_one("th")
+                td = tr.select_one("td")
+                if not th or not td:
+                    continue
+                th_text = th.get_text(strip=True)
+                td_text = td.get_text(strip=True)
+                if "著者" in th_text or "シナリオ" in th_text or "イラスト" in th_text or "原画" in th_text:
+                    links = [a.get_text(strip=True) for a in td.find_all("a") if a.get_text(strip=True)]
+                    val = ",".join(links) if links else td_text
+                    authors.append(f"{th_text}:{val}")
+                elif "声優" in th_text or "キャスト" in th_text:
+                    links = [a.get_text(strip=True) for a in td.find_all("a") if a.get_text(strip=True)]
+                    cast_info = ",".join(links) if links else td_text
+                elif "シリーズ名" in th_text:
+                    links = [a.get_text(strip=True) for a in td.find_all("a") if a.get_text(strip=True)]
+                    series_name = ",".join(links) if links else td_text
+                elif "ページ数" in th_text:
+                    m = re.search(r"(\d+)", td_text)
+                    if m:
+                        page_count = int(m.group(1))
+            author_detail = ",".join(authors)
+
         # === 属性タグ取得（ジャンル行の<a>タグ） ===
         attr_tags = []
         for th in soup.find_all('th'):
@@ -395,29 +427,29 @@ def scrape_dlsite_description(url):
             t = container.get_text(separator="\n", strip=True)
             if "作品内容" in t:
                 t = t.split("作品内容")[-1]
-            if len(t) > 100: return t.strip(), tags_str, is_exclusive
+            if len(t) > 100: return t.strip(), tags_str, is_exclusive, author_detail, cast_info, series_name, page_count
         for h3 in soup.find_all(['h3', 'div'], string=re.compile(r'作品内容')):
             next_div = h3.find_next_sibling('div')
             if next_div:
                 t = next_div.get_text(separator="\n", strip=True)
-                if len(t) > 50: return t.strip(), tags_str, is_exclusive
+                if len(t) > 50: return t.strip(), tags_str, is_exclusive, author_detail, cast_info, series_name, page_count
         meta_desc = soup.select_one('meta[property="og:description"]')
         if meta_desc and meta_desc.get('content'):
-            return meta_desc.get('content').strip(), tags_str, is_exclusive
+            return meta_desc.get('content').strip(), tags_str, is_exclusive, author_detail, cast_info, series_name, page_count
         # 最終フォールバック（完全0文字ならAI起動）
         ai_desc = _run_emergency_ai_extraction(url, site_type="DLsite")
         if ai_desc:
-            return ai_desc, tags_str, is_exclusive
-        return "", tags_str, is_exclusive
+            return ai_desc, tags_str, is_exclusive, author_detail, cast_info, series_name, page_count
+        return "", tags_str, is_exclusive, author_detail, cast_info, series_name, page_count
     except Exception as e:
         logger.error(f"DLsiteスクレイピングエラー: {e}")
-        return "", "", False
+        return "", "", False, "", "", "", 0
 
 
 def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
     if not product_url: return ""
     if "dlsite" in str(product_url).lower():
-        desc, _tags, _excl = scrape_dlsite_description(product_url)
+        desc, _tags, _excl, _auth_det, _cast, _series, _pages = scrape_dlsite_description(product_url)
         return desc
 
     session = _make_dmm_session()
@@ -706,15 +738,23 @@ def fetch_and_stock_all():
                 logger.info(f"  [薄いコンテンツ除外] {title_str[:40]}")
                 continue
             if site == "DLsite":
-                desc, dl_tags_str, dl_is_exclusive = scrape_dlsite_description(p_url)
+                desc, dl_tags_str, dl_is_exclusive, dl_auth_det, dl_cast, dl_series, dl_pages = scrape_dlsite_description(p_url)
                 item["_original_tags"] = dl_tags_str
                 item["_is_exclusive"] = 1 if dl_is_exclusive else 0
+                item["_author_detail"] = dl_auth_det
+                item["_cast_info"] = dl_cast
+                item["_series_name"] = dl_series
+                item["_page_count"] = dl_pages
             else:
                 desc = scrape_description(p_url, site=site, genre=target["genre"])
                 
                 # v14.4.0: 専売判定はAPI統一ルール（後段の共通処理で実施）
                 item["_original_tags"] = ""
                 item["_is_exclusive"] = 0
+                item["_author_detail"] = ""
+                item["_cast_info"] = ""
+                item["_series_name"] = ""
+                item["_page_count"] = 0
             time.sleep(1.0)
             scraped_data.append((item, desc))
 
@@ -741,6 +781,37 @@ def fetch_and_stock_all():
                 # 専売判定 - API統一ルール（全サイト共通）
                 _has_excl = any(g in ('専売', '独占', '独占販売') for g in _genre_names)
                 item["_is_exclusive"] = 1 if _has_excl else 0
+
+                # DMM APIからの追加スペック項目抽出
+                iteminfo = item.get("iteminfo", {}) or {}
+                
+                # 著者
+                authors = []
+                for field in ["author", "writer", "artist"]:
+                    vals = iteminfo.get(field, []) or []
+                    for v in vals:
+                        name = v.get("name", "") if isinstance(v, dict) else str(v)
+                        if name and name not in authors:
+                            authors.append(name)
+                item["_author_detail"] = ",".join(authors) if authors else ""
+                
+                # 声優
+                actresses = iteminfo.get("actress", []) or []
+                casts = [act.get("name", "") for act in actresses if act.get("name")]
+                item["_cast_info"] = ",".join(casts) if casts else ""
+                
+                # シリーズ
+                series_list = iteminfo.get("series", []) or []
+                item["_series_name"] = series_list[0].get("name", "") if series_list else ""
+                
+                # ページ数
+                volume = item.get("volume", "")
+                page_count = 0
+                if volume:
+                    m = re.search(r"(\d+)", str(volume))
+                    if m:
+                        page_count = int(m.group(1))
+                item["_page_count"] = page_count
 
             item_original_tags = item.get("_original_tags", "")
             _is_excl_bool = bool(item.get("_is_exclusive", 0))
@@ -838,16 +909,23 @@ def fetch_and_stock_all():
             is_lovecal = target.get("floor") in ("digital_doujin_bl", "digital_doujin_tl") or "らぶカル" in target.get("label", "")
             save_site = "Lovecal" if is_lovecal else site
 
+            # 追加カラムの値の準備
+            auth_det = item.get("_author_detail", "")
+            cast_inf = item.get("_cast_info", "")
+            ser_name = item.get("_series_name", "")
+            pg_count = item.get("_page_count", 0)
+
             c.execute(
                 """INSERT INTO novelove_posts
                     (product_id, title, author, genre, site, status, release_date, description,
                     affiliate_url, image_url, product_url, post_type, desc_score, last_error, ai_tags, wp_post_url,
-                    original_tags, is_exclusive, source_db)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    original_tags, is_exclusive, source_db, author_detail, cast_info, series_name, page_count)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (pid, item.get("title"), author, save_genre,
                  f"{save_site}:r18={is_r18}", final_status, rdate, desc,
                  aff_url, image_url, item.get("URL", ""), "regular", final_score, last_error, ai_tags_str, "",
-                 _orig_tags, _is_excl, get_source_db(save_site))
+                 _orig_tags, _is_excl, get_source_db(save_site),
+                 auth_det, cast_inf, ser_name, pg_count)
             )
             logger.info(f"[{disp_site}] [{final_status}] {item.get('title','')[:40]}")
             added += 1

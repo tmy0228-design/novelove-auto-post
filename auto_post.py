@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==========================================================
-Novelove 自動投稿エンジン v14.0.0
+Novelove 自動投稿エンジン v21.1.1
 【多重投稿ループ停止・データフロー修復・堅牢性強化】
 ==========================================================
 【変更点 v11.4.8】
@@ -606,6 +606,34 @@ def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90):
         logger.warning(f"  [重複チェック] DB読み込みエラー: {e}")
     return False, "", 0.0
 
+def build_specs_html(author_detail, cast_info, series_name, page_count):
+    specs = []
+    if author_detail:
+        if ":" in author_detail:
+            parts = author_detail.split(",")
+            for part in parts:
+                if ":" in part:
+                    r, n = part.split(":", 1)
+                    if n.strip():
+                        specs.append(f"{r.strip()}: {n.strip()}")
+        else:
+            specs.append(f"著者: {author_detail}")
+    if cast_info:
+        specs.append(f"声優(CV): {cast_info}")
+    if series_name:
+        specs.append(f"シリーズ: {series_name}")
+    if page_count and page_count > 0:
+        specs.append(f"{page_count}P")
+    if not specs:
+        return ""
+    specs_text = " ｜ ".join(specs)
+    html = f"""<!-- NOVELOVE_SPECS_START -->
+<div class="novelove-specs" style="background:#fafafa; border-top:1px solid #eee; border-bottom:1px solid #eee; padding:6px 10px; margin:12px 0; font-size:0.85em; color:#666; text-align:center; line-height:1.5;">
+  <strong style="color:#d81b60; margin-right:5px;">💡 作品情報</strong> {specs_text}
+</div>
+<!-- NOVELOVE_SPECS_END -->\n"""
+    return html
+
 def _execute_posting_flow(row, cursor, conn):
     """v11.4.0: 執筆・タグ抽出・投稿・通知フロー。"""
     pid = row["product_id"]
@@ -774,6 +802,30 @@ def _execute_posting_flow(row, cursor, conn):
         if excl_banner:
             content = excl_banner + content
 
+    # 🌟 SPEC TABLE AUTO INSERTION 🌟
+    auth_det = row.get("author_detail", "") or ""
+    cast_inf = row.get("cast_info", "") or ""
+    ser_name = row.get("series_name", "") or ""
+    pg_count = row.get("page_count", 0) or 0
+    
+    spec_html = build_specs_html(auth_det, cast_inf, ser_name, pg_count)
+    if spec_html:
+        # 二重挿入防止ガードレール
+        content = re.sub(r'<!-- NOVELOVE_SPECS_START -->.*?<!-- NOVELOVE_SPECS_END -->\s*', '', content, flags=re.DOTALL)
+        
+        # 最初の <h2> を探してその手前にスペック表を挿入
+        h2_match = re.search(r'<h2[^>]*>', content)
+        if h2_match:
+            pos = h2_match.start()
+            content = content[:pos] + spec_html + content[pos:]
+        else:
+            bubble_close = re.search(r'</div>\s*</div>', content)
+            if bubble_close:
+                pos = bubble_close.end()
+                content = content[:pos] + "\n" + spec_html + content[pos:]
+            else:
+                content = spec_html + content
+
     link, wp_post_id = post_to_wordpress(
         wp_title, content, row["genre"], img_url,
         excerpt=excerpt, seo_title=seo_title, slug=pid, is_r18=is_r18,
@@ -900,7 +952,7 @@ def main():
         logger.info("🚨 緊急停止中のためスキップ。解除: rm emergency_stop.lock")
         return
 
-    logger.info("Novelove エンジン v14.0.0 起動")
+    logger.info("Novelove エンジン v21.1.1 起動")
     init_db()
     # メインロックチェック
     if os.path.exists(MAIN_LOCK_FILE):
