@@ -207,7 +207,7 @@ AFFILIATE_BUTTON_STYLE = (
 def get_affiliate_button_html(url, label="作品の詳細を見る"):
     return (
         f'<div class="novelove-button-container" style="margin:35px 0;text-align:center;">'
-        f'<a href="{url}" target="_blank" rel="noopener" style="{AFFILIATE_BUTTON_STYLE}">'
+        f'<a href="{url}" target="_blank" rel="nofollow noopener" style="{AFFILIATE_BUTTON_STYLE}">'
         f'{label}</a></div>'
     )
 
