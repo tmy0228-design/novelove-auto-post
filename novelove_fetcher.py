@@ -417,6 +417,14 @@ def scrape_dlsite_description(url):
                         page_count = int(m.group(1))
             author_detail = ",".join(authors)
 
+        if not author_detail:
+            maker_span = soup.select_one(".maker_name")
+            if maker_span:
+                maker_a = maker_span.select_one("a")
+                maker_text = maker_a.get_text(strip=True) if maker_a else maker_span.get_text(strip=True)
+                if maker_text:
+                    author_detail = f"サークル:{maker_text}"
+
         # === 属性タグ取得（ジャンル行の<a>タグ） ===
         attr_tags = []
         for th in soup.find_all('th'):
