@@ -667,7 +667,7 @@ def _run_curator_logic(args):
     title = f"【まとめ】「{display_tag}」属性の隠れた名作{display_genre}作品{num}選"
 
     # 修正6: まとめ記事専用のメタディスクリプション
-    excerpt_tags = tag_name.split(",")
+    excerpt_tags = tag_name.split(",") + [reviewer['name']]  # レビュアー名を追加（通常・ランキング記事と統一）
     excerpt = (
         f"「{display_tag}」属性のおすすめ{display_genre}作品を厳選{num}選！"
         f"Noveloveの{reviewer['name']}が、露出は低くとも魅力的な隠れた名作を"
