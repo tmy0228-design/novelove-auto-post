@@ -762,7 +762,7 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             wp_title = target["title"]
             # あわせて読みたい（文字リンク）は廃止。YARPPプラグインによる関連記事表示に移行。
             full_content = (
-                badge_html + img_html + release_display + text_link +
+                badge_html + img_html + text_link +
                 content + button_html + credit_html
             )
             word_count = len(content)

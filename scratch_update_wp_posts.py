@@ -9,8 +9,13 @@ from novelove_core import WP_SITE_URL, WP_USER, WP_APP_PASSWORD, DB_FILE_UNIFIED
 def get_db_conn():
     return sqlite3.connect(DB_FILE_UNIFIED)
 
-def build_specs_html(author_detail, cast_info, series_name, page_count, fallback_author=None, is_dlsite=False):
+def build_specs_html(release_date, author_detail, cast_info, page_count, fallback_author=None, is_dlsite=False):
     specs = []
+    
+    # 発売日の追加
+    if release_date and isinstance(release_date, str) and len(release_date) >= 4:
+        formatted_date = release_date[:10].replace("-", "/")
+        specs.append(f"発売日: {formatted_date}")
     
     # 著者詳細のパース
     if author_detail:
@@ -33,13 +38,14 @@ def build_specs_html(author_detail, cast_info, series_name, page_count, fallback
     if cast_info:
         specs.append(f"声優(CV): {cast_info}")
         
-    # シリーズ
-    if series_name:
-        specs.append(f"シリーズ: {series_name}")
-        
     # ページ数
-    if page_count and page_count > 0:
-        specs.append(f"{page_count}P")
+    if page_count:
+        try:
+            pg_val = int(page_count)
+            if pg_val > 0:
+                specs.append(f"{pg_val}P")
+        except (ValueError, TypeError):
+            pass
         
     if not specs:
         return ""
@@ -48,7 +54,7 @@ def build_specs_html(author_detail, cast_info, series_name, page_count, fallback
     
     html = f"""<!-- NOVELOVE_SPECS_START -->
 <div class="novelove-specs" style="background:#fafafa; border-top:1px solid #eee; border-bottom:1px solid #eee; padding:6px 10px; margin:12px 0; font-size:0.85em; color:#666; text-align:center; line-height:1.5;">
-  <strong style="color:#d81b60; margin-right:5px;">💡 作品情報</strong> {specs_text}
+  {specs_text}
 </div>
 <!-- NOVELOVE_SPECS_END -->\n"""
     return html
@@ -78,19 +84,19 @@ def update_posts(dry_run=True, target_post_id=None):
     # target_post_id が指定されている場合はその記事のみ対象（テスト用）
     if target_post_id:
         c.execute("""
-            SELECT wp_post_id, author_detail, cast_info, series_name, page_count, title, author, site
+            SELECT wp_post_id, author_detail, cast_info, series_name, page_count, title, author, site, release_date
             FROM novelove_posts
             WHERE wp_post_id=?
         """, (target_post_id,))
     else:
         c.execute("""
-            SELECT wp_post_id, author_detail, cast_info, series_name, page_count, title, author, site
+            SELECT wp_post_id, author_detail, cast_info, series_name, page_count, title, author, site, release_date
             FROM novelove_posts
             WHERE status='published' 
               AND post_type='regular' 
               AND wp_post_id IS NOT NULL 
               AND wp_post_id != ''
-              AND (author_detail IS NOT NULL OR cast_info IS NOT NULL OR series_name IS NOT NULL OR page_count IS NOT NULL)
+              AND (author_detail IS NOT NULL OR cast_info IS NOT NULL OR series_name IS NOT NULL OR page_count IS NOT NULL OR release_date IS NOT NULL)
         """)
         
     rows = c.fetchall()
@@ -119,12 +125,12 @@ def update_posts(dry_run=True, target_post_id=None):
     fail_count = 0
     
     try:
-        for idx, (wp_id, auth_det, cast, series, pages, title, author, site) in enumerate(rows, 1):
+        for idx, (wp_id, auth_det, cast, series, pages, title, author, site, rel_date) in enumerate(rows, 1):
             print(f"[{idx}/{len(rows)}] Processing Post ID {wp_id}: {title}...")
             
             # スペックHTMLの生成
             is_dlsite = site and "DLsite" in str(site)
-            spec_html = build_specs_html(auth_det, cast, series, pages, fallback_author=author, is_dlsite=is_dlsite)
+            spec_html = build_specs_html(rel_date, auth_det, cast, pages, fallback_author=author, is_dlsite=is_dlsite)
             if not spec_html:
                 print("  No specs available to insert. Skipping.")
                 continue
@@ -144,20 +150,28 @@ def update_posts(dry_run=True, target_post_id=None):
             # 1. 既存のスペック表を削除（二重挿入防止）
             clean_content = re.sub(r'<!-- NOVELOVE_SPECS_START -->.*?<!-- NOVELOVE_SPECS_END -->\s*', '', content_raw, flags=re.DOTALL)
             
-            # 2. 最初の <h2> を探してその手前にスペック表を挿入
-            h2_match = re.search(r'<h2[^>]*>', clean_content)
-            if h2_match:
-                pos = h2_match.start()
-                new_content = clean_content[:pos] + spec_html + clean_content[pos:]
+            # 2. 既存の「発売日：xxxx/xx/xx」の段落行を削除（二重表示防止）
+            clean_content = re.sub(r'<p style="text-align:\s*center;\s*color:\s*#666;\s*font-size:\s*0.9em;\s*margin-bottom:\s*10px;?">発売日：\d{4}[-/]\d{2}[-/]\d{2}</p>\s*', '', clean_content)
+            
+            # 3. アイキャッチ画像の段落の直後にスペック表を挿入
+            img_match = re.search(r'(<p style="text-align:\s*center;\s*margin:\s*20px\s*0;?"><a[^>]*><img[^>]*></a></p>)', clean_content)
+            if img_match:
+                pos = img_match.end()
+                new_content = clean_content[:pos] + "\n" + spec_html + clean_content[pos:]
             else:
-                # <h2> がない場合のフォールバック（最初の吹き出しの閉じタグの直後）
-                bubble_close = re.search(r'</div>\s*</div>', clean_content)
-                if bubble_close:
-                    pos = bubble_close.end()
-                    new_content = clean_content[:pos] + "\n" + spec_html + clean_content[pos:]
+                # <h2> がある場合のフォールバック（従来の挙動）
+                h2_match = re.search(r'<h2[^>]*>', clean_content)
+                if h2_match:
+                    pos = h2_match.start()
+                    new_content = clean_content[:pos] + spec_html + clean_content[pos:]
                 else:
-                    # それでもダメなら先頭
-                    new_content = spec_html + clean_content
+                    # <h2> がない場合のフォールバック（最初の吹き出しの閉じタグの直後）
+                    bubble_close = re.search(r'</div>\s*</div>', clean_content)
+                    if bubble_close:
+                        pos = bubble_close.end()
+                        new_content = clean_content[:pos] + "\n" + spec_html + clean_content[pos:]
+                    else:
+                        new_content = spec_html + clean_content
                     
             if dry_run:
                 # ドライラン時はローカルファイルにテスト書き出し
