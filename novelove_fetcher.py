@@ -466,10 +466,10 @@ def scrape_dlsite_description(url):
 
 
 def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
-    if not product_url: return ""
+    if not product_url: return "", "", "", "", 0
     if "dlsite" in str(product_url).lower():
         desc, _tags, _excl, _auth_det, _cast, _series, _pages = scrape_dlsite_description(product_url)
-        return desc
+        return desc, _auth_det, _cast, _series, _pages
 
     session = _make_dmm_session()
     _any_desc_found = False  # あらすじテキストが何らか存在したか（短くても）
@@ -501,7 +501,7 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
         is_ranking_final = is_ranking or (genre in ("BL", "TL"))
         if has_format_tag and not is_comic and not is_novel_target and not is_voice_target and not is_ranking_final:
             logger.warning(f"[DMM] マンガ以外の形式のため除外: {product_url}")
-            return "__EXCLUDED_TYPE__"
+            return "__EXCLUDED_TYPE__", "", "", "", 0
         page_title_tag = soup.find("title")
         page_title_str = page_title_tag.text if page_title_tag else ""
         FOREIGN_TITLE_PATTERNS = [
@@ -512,10 +512,10 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
         for bc in bracket_contents:
             if any(fp in bc for fp in FOREIGN_TITLE_PATTERNS):
                 logger.warning(f"[DMM] 外国語版タイトルパターン（{bc}）のため除外: {product_url}")
-                return "__EXCLUDED_TYPE__"
+                return "__EXCLUDED_TYPE__", "", "", "", 0
         if any(kw in text for kw in ["カテゴリー</th><td>写真集", "カテゴリー</th><td>グラビア", "カテゴリー</th><td>文芸・小説", "カテゴリー</th><td>ライトノベル"]):
             logger.warning(f"[DMM] 禁止カテゴリーを検知: {product_url}")
-            return "__EXCLUDED_TYPE__"
+            return "__EXCLUDED_TYPE__", "", "", "", 0
         # === あらすじ抽出（MAX文字数採用型ハイブリッド） ===
         # JSON-LD と HTMLクラスの「両方」から取得し、文字数が多い方を自動採用する。
         # - DMMブックス: HTMLクラスが存在しない(React SPA)ため JSON-LD が唯一の情報源（全文格納）
@@ -554,19 +554,68 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
             logger.warning(f"  [省略検知] 取得テキストが省略文のみ({len(best_desc)}文字): {product_url}")
             best_desc = ""  # 省略文を破棄してAI修復へフォールスルー
 
+        # === v22.0.0: あらすじ取得と同時にHTMLからスペック情報を取得 ===
+        # DMMアフィリエイトAPIのCID個別検索ではらぶカルCIDが0件になる仕様のため
+        # 同じHTMLからサークル名・著者・ページ数・シリーズ名を同時取得する
+        _web_author_detail = ""
+        _web_cast_info = ""
+        _web_series_name = ""
+        _web_page_count = 0
+        try:
+            import json as _json_spec
+            _circle = ""
+            for _ld in soup.find_all('script', type='application/ld+json'):
+                try:
+                    _ld_data = _json_spec.loads(_ld.string or "")
+                    if isinstance(_ld_data, dict) and _ld_data.get("@type") == "Product":
+                        _brand = _ld_data.get("brand", {})
+                        if isinstance(_brand, dict) and _brand.get("name"):
+                            _circle = _brand["name"]
+                        break
+                except Exception:
+                    pass
+            _author_web = ""
+            _pages_web = 0
+            _series_web = ""
+            for _dl in soup.find_all('dl'):
+                _dts = _dl.find_all('dt')
+                _dds = _dl.find_all('dd')
+                _pairs = [(_dt.get_text(strip=True), _dd.get_text(strip=True)) for _dt, _dd in zip(_dts, _dds)]
+                _labels = [p[0] for p in _pairs]
+                if any(k in _labels for k in ["作者", "配信開始日", "ページ数", "シリーズ"]):
+                    for _k, _v in _pairs:
+                        if "作者" in _k and not _author_web:
+                            _author_web = _v
+                        elif "ページ数" in _k and not _pages_web:
+                            import re as _re_spec
+                            _m = _re_spec.search(r"(\d+)", _v)
+                            if _m: _pages_web = int(_m.group(1))
+                        elif "シリーズ" in _k and not _series_web:
+                            _series_web = _v
+                    break
+            _parts = []
+            if _circle:
+                _parts.append(f"サークル:{_circle}")
+            if _author_web:
+                _parts.append(f"作者:{_author_web}")
+            _web_author_detail = ",".join(_parts)
+            _web_page_count = _pages_web
+            _web_series_name = _series_web
+        except Exception:
+            pass
+
         # 結果判定
         if len(best_desc) > 50:
-            return best_desc.strip()
+            return best_desc.strip(), _web_author_detail, _web_cast_info, _web_series_name, _web_page_count
 
-        # 取得失敗 → 緊急AI修復（JSON-LDもHTMLクラスも不十分 = サイト構造変更の可能性が高いため通知）
+        # 取得失敗 → 緊急AI修復
         ai_desc = _run_emergency_ai_extraction(product_url, site_type="DMM.com")
         if ai_desc:
-            return ai_desc
+            return ai_desc, _web_author_detail, _web_cast_info, _web_series_name, _web_page_count
 
     except Exception as e:
         logger.warning(f"スクレイピング失敗 ({product_url}): {e}")
-    # あらすじが見つかったが短すぎた場合と、そもそも何も見つからなかった場合を区別する
-    return "__DESC_TOO_SHORT__" if _any_desc_found else ""
+    return ("__DESC_TOO_SHORT__", "", "", "", 0) if _any_desc_found else ("", "", "", "", 0)
 
 
 
@@ -765,15 +814,16 @@ def fetch_and_stock_all():
                 item["_series_name"] = dl_series
                 item["_page_count"] = dl_pages
             else:
-                desc = scrape_description(p_url, site=site, genre=target["genre"])
+                desc, web_auth, web_cast, web_series, web_pages = scrape_description(p_url, site=site, genre=target["genre"])
                 
                 # v14.4.0: 専売判定はAPI統一ルール（後段の共通処理で実施）
                 item["_original_tags"] = ""
                 item["_is_exclusive"] = 0
-                item["_author_detail"] = ""
-                item["_cast_info"] = ""
-                item["_series_name"] = ""
-                item["_page_count"] = 0
+                # v22.0.0: APIスペックを優先しつつ、空の場合はHTMLスクレイピング値でフォールバック
+                item["_author_detail"] = item.get("_author_detail") or web_auth
+                item["_cast_info"] = item.get("_cast_info") or web_cast
+                item["_series_name"] = item.get("_series_name") or web_series
+                item["_page_count"] = item.get("_page_count") or web_pages
             time.sleep(1.0)
             scraped_data.append((item, desc))
 

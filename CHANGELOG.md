@@ -2742,3 +2742,12 @@ Novelove 自動投稿エンジンの主要な修正履歴です。
 ## [次回対応] クリーンアップ・新機能予定
 - **人気作（ランキング上位）対応**: FANZA API の `sort='rank'` パラメータを利用したレビュー記事の追加
 - 不要な定義の削除: `_genre_label()` と `GENRE_CATEGORIES` の `comic_women` 定義を削除予定
+
+## [v22.0.0] - 2026-06-27
+### 追加
+- **らぶカルおよびDMM電子書籍におけるHTMLスペック自動取得・同期フォールバックのアップグレード**:
+  - `scrape_description()` が `(desc, author_detail, cast_info, series_name, page_count)` の5要素タプルを返すようにシグネチャを拡張。
+  - WEBページ（HTML）上の JSON-LD `brand.name` からのサークル名取得、および製品情報 `dl` テーブルから作者・シリーズ・ページ数を同時にパースするスクレイピング処理を内包。
+  - クローラー本体のFanza/DMM新着取り込み部で、DMMアフィリエイトAPIのインデックス同期漏れにより `_author_detail` 等の項目が空で戻された場合、WEB側からスクレイピングしたスペック情報で自動的にフォールバック補完するガードレールを敷設。
+  - ランキング生成スクリプト（`novelove_ranking.py`）および記事再審査用スクリプト（`nexus_revive.py`）の `scrape_description` 呼び出し部分もタプル対応に置換し、後方互換性を担保。
+

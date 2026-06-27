@@ -70,7 +70,7 @@ def fetch_ranking_dmm(site, genre):
             base_url = item.get("URL", "")
             # generate_affiliate_url が lovecul.dmm.co.jp を検知し自動でDMM用URLに変換する
             aff_url = generate_affiliate_url("FANZA", base_url)
-            desc = scrape_description(item.get("URL", ""), site=site, genre=genre, is_ranking=True)
+            desc, *_ = scrape_description(item.get("URL", ""), site=site, genre=genre, is_ranking=True)
             if _is_noise_content(title, desc): continue
             
             final_items.append({
@@ -125,7 +125,7 @@ def fetch_ranking_dmm(site, genre):
         base_url = item.get("URL", "")
         # generate_affiliate_url が FANZA/DMM.com を自動判定してURLを生成する
         aff_url = generate_affiliate_url(site, base_url)
-        desc = scrape_description(item.get("URL", ""), site=site, genre=genre, is_ranking=True)
+        desc, *_ = scrape_description(item.get("URL", ""), site=site, genre=genre, is_ranking=True)
         if _is_noise_content(title, desc): continue
         
         final_items.append({
