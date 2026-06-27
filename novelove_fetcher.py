@@ -564,19 +564,53 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
         try:
             import json as _json_spec
             _circle = ""
+            _author_web = ""
+            _series_web = ""
+            _pages_web = 0
+
+            # 1. JSON-LD の Product / BreadcrumbList 解析 (DMMブックスのSPA対応)
             for _ld in soup.find_all('script', type='application/ld+json'):
                 try:
                     _ld_data = _json_spec.loads(_ld.string or "")
-                    if isinstance(_ld_data, dict) and _ld_data.get("@type") == "Product":
+                    if not isinstance(_ld_data, dict):
+                        continue
+                    
+                    if _ld_data.get("@type") == "Product":
+                        # ブランド（サークル/出版社名）
                         _brand = _ld_data.get("brand", {})
                         if isinstance(_brand, dict) and _brand.get("name"):
                             _circle = _brand["name"]
-                        break
+                        elif isinstance(_brand, str):
+                            _circle = _brand
+                            
+                        # subjectOf (Book) -> 著者・出版社
+                        _sub = _ld_data.get("subjectOf", {})
+                        if isinstance(_sub, dict) and _sub.get("@type") == "Book":
+                            _auth_info = _sub.get("author", {})
+                            if isinstance(_auth_info, dict):
+                                _names = _auth_info.get("name", [])
+                                if isinstance(_names, list):
+                                    _author_web = ",".join(_names)
+                                elif isinstance(_names, str):
+                                    _author_web = _names
+                                    
+                    elif _ld_data.get("@type") == "BreadcrumbList":
+                        # シリーズ階層名
+                        _items = _ld_data.get("itemListElement", [])
+                        if len(_items) >= 3:
+                            # 通常、最後から2番目の階層がシリーズ親フォルダ名
+                            # らぶカル等のBreadcrumb構造 [らぶカルBL, サークル一覧, サークル名, コミック, シリーズ名, 作品名]
+                            # 最低限3階層以上あれば、最後の1つ手前のItemからシリーズ名推論
+                            _penultimate = _items[-2] if len(_items) >= 2 else None
+                            if _penultimate:
+                                _item_name = _penultimate.get("item", {}).get("name", "")
+                                # サークル名や配信サイト階層名ではない場合のみシリーズ名として採用
+                                if _item_name and not any(x in _item_name for x in ["らぶカル", "DMMブックス", "BL", "TL", "コミック", "小説"]):
+                                    _series_web = _item_name
                 except Exception:
                     pass
-            _author_web = ""
-            _pages_web = 0
-            _series_web = ""
+
+            # 2. dl/dt/dd から作者・ページ数・シリーズ（製品情報テーブルのみを対象、同人・らぶカル対応）
             for _dl in soup.find_all('dl'):
                 _dts = _dl.find_all('dt')
                 _dds = _dl.find_all('dd')
@@ -593,6 +627,7 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
                         elif "シリーズ" in _k and not _series_web:
                             _series_web = _v
                     break
+
             _parts = []
             if _circle:
                 _parts.append(f"サークル:{_circle}")
