@@ -65,7 +65,7 @@ def fetch_dmm_api_meta(cid):
         logger.warning(f"DMM API 取得失敗 ({cid}): {e}")
     return {}
 
-def build_specs_html(release_date, author_detail, cast_info, page_count, fallback_author=None, is_dlsite=False):
+def build_specs_html(release_date, author_detail, cast_info, page_count, fallback_author=None, is_dlsite=False, is_voice=False):
     specs = []
     if release_date and isinstance(release_date, str) and len(release_date) >= 4:
         formatted_date = release_date[:10].replace("-", "/")
@@ -121,7 +121,10 @@ def build_specs_html(release_date, author_detail, cast_info, page_count, fallbac
         try:
             pg_val = int(page_count)
             if pg_val > 0:
-                specs.append(f"{pg_val}P")
+                if is_voice:
+                    specs.append(f"{pg_val}本")
+                else:
+                    specs.append(f"{pg_val}P")
         except:
             pass
             
@@ -389,7 +392,8 @@ def main():
             # 【フェーズ2: WP反映】
             if wp_id:
                 is_dlsite = "dlsite" in site.lower() or "dlsite" in p_url.lower()
-                spec_html = build_specs_html(rel_date, auth_det, cast, pages, fallback_author=row["author"], is_dlsite=is_dlsite)
+                is_voice = "voice" in str(row.get("genre", "")).lower()
+                spec_html = build_specs_html(rel_date, auth_det, cast, pages, fallback_author=row["author"], is_dlsite=is_dlsite, is_voice=is_voice)
                 if spec_html:
                     if args.dry_run:
                         logger.info(f"    [Dry Run] WP ID {wp_id} のスペック表示アップデートをシミュレート")

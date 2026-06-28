@@ -10,7 +10,7 @@ from novelove_fetcher import format_author_detail
 def get_db_conn():
     return sqlite3.connect(DB_FILE_UNIFIED)
 
-def build_specs_html(release_date, author_detail, cast_info, page_count, fallback_author=None, is_dlsite=False):
+def build_specs_html(release_date, author_detail, cast_info, page_count, fallback_author=None, is_dlsite=False, is_voice=False):
     specs = []
     
     # 発売日の追加
@@ -70,12 +70,15 @@ def build_specs_html(release_date, author_detail, cast_info, page_count, fallbac
     if cast_info:
         specs.append(f"声優(CV): {cast_info}")
         
-    # ページ数
+    # ページ数 / 音声本数
     if page_count:
         try:
             pg_val = int(page_count)
             if pg_val > 0:
-                specs.append(f"{pg_val}P")
+                if is_voice:
+                    specs.append(f"{pg_val}本")
+                else:
+                    specs.append(f"{pg_val}P")
         except (ValueError, TypeError):
             pass
         
@@ -116,13 +119,13 @@ def update_posts(dry_run=True, target_post_id=None):
     # target_post_id が指定されている場合はその記事のみ対象（テスト用）
     if target_post_id:
         c.execute("""
-            SELECT wp_post_id, author_detail, cast_info, series_name, page_count, title, author, site, release_date
+            SELECT wp_post_id, author_detail, cast_info, series_name, page_count, title, author, site, release_date, genre
             FROM novelove_posts
             WHERE wp_post_id=?
         """, (target_post_id,))
     else:
         c.execute("""
-            SELECT wp_post_id, author_detail, cast_info, series_name, page_count, title, author, site, release_date
+            SELECT wp_post_id, author_detail, cast_info, series_name, page_count, title, author, site, release_date, genre
             FROM novelove_posts
             WHERE status='published' 
               AND post_type='regular' 
@@ -157,12 +160,13 @@ def update_posts(dry_run=True, target_post_id=None):
     fail_count = 0
     
     try:
-        for idx, (wp_id, auth_det, cast, series, pages, title, author, site, rel_date) in enumerate(rows, 1):
+        for idx, (wp_id, auth_det, cast, series, pages, title, author, site, rel_date, genre) in enumerate(rows, 1):
             print(f"[{idx}/{len(rows)}] Processing Post ID {wp_id}: {title}...")
             
             # スペックHTMLの生成
             is_dlsite = site and "DLsite" in str(site)
-            spec_html = build_specs_html(rel_date, auth_det, cast, pages, fallback_author=author, is_dlsite=is_dlsite)
+            is_voice = "voice" in str(genre).lower()
+            spec_html = build_specs_html(rel_date, auth_det, cast, pages, fallback_author=author, is_dlsite=is_dlsite, is_voice=is_voice)
             if not spec_html:
                 print("  No specs available to insert. Skipping.")
                 continue

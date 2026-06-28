@@ -607,7 +607,7 @@ def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90):
         logger.warning(f"  [重複チェック] DB読み込みエラー: {e}")
     return False, "", 0.0
 
-def build_specs_html(release_date, author_detail, cast_info, series_name, page_count, fallback_author=None, site_label=None):
+def build_specs_html(release_date, author_detail, cast_info, series_name, page_count, fallback_author=None, site_label=None, is_voice=False):
     specs = []
     
     # 発売日の追加
@@ -668,7 +668,10 @@ def build_specs_html(release_date, author_detail, cast_info, series_name, page_c
         try:
             pg_val = int(page_count)
             if pg_val > 0:
-                specs.append(f"{pg_val}P")
+                if is_voice:
+                    specs.append(f"{pg_val}本")
+                else:
+                    specs.append(f"{pg_val}P")
         except (ValueError, TypeError):
             pass
     if not specs:
@@ -856,7 +859,9 @@ def _execute_posting_flow(row, cursor, conn):
     ser_name = row_dict.get("series_name", "") or ""
     pg_count = row_dict.get("page_count", 0) or 0
     
-    spec_html = build_specs_html(row["release_date"], auth_det, cast_inf, ser_name, pg_count, fallback_author=row["author"], site_label=site_label)
+    genre_str = row_dict.get("genre", "") or ""
+    is_voice = "voice" in str(genre_str).lower()
+    spec_html = build_specs_html(row["release_date"], auth_det, cast_inf, ser_name, pg_count, fallback_author=row["author"], site_label=site_label, is_voice=is_voice)
     if spec_html:
         # 二重挿入防止ガードレール
         content = re.sub(r'<!-- NOVELOVE_SPECS_START -->.*?<!-- NOVELOVE_SPECS_END -->\s*', '', content, flags=re.DOTALL)
