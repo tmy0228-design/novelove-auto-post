@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v21.2.3 — メタデータ重複上書きバグ修正 & スペック同一役割グループ化 (2026-06-28)
+
+### 🐛 Bug Fix
+- **DMMメタデータ再取得ロジックのバグ修正 (`tools/retroactive_metadata_repair.py`)**:
+  - DMM商業作品のデータ再取得時に、既存の汚染データ（`｜`区切りの古い表記）を引き継ぐマージ処理を完全に廃止。APIから取得した最新のクリーンなデータのみでDBを安全に上書きするように変更。
+
+### ✨ Feature / Improvement
+- **スペック表の複数人同一役割グループ化表示 (`auto_post.py` / `tools/scratch_update_wp_posts.py` / `tools/retroactive_metadata_repair.py`)**:
+  - `build_specs_html` を改修し、同じ役割（著者など）を持つ人物が複数名いる場合に `著者: 北尾こん / 日車メレ / 上原た壱` のようにスラッシュ `/` で1つにまとめてスッキリ表示するグループ化ロジックを実装。
+
+
 ## v21.2.2 — メタデータ取得強化 & 表示重複排除整形 (2026-06-28)
 
 ### ✨ Feature / Improvement

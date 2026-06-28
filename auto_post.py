@@ -624,6 +624,7 @@ def build_specs_html(release_date, author_detail, cast_info, series_name, page_c
         author_detail = format_author_detail(author_detail)  # 同一人物の複数役割をまとめる
         if ":" in author_detail:
             parts = author_detail.split(",")
+            role_to_names = {}
             for part in parts:
                 if ":" in part:
                     r, n = part.split(":", 1)
@@ -631,14 +632,19 @@ def build_specs_html(release_date, author_detail, cast_info, series_name, page_c
                     n = n.strip()
                     if not n:
                         continue
-                    # ★ 修正: n にさらに : が含まれる場合（例: 声優(CV):有瀬隼人）は
-                    # n を正しいラベル:名前として再分割し、外側の r（サークルなど）は捨てる
                     if ":" in n:
                         r2, n2 = n.split(":", 1)
-                        if n2.strip():
-                            specs.append(f"{r2.strip()}: {n2.strip()}")
-                    else:
-                        specs.append(f"{r}: {n}")
+                        r = r2.strip()
+                        n = n2.strip()
+                    
+                    if r not in role_to_names:
+                        role_to_names[r] = []
+                    if n not in role_to_names[r]:
+                        role_to_names[r].append(n)
+            
+            for r, names in role_to_names.items():
+                names_str = " / ".join(names)
+                specs.append(f"{r}: {names_str}")
         else:
             specs.append(f"著者: {author_detail}")
     elif fallback_author:
