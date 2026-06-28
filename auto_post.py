@@ -636,6 +636,10 @@ def build_specs_html(release_date, author_detail, cast_info, series_name, page_c
                         r2, n2 = n.split(":", 1)
                         r = r2.strip()
                         n = n2.strip()
+                        
+                    # 役割名が「発売日」、または値が日付・時間パターンの場合はゴミとしてスキップ
+                    if "発売日" in r or re.match(r"^\d{4}[-/]\d{2}[-/]\d{2}", n) or "00:00:00" in n:
+                        continue
                     
                     if r not in role_to_names:
                         role_to_names[r] = []
