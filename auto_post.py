@@ -80,6 +80,7 @@ from novelove_fetcher import (
     fetch_and_stock_all,
     FETCH_TARGETS,
     mask_input,
+    format_author_detail,
 )
 
 from novelove_writer import (
@@ -620,13 +621,24 @@ def build_specs_html(release_date, author_detail, cast_info, series_name, page_c
 
     if author_detail:
         author_detail = clean_txt(author_detail)
+        author_detail = format_author_detail(author_detail)  # 同一人物の複数役割をまとめる
         if ":" in author_detail:
             parts = author_detail.split(",")
             for part in parts:
                 if ":" in part:
                     r, n = part.split(":", 1)
-                    if n.strip():
-                        specs.append(f"{r.strip()}: {n.strip()}")
+                    r = r.strip()
+                    n = n.strip()
+                    if not n:
+                        continue
+                    # ★ 修正: n にさらに : が含まれる場合（例: 声優(CV):有瀬隼人）は
+                    # n を正しいラベル:名前として再分割し、外側の r（サークルなど）は捨てる
+                    if ":" in n:
+                        r2, n2 = n.split(":", 1)
+                        if n2.strip():
+                            specs.append(f"{r2.strip()}: {n2.strip()}")
+                    else:
+                        specs.append(f"{r}: {n}")
         else:
             specs.append(f"著者: {author_detail}")
     elif fallback_author:

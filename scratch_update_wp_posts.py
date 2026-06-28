@@ -5,6 +5,7 @@ import sys
 import time
 import subprocess
 from novelove_core import WP_SITE_URL, WP_USER, WP_APP_PASSWORD, DB_FILE_UNIFIED
+from novelove_fetcher import format_author_detail
 
 def get_db_conn():
     return sqlite3.connect(DB_FILE_UNIFIED)
@@ -24,6 +25,7 @@ def build_specs_html(release_date, author_detail, cast_info, page_count, fallbac
     # 著者詳細のパース
     if author_detail:
         author_detail = clean_txt(author_detail)
+        author_detail = format_author_detail(author_detail)  # 同一人物の複数役割をまとめる
         if ":" in author_detail:
             parts = author_detail.split(",")
             for part in parts:
