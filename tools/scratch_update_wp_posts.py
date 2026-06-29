@@ -5,7 +5,7 @@ import sys
 import time
 import subprocess
 from novelove_core import WP_SITE_URL, WP_USER, WP_APP_PASSWORD, DB_FILE_UNIFIED
-from novelove_fetcher import format_author_detail
+# format_author_detail は新パースロジックに統合済みのため不要
 
 def get_db_conn():
     return sqlite3.connect(DB_FILE_UNIFIED)
@@ -22,39 +22,60 @@ def build_specs_html(release_date, author_detail, cast_info, page_count, fallbac
         if not t: return ""
         return t.replace("\r", "").replace("\n", "").replace("\xa0", " ").strip()
 
-    # 著者詳細のパース
+    # 著者詳細のパース（完全版 v2）
+    # 全パターン対応: VALID_ROLES バリデーション / 日付・時刻ゴミ排除 /
+    # コロンなし部分は直前の役割を引き継ぎ / 掲載終了等のゴミ値排除
+    _VALID_ROLES = frozenset(['著者', 'サークル', '出版社', 'レーベル', 'シナリオ', 'イラスト', '声優(CV)', '原作', 'WA'])
+    _DATE_RE = re.compile(r'\d{4}[-/]\d{2}[-/]\d{2}')
+    _TIME_RE = re.compile(r'\d{2}:\d{2}:\d{2}')
+    _GARBAGE = ('掲載終了', '情報')
+    _ROLE_ORDER = ['著者', 'シナリオ', 'イラスト', '原作', 'WA', 'サークル', '出版社', 'レーベル', '声優(CV)']
+
     if author_detail:
         author_detail = clean_txt(author_detail)
-        author_detail = format_author_detail(author_detail)  # 同一人物の複数役割をまとめる
-        if ":" in author_detail:
-            parts = author_detail.split(",")
-            role_to_names = {}
-            for part in parts:
-                if ":" in part:
-                    r, n = part.split(":", 1)
-                    r = r.strip()
-                    n = n.strip()
-                    if not n:
-                        continue
-                    if ":" in n:
-                        r2, n2 = n.split(":", 1)
-                        r = r2.strip()
-                        n = n2.strip()
-                    
-                    # 役割名が「発売日」、または値が日付・時間パターンの場合はゴミとしてスキップ
-                    if "発売日" in r or re.match(r"^\d{4}[-/]\d{2}[-/]\d{2}", n) or "00:00:00" in n:
-                        continue
-                        
-                    if r not in role_to_names:
-                        role_to_names[r] = []
-                    if n not in role_to_names[r]:
-                        role_to_names[r].append(n)
-            
-            for r, names in role_to_names.items():
-                names_str = " / ".join(names)
-                specs.append(f"{r}: {names_str}")
-        else:
-            specs.append(f"著者: {author_detail}")
+        _raw_parts = [p.strip() for p in author_detail.split(',') if p.strip()]
+        _role_to_names = {}
+        _last_role = None
+
+        for _part in _raw_parts:
+            # ① 日付・時刻パターンはゴミとして除外
+            if _DATE_RE.search(_part) or _TIME_RE.search(_part):
+                continue
+
+            if ':' in _part:
+                _role, _name = _part.split(':', 1)
+                _role = _role.strip()
+                _name = _name.strip()
+                # ② 未知の役割名（発売日など）は除外
+                if _role not in _VALID_ROLES:
+                    continue
+                # ③ ゴミ値（掲載終了・情報など）は除外
+                if any(_g in _name for _g in _GARBAGE):
+                    continue
+                if not _name:
+                    continue
+                _last_role = _role
+                _role_to_names.setdefault(_role, [])
+                if _name not in _role_to_names[_role]:
+                    _role_to_names[_role].append(_name)
+            else:
+                # ④ コロンなし → 直前の役割を引き継ぐ（例: 著者:A,B,C）
+                _name = _part
+                if not _name or any(_g in _name for _g in _GARBAGE):
+                    continue
+                _role = _last_role or '著者'
+                _role_to_names.setdefault(_role, [])
+                if _name not in _role_to_names[_role]:
+                    _role_to_names[_role].append(_name)
+
+        _seen = set()
+        for _r in _ROLE_ORDER:
+            if _r in _role_to_names:
+                specs.append(f"{_r}: {' / '.join(_role_to_names[_r])}")
+                _seen.add(_r)
+        for _r, _names in _role_to_names.items():
+            if _r not in _seen:
+                specs.append(f"{_r}: {' / '.join(_names)}")
     elif fallback_author:
         fallback_author = clean_txt(fallback_author)
         if is_dlsite and "/" in fallback_author:
