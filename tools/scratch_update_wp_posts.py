@@ -22,10 +22,13 @@ def build_specs_html(release_date, author_detail, cast_info, page_count, fallbac
         if not t: return ""
         return t.replace("\r", "").replace("\n", "").replace("\xa0", " ").strip()
 
-    # 著者詳細のパース（完全版 v2）
-    # 全パターン対応: VALID_ROLES バリデーション / 日付・時刻ゴミ排除 /
-    # コロンなし部分は直前の役割を引き継ぎ / 掲載終了等のゴミ値排除
+    # 著者詳細のパース（完全版 v21.2.5）
+    # 全パターン対応:
+    #   ① 日付・時刻ゴミの排除  ② VALID_ROLES バリデーション
+    #   ③ ゴミ値（掲載終了等）の排除  ④ コロンなしは直前の役割を引き継ぎ
+    #   ⑤ 同一クリエイターが複数役割を持つ場合に中黒(・)でまとめる（1人多役合体）
     _VALID_ROLES = frozenset(['著者', 'サークル', '出版社', 'レーベル', 'シナリオ', 'イラスト', '声優(CV)', '原作', 'WA'])
+    _COMPANY_ROLES = frozenset(['出版社', 'レーベル', 'サークル'])  # 会社名は中黒合体の対象外
     _DATE_RE = re.compile(r'\d{4}[-/]\d{2}[-/]\d{2}')
     _TIME_RE = re.compile(r'\d{2}:\d{2}:\d{2}')
     _GARBAGE = ('掲載終了', '情報')
@@ -34,48 +37,62 @@ def build_specs_html(release_date, author_detail, cast_info, page_count, fallbac
     if author_detail:
         author_detail = clean_txt(author_detail)
         _raw_parts = [p.strip() for p in author_detail.split(',') if p.strip()]
-        _role_to_names = {}
+        _parsed_pairs = []  # (名前, 役割) のリスト
         _last_role = None
 
+        # 段階①〜④: パースとゴミ排除
         for _part in _raw_parts:
-            # ① 日付・時刻パターンはゴミとして除外
             if _DATE_RE.search(_part) or _TIME_RE.search(_part):
-                continue
-
+                continue  # ① 日付・時刻ゴミ
             if ':' in _part:
                 _role, _name = _part.split(':', 1)
                 _role = _role.strip()
                 _name = _name.strip()
-                # ② 未知の役割名（発売日など）は除外
                 if _role not in _VALID_ROLES:
-                    continue
-                # ③ ゴミ値（掲載終了・情報など）は除外
+                    continue  # ② 未知の役割名（発売日など）
                 if any(_g in _name for _g in _GARBAGE):
-                    continue
+                    continue  # ③ ゴミ値（掲載終了・情報など）
                 if not _name:
                     continue
                 _last_role = _role
-                _role_to_names.setdefault(_role, [])
-                if _name not in _role_to_names[_role]:
-                    _role_to_names[_role].append(_name)
+                _parsed_pairs.append((_name, _role))
             else:
-                # ④ コロンなし → 直前の役割を引き継ぐ（例: 著者:A,B,C）
                 _name = _part
                 if not _name or any(_g in _name for _g in _GARBAGE):
                     continue
-                _role = _last_role or '著者'
-                _role_to_names.setdefault(_role, [])
-                if _name not in _role_to_names[_role]:
-                    _role_to_names[_role].append(_name)
+                _role = _last_role or '著者'  # ④ コロンなし→直前の役割を引き継ぐ
+                _parsed_pairs.append((_name, _role))
 
-        _seen = set()
-        for _r in _ROLE_ORDER:
-            if _r in _role_to_names:
-                specs.append(f"{_r}: {' / '.join(_role_to_names[_r])}")
-                _seen.add(_r)
-        for _r, _names in _role_to_names.items():
-            if _r not in _seen:
-                specs.append(f"{_r}: {' / '.join(_names)}")
+        # 段階⑤: 同一クリエイターの複数役割を中黒(・)でまとめる
+        _name_to_roles = {}
+        for _name, _role in _parsed_pairs:
+            _name_to_roles.setdefault(_name, [])
+            if _role not in _name_to_roles[_name]:
+                _name_to_roles[_name].append(_role)
+
+        _combined = {}  # "役割キー" -> [名前リスト]
+        for _name, _roles in _name_to_roles.items():
+            if any(_r in _COMPANY_ROLES for _r in _roles):
+                # 会社名（出版社・レーベル・サークル）は合体させず個別に出力
+                for _r in _roles:
+                    _combined.setdefault(_r, []).append(_name)
+            else:
+                # クリエイター（著者・イラスト等）は ROLE_ORDER 順に役割を中黒で結合
+                _sorted_roles = [_r for _r in _ROLE_ORDER if _r in _roles]
+                if not _sorted_roles:
+                    _sorted_roles = sorted(_roles)
+                _role_key = '・'.join(_sorted_roles)
+                _combined.setdefault(_role_key, []).append(_name)
+
+        # 段階: 出力（役割の優先順位順にソート）
+        def _role_priority(_rk):
+            for _idx, _r in enumerate(_ROLE_ORDER):
+                if _r in _rk.split('・'):
+                    return _idx
+            return len(_ROLE_ORDER)
+
+        for _rk in sorted(_combined.keys(), key=_role_priority):
+            specs.append(f"{_rk}: {' / '.join(_combined[_rk])}")
     elif fallback_author:
         fallback_author = clean_txt(fallback_author)
         if is_dlsite and "/" in fallback_author:
