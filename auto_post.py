@@ -304,6 +304,36 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 # --- [削除] 旧 main() 定義 (v11.4.14 にて統合・削除) ---
+
+def _get_dynamic_cooldown() -> int:
+    """
+    v21.2.6: DBの投稿待ち在庫(pending)数に応じてクールダウン時間を動的に決定する。
+    - 在庫30件以上 -> 14分 (実効15分間隔 / 日最大96件: アクティブモード)
+    - 在庫10～29件 -> 25分 (実効30分間隔 / 日最大48件: 標準モード)
+    - 在庫9件以下  -> 55分 (実効60分間隔 / 日最大24件: セーブモード)
+    エラー発生時はデフォルトの25分を返す。
+    """
+    try:
+        tmp = db_connect(DB_FILE_UNIFIED)
+        row = tmp.execute(
+            "SELECT COUNT(*) FROM novelove_posts WHERE status='pending' AND post_type='regular'"
+        ).fetchone()
+        tmp.close()
+        count = row[0] if row else 0
+    except Exception as e:
+        logger.error(f"  [Dynamic Cooldown] 在庫数取得失敗: {e}")
+        return 25  # フォールバック
+
+    if count >= 30:
+        cooldown = 14   # アクティブモード: cronの度に毎回投稿
+    elif count >= 10:
+        cooldown = 25   # 標準モード: 現状維持
+    else:
+        cooldown = 55   # セーブモード: 在庫枯渇防止
+
+    logger.info(f"  [Dynamic Cooldown] 投稿待ち在庫: {count}件 -> クールダウン: {cooldown}分")
+    return cooldown
+
 def _check_global_cooldown(cooldown_minutes=45, post_type='regular'):
     """
     統合DBから最新の投稿時刻をチェックし、指定分数が経過しているか返す。
@@ -351,7 +381,7 @@ def _run_main_logic():
     # クールダウンチェック (通常投稿: cron15分+cooldown25分で実効約30分間隔)
     # v11.4.12: 何よりも先に判定を行い、負荷をゼロにする
     # v19.1.1: cron15分/cooldown25分に変更（~48件/日へ増量）
-    is_ready, elapsed = _check_global_cooldown(25)
+    is_ready, elapsed = _check_global_cooldown(_get_dynamic_cooldown())
     if not is_ready:
         logger.info(f"🕒 クールダウン中（{elapsed:.1f}分経過）。0.1秒で終了します。")
         return
