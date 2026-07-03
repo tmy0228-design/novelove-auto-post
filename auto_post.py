@@ -409,8 +409,10 @@ def _run_main_logic():
                 "SELECT product_id FROM novelove_posts WHERE status='pending' AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
                 (genre, sdb)
             ).fetchall()
-            if len(rows) > 60:
-                to_exclude = [r[0] for r in rows[60:]]
+            # v21.2.7: DMMは新着取得量が多いため在庫上限を120件に拡張。その他は60件を維持。
+            limit_val = 120 if sdb == 'dmm' else 60
+            if len(rows) > limit_val:
+                to_exclude = [r[0] for r in rows[limit_val:]]
                 placeholders = ",".join(["?"] * len(to_exclude))
                 c.execute(
                     f"UPDATE novelove_posts SET status='excluded', last_error='inventory_full' WHERE product_id IN ({placeholders})",
