@@ -159,7 +159,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         is_novel = False
 
     is_ranking = "ranking" in str(slug).lower() or "ランキング" in title
-    is_curation = str(genre).startswith("curation")
+    is_curation = "curation" in str(genre).lower()
     is_bl = "bl" in str(genre).lower()
     
     if is_ranking:

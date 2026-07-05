@@ -74,9 +74,9 @@ def _determine_genre_for_week(week, conn):
         row = c.fetchone()
         if row:
             last = row[0]
-            if last == "curation-bl":
+            if last == "bl-curation":
                 return "TL"
-            elif last == "curation-tl":
+            elif last == "tl-curation":
                 return "BL"
         return "BL"  # 履歴なし時のデフォルト
     elif week == 4:
@@ -722,8 +722,8 @@ def _run_curator_logic(args):
         # 遅延インポートによる循環参照の防止
         from auto_post import post_to_wordpress
 
-        # 投稿ジャンルの設定 (curation-bl / curation-tl)
-        post_genre = f"curation-{sub_genre_lower}"
+        # 投稿ジャンルの設定 (bl-curation / tl-curation)
+        post_genre = f"{sub_genre_lower}-curation"
 
         # 修正2: image_url と thumb_url を分離
         link, wp_post_id = post_to_wordpress(

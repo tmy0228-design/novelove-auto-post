@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v21.3.6 — カテゴリースラッグの統一に伴う自動投稿プログラムの追従修正 (2026-07-05)
+
+### 🚀 fix(core): bl-curation / tl-curation へのスラッグ変更を auto_post.py / novelove_curator.py に完全追従
+
+- **プログラム内ハードコーディングの一掃**: スラッグの命名規則統一（`[ジャンル]-[形態]`）に伴い、`novelove_curator.py` 内にハードコーディングされていた旧スラッグ `curation-bl` / `curation-tl` を、新しい `bl-curation` / `tl-curation` にすべて置換・更新しました。
+- **自動分類バグの未然防止 (is_curation の修正)**: スラッグ構造の変更によって `startswith("curation")` による判定が機能しなくなる問題（判定漏れバグ）を防ぐため、`auto_post.py` 内の `is_curation` 判定式をより堅牢な `"curation" in str(genre).lower()`（部分一致）へ書き換え、自動投稿のバグを完璧に防止しました。
+
+---
+
 ## v21.3.5 — カテゴリーSEOメタデータのキー修正とCocoon管理画面の連携修復 (2026-07-05)
 
 ### 🚀 fix(theme): カテゴリーページのSEOタイトル/ディスクリプションのメタキーをCocoon標準のキーに修正
