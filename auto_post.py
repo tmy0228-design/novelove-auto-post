@@ -80,6 +80,7 @@ from novelove_fetcher import (
     fetch_and_stock_all,
     FETCH_TARGETS,
     mask_input,
+    format_author_detail,
 )
 
 from novelove_writer import (
@@ -303,6 +304,36 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
 # === メインロジック ===
 # --- [削除] 旧 main() 定義 (v11.4.14 にて統合・削除) ---
+
+def _get_dynamic_cooldown() -> int:
+    """
+    v21.2.6: DBの投稿待ち在庫(pending)数に応じてクールダウン時間を動的に決定する。
+    - 在庫30件以上 -> 14分 (実効15分間隔 / 日最大96件: アクティブモード)
+    - 在庫10～29件 -> 25分 (実効30分間隔 / 日最大48件: 標準モード)
+    - 在庫9件以下  -> 55分 (実効60分間隔 / 日最大24件: セーブモード)
+    エラー発生時はデフォルトの25分を返す。
+    """
+    try:
+        tmp = db_connect(DB_FILE_UNIFIED)
+        row = tmp.execute(
+            "SELECT COUNT(*) FROM novelove_posts WHERE status='pending' AND post_type='regular'"
+        ).fetchone()
+        tmp.close()
+        count = row[0] if row else 0
+    except Exception as e:
+        logger.error(f"  [Dynamic Cooldown] 在庫数取得失敗: {e}")
+        return 25  # フォールバック
+
+    if count >= 30:
+        cooldown = 14   # アクティブモード: cronの度に毎回投稿
+    elif count >= 10:
+        cooldown = 25   # 標準モード: 現状維持
+    else:
+        cooldown = 55   # セーブモード: 在庫枯渇防止
+
+    logger.info(f"  [Dynamic Cooldown] 投稿待ち在庫: {count}件 -> クールダウン: {cooldown}分")
+    return cooldown
+
 def _check_global_cooldown(cooldown_minutes=45, post_type='regular'):
     """
     統合DBから最新の投稿時刻をチェックし、指定分数が経過しているか返す。
@@ -350,7 +381,7 @@ def _run_main_logic():
     # クールダウンチェック (通常投稿: cron15分+cooldown25分で実効約30分間隔)
     # v11.4.12: 何よりも先に判定を行い、負荷をゼロにする
     # v19.1.1: cron15分/cooldown25分に変更（~48件/日へ増量）
-    is_ready, elapsed = _check_global_cooldown(25)
+    is_ready, elapsed = _check_global_cooldown(_get_dynamic_cooldown())
     if not is_ready:
         logger.info(f"🕒 クールダウン中（{elapsed:.1f}分経過）。0.1秒で終了します。")
         return
@@ -378,8 +409,10 @@ def _run_main_logic():
                 "SELECT product_id FROM novelove_posts WHERE status='pending' AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
                 (genre, sdb)
             ).fetchall()
-            if len(rows) > 60:
-                to_exclude = [r[0] for r in rows[60:]]
+            # v21.2.7: DMMは新着取得量が多いため在庫上限を120件に拡張。その他は60件を維持。
+            limit_val = 120 if sdb == 'dmm' else 60
+            if len(rows) > limit_val:
+                to_exclude = [r[0] for r in rows[limit_val:]]
                 placeholders = ",".join(["?"] * len(to_exclude))
                 c.execute(
                     f"UPDATE novelove_posts SET status='excluded', last_error='inventory_full' WHERE product_id IN ({placeholders})",
@@ -606,7 +639,7 @@ def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90):
         logger.warning(f"  [重複チェック] DB読み込みエラー: {e}")
     return False, "", 0.0
 
-def build_specs_html(release_date, author_detail, cast_info, series_name, page_count, fallback_author=None, site_label=None):
+def build_specs_html(release_date, author_detail, cast_info, series_name, page_count, fallback_author=None, site_label=None, is_voice=False):
     specs = []
     
     # 発売日の追加
@@ -618,17 +651,72 @@ def build_specs_html(release_date, author_detail, cast_info, series_name, page_c
         if not t: return ""
         return t.replace("\r", "").replace("\n", "").replace("\xa0", " ").strip()
 
+    # 著者詳細のパース（完全版 v21.2.5）
+    # 全パターン対応:
+    #   ① 日付・時刻ゴミの排除  ② VALID_ROLES バリデーション
+    #   ③ ゴミ値（掲載終了等）の排除  ④ コロンなしは直前の役割を引き継ぎ
+    #   ⑤ 同一クリエイターが複数役割を持つ場合に中黒(・)でまとめる（1人多役合体）
+    _VALID_ROLES = frozenset(['著者', 'サークル', '出版社', 'レーベル', 'シナリオ', 'イラスト', '声優(CV)', '原作', 'WA'])
+    _COMPANY_ROLES = frozenset(['出版社', 'レーベル', 'サークル'])
+    _DATE_RE = re.compile(r'\d{4}[-/]\d{2}[-/]\d{2}')
+    _TIME_RE = re.compile(r'\d{2}:\d{2}:\d{2}')
+    _GARBAGE = ('掲載終了', '情報')
+    _ROLE_ORDER = ['著者', 'シナリオ', 'イラスト', '原作', 'WA', 'サークル', '出版社', 'レーベル', '声優(CV)']
+
     if author_detail:
         author_detail = clean_txt(author_detail)
-        if ":" in author_detail:
-            parts = author_detail.split(",")
-            for part in parts:
-                if ":" in part:
-                    r, n = part.split(":", 1)
-                    if n.strip():
-                        specs.append(f"{r.strip()}: {n.strip()}")
-        else:
-            specs.append(f"著者: {author_detail}")
+        _raw_parts = [p.strip() for p in author_detail.split(',') if p.strip()]
+        _parsed_pairs = []
+        _last_role = None
+
+        for _part in _raw_parts:
+            if _DATE_RE.search(_part) or _TIME_RE.search(_part):
+                continue
+            if ':' in _part:
+                _role, _name = _part.split(':', 1)
+                _role = _role.strip()
+                _name = _name.strip()
+                if _role not in _VALID_ROLES:
+                    continue
+                if any(_g in _name for _g in _GARBAGE):
+                    continue
+                if not _name:
+                    continue
+                _last_role = _role
+                _parsed_pairs.append((_name, _role))
+            else:
+                _name = _part
+                if not _name or any(_g in _name for _g in _GARBAGE):
+                    continue
+                _role = _last_role or '著者'
+                _parsed_pairs.append((_name, _role))
+
+        _name_to_roles = {}
+        for _name, _role in _parsed_pairs:
+            _name_to_roles.setdefault(_name, [])
+            if _role not in _name_to_roles[_name]:
+                _name_to_roles[_name].append(_role)
+
+        _combined = {}
+        for _name, _roles in _name_to_roles.items():
+            if any(_r in _COMPANY_ROLES for _r in _roles):
+                for _r in _roles:
+                    _combined.setdefault(_r, []).append(_name)
+            else:
+                _sorted_roles = [_r for _r in _ROLE_ORDER if _r in _roles]
+                if not _sorted_roles:
+                    _sorted_roles = sorted(_roles)
+                _role_key = '・'.join(_sorted_roles)
+                _combined.setdefault(_role_key, []).append(_name)
+
+        def _role_priority(_rk):
+            for _idx, _r in enumerate(_ROLE_ORDER):
+                if _r in _rk.split('・'):
+                    return _idx
+            return len(_ROLE_ORDER)
+
+        for _rk in sorted(_combined.keys(), key=_role_priority):
+            specs.append(f"{_rk}: {' / '.join(_combined[_rk])}")
     elif fallback_author:
         fallback_author = clean_txt(fallback_author)
         is_dlsite = site_label and "DLsite" in str(site_label)
@@ -650,7 +738,10 @@ def build_specs_html(release_date, author_detail, cast_info, series_name, page_c
         try:
             pg_val = int(page_count)
             if pg_val > 0:
-                specs.append(f"{pg_val}P")
+                if is_voice:
+                    specs.append(f"{pg_val}本")
+                else:
+                    specs.append(f"{pg_val}P")
         except (ValueError, TypeError):
             pass
     if not specs:
@@ -838,7 +929,9 @@ def _execute_posting_flow(row, cursor, conn):
     ser_name = row_dict.get("series_name", "") or ""
     pg_count = row_dict.get("page_count", 0) or 0
     
-    spec_html = build_specs_html(row["release_date"], auth_det, cast_inf, ser_name, pg_count, fallback_author=row["author"], site_label=site_label)
+    genre_str = row_dict.get("genre", "") or ""
+    is_voice = "voice" in str(genre_str).lower()
+    spec_html = build_specs_html(row["release_date"], auth_det, cast_inf, ser_name, pg_count, fallback_author=row["author"], site_label=site_label, is_voice=is_voice)
     if spec_html:
         # 二重挿入防止ガードレール
         content = re.sub(r'<!-- NOVELOVE_SPECS_START -->.*?<!-- NOVELOVE_SPECS_END -->\s*', '', content, flags=re.DOTALL)

@@ -5,11 +5,12 @@ import sys
 import time
 import subprocess
 from novelove_core import WP_SITE_URL, WP_USER, WP_APP_PASSWORD, DB_FILE_UNIFIED
+# format_author_detail は新パースロジックに統合済みのため不要
 
 def get_db_conn():
     return sqlite3.connect(DB_FILE_UNIFIED)
 
-def build_specs_html(release_date, author_detail, cast_info, page_count, fallback_author=None, is_dlsite=False):
+def build_specs_html(release_date, author_detail, cast_info, page_count, fallback_author=None, is_dlsite=False, is_voice=False):
     specs = []
     
     # 発売日の追加
@@ -21,18 +22,77 @@ def build_specs_html(release_date, author_detail, cast_info, page_count, fallbac
         if not t: return ""
         return t.replace("\r", "").replace("\n", "").replace("\xa0", " ").strip()
 
-    # 著者詳細のパース
+    # 著者詳細のパース（完全版 v21.2.5）
+    # 全パターン対応:
+    #   ① 日付・時刻ゴミの排除  ② VALID_ROLES バリデーション
+    #   ③ ゴミ値（掲載終了等）の排除  ④ コロンなしは直前の役割を引き継ぎ
+    #   ⑤ 同一クリエイターが複数役割を持つ場合に中黒(・)でまとめる（1人多役合体）
+    _VALID_ROLES = frozenset(['著者', 'サークル', '出版社', 'レーベル', 'シナリオ', 'イラスト', '声優(CV)', '原作', 'WA'])
+    _COMPANY_ROLES = frozenset(['出版社', 'レーベル', 'サークル'])  # 会社名は中黒合体の対象外
+    _DATE_RE = re.compile(r'\d{4}[-/]\d{2}[-/]\d{2}')
+    _TIME_RE = re.compile(r'\d{2}:\d{2}:\d{2}')
+    _GARBAGE = ('掲載終了', '情報')
+    _ROLE_ORDER = ['著者', 'シナリオ', 'イラスト', '原作', 'WA', 'サークル', '出版社', 'レーベル', '声優(CV)']
+
     if author_detail:
         author_detail = clean_txt(author_detail)
-        if ":" in author_detail:
-            parts = author_detail.split(",")
-            for part in parts:
-                if ":" in part:
-                    r, n = part.split(":", 1)
-                    if n.strip():
-                        specs.append(f"{r.strip()}: {n.strip()}")
-        else:
-            specs.append(f"著者: {author_detail}")
+        _raw_parts = [p.strip() for p in author_detail.split(',') if p.strip()]
+        _parsed_pairs = []  # (名前, 役割) のリスト
+        _last_role = None
+
+        # 段階①〜④: パースとゴミ排除
+        for _part in _raw_parts:
+            if _DATE_RE.search(_part) or _TIME_RE.search(_part):
+                continue  # ① 日付・時刻ゴミ
+            if ':' in _part:
+                _role, _name = _part.split(':', 1)
+                _role = _role.strip()
+                _name = _name.strip()
+                if _role not in _VALID_ROLES:
+                    continue  # ② 未知の役割名（発売日など）
+                if any(_g in _name for _g in _GARBAGE):
+                    continue  # ③ ゴミ値（掲載終了・情報など）
+                if not _name:
+                    continue
+                _last_role = _role
+                _parsed_pairs.append((_name, _role))
+            else:
+                _name = _part
+                if not _name or any(_g in _name for _g in _GARBAGE):
+                    continue
+                _role = _last_role or '著者'  # ④ コロンなし→直前の役割を引き継ぐ
+                _parsed_pairs.append((_name, _role))
+
+        # 段階⑤: 同一クリエイターの複数役割を中黒(・)でまとめる
+        _name_to_roles = {}
+        for _name, _role in _parsed_pairs:
+            _name_to_roles.setdefault(_name, [])
+            if _role not in _name_to_roles[_name]:
+                _name_to_roles[_name].append(_role)
+
+        _combined = {}  # "役割キー" -> [名前リスト]
+        for _name, _roles in _name_to_roles.items():
+            if any(_r in _COMPANY_ROLES for _r in _roles):
+                # 会社名（出版社・レーベル・サークル）は合体させず個別に出力
+                for _r in _roles:
+                    _combined.setdefault(_r, []).append(_name)
+            else:
+                # クリエイター（著者・イラスト等）は ROLE_ORDER 順に役割を中黒で結合
+                _sorted_roles = [_r for _r in _ROLE_ORDER if _r in _roles]
+                if not _sorted_roles:
+                    _sorted_roles = sorted(_roles)
+                _role_key = '・'.join(_sorted_roles)
+                _combined.setdefault(_role_key, []).append(_name)
+
+        # 段階: 出力（役割の優先順位順にソート）
+        def _role_priority(_rk):
+            for _idx, _r in enumerate(_ROLE_ORDER):
+                if _r in _rk.split('・'):
+                    return _idx
+            return len(_ROLE_ORDER)
+
+        for _rk in sorted(_combined.keys(), key=_role_priority):
+            specs.append(f"{_rk}: {' / '.join(_combined[_rk])}")
     elif fallback_author:
         fallback_author = clean_txt(fallback_author)
         if is_dlsite and "/" in fallback_author:
@@ -52,12 +112,15 @@ def build_specs_html(release_date, author_detail, cast_info, page_count, fallbac
     if cast_info:
         specs.append(f"声優(CV): {cast_info}")
         
-    # ページ数
+    # ページ数 / 音声本数
     if page_count:
         try:
             pg_val = int(page_count)
             if pg_val > 0:
-                specs.append(f"{pg_val}P")
+                if is_voice:
+                    specs.append(f"{pg_val}本")
+                else:
+                    specs.append(f"{pg_val}P")
         except (ValueError, TypeError):
             pass
         
@@ -98,13 +161,13 @@ def update_posts(dry_run=True, target_post_id=None):
     # target_post_id が指定されている場合はその記事のみ対象（テスト用）
     if target_post_id:
         c.execute("""
-            SELECT wp_post_id, author_detail, cast_info, series_name, page_count, title, author, site, release_date
+            SELECT wp_post_id, author_detail, cast_info, series_name, page_count, title, author, site, release_date, genre
             FROM novelove_posts
             WHERE wp_post_id=?
         """, (target_post_id,))
     else:
         c.execute("""
-            SELECT wp_post_id, author_detail, cast_info, series_name, page_count, title, author, site, release_date
+            SELECT wp_post_id, author_detail, cast_info, series_name, page_count, title, author, site, release_date, genre
             FROM novelove_posts
             WHERE status='published' 
               AND post_type='regular' 
@@ -139,12 +202,13 @@ def update_posts(dry_run=True, target_post_id=None):
     fail_count = 0
     
     try:
-        for idx, (wp_id, auth_det, cast, series, pages, title, author, site, rel_date) in enumerate(rows, 1):
+        for idx, (wp_id, auth_det, cast, series, pages, title, author, site, rel_date, genre) in enumerate(rows, 1):
             print(f"[{idx}/{len(rows)}] Processing Post ID {wp_id}: {title}...")
             
             # スペックHTMLの生成
             is_dlsite = site and "DLsite" in str(site)
-            spec_html = build_specs_html(rel_date, auth_det, cast, pages, fallback_author=author, is_dlsite=is_dlsite)
+            is_voice = "voice" in str(genre).lower()
+            spec_html = build_specs_html(rel_date, auth_det, cast, pages, fallback_author=author, is_dlsite=is_dlsite, is_voice=is_voice)
             if not spec_html:
                 print("  No specs available to insert. Skipping.")
                 continue

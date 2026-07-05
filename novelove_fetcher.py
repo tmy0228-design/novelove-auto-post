@@ -297,6 +297,63 @@ def _is_thin_content(title, item=None, pages=None):
     return True  # キーワードあり + ページ数が少ない（or 不明）→ 除外対象
 
 
+# === 表示整形ユーティリティ ===
+
+def format_author_detail(raw: str) -> str:
+    """
+    DB保存された「役割:名前」カンマ区切り文字列を表示用に整形する。
+    同一人物が複数の役割を持つ場合、「著者・シナリオ・声優(CV):名前」のようにまとめる。
+    DB保存データは変更しない（表示時にのみ使用）。
+
+    例:
+      入力: サークル:XX,著者:A,シナリオ:A,声優(CV):A
+      出力: サークル:XX,著者・シナリオ・声優(CV):A
+    """
+    if not raw or ":" not in raw:
+        return raw
+
+    ROLE_ORDER = ["サークル", "著者", "出版社", "レーベル", "シナリオ", "イラスト", "原画", "声優(CV)", "翻訳"]
+
+    entries = []
+    for part in raw.split(","):
+        part = part.strip()
+        if ":" not in part:
+            continue
+        role, name = part.split(":", 1)
+        role, name = role.strip(), name.strip()
+        if role and name:
+            entries.append((role, name))
+
+    if not entries:
+        return raw
+
+    # サークルは先頭固定、それ以外は出現順を維持しながら同一人物の役割をまとめる
+    result_parts = []
+    name_to_roles = {}   # name -> [roles]
+    name_first_pos = {}  # name -> result_partsの位置
+
+    for role, name in entries:
+        if role == "サークル":
+            result_parts.append(f"{role}:{name}")
+
+    for role, name in entries:
+        if role == "サークル":
+            continue
+        if name not in name_to_roles:
+            name_to_roles[name] = [role]
+            name_first_pos[name] = len(result_parts)
+            result_parts.append(None)  # プレースホルダー
+        else:
+            if role not in name_to_roles[name]:
+                name_to_roles[name].append(role)
+
+    for name, roles in name_to_roles.items():
+        sorted_roles = sorted(roles, key=lambda r: ROLE_ORDER.index(r) if r in ROLE_ORDER else 99)
+        result_parts[name_first_pos[name]] = "・".join(sorted_roles) + ":" + name
+
+    return ",".join(result_parts)
+
+
 # === HTTP リトライヘルパー ===
 
 RETRY_STATUS_CODES = {429, 500, 502, 503, 504}  # 一時エラーとみなすHTTPステータス
@@ -386,44 +443,62 @@ def scrape_dlsite_description(url):
                 return "__EXCLUDED_TYPE__", "", False, "", "", "", 0
         soup = BeautifulSoup(text, 'html.parser')
         
-        # === 追加スペックの抽出 (work_outline が消される前に実行) ===
+        # === 追加スペックの抽出 (2重テーブルスキャン: work_maker & work_outline) ===
         author_detail = ""
         cast_info = ""
         series_name = ""
         page_count = 0
-        outline_table = soup.select_one("#work_outline")
-        if outline_table:
-            authors = []
-            for tr in outline_table.select("tr"):
+        
+        authors = []
+        seen_roles = set()
+        
+        for table_id in ["#work_maker", "#work_outline"]:
+            table = soup.select_one(table_id)
+            if not table:
+                continue
+            for tr in table.select("tr"):
                 th = tr.select_one("th")
                 td = tr.select_one("td")
                 if not th or not td:
                     continue
                 th_text = th.get_text(strip=True)
                 td_text = td.get_text(strip=True)
-                if "著者" in th_text or "シナリオ" in th_text or "イラスト" in th_text or "原画" in th_text:
+                
+                # パース対象の見出し
+                target_keys = ["サークル", "出版社", "著者", "作者", "レーベル", "ブランド", "シナリオ", "イラスト", "原画", "声優", "キャスト", "翻訳", "CV", "ページ数", "シリーズ名"]
+                if any(k in th_text for k in target_keys):
                     links = [a.get_text(strip=True) for a in td.find_all("a") if a.get_text(strip=True)]
+                    # UIボタンテキストを除去
+                    links = [l for l in links if "フォロー" not in l and "お気に入り" not in l]
+                    
                     val = ",".join(links) if links else td_text
-                    authors.append(f"{th_text}:{val}")
-                elif "声優" in th_text or "キャスト" in th_text:
-                    links = [a.get_text(strip=True) for a in td.find_all("a") if a.get_text(strip=True)]
-                    cast_info = ",".join(links) if links else td_text
-                elif "シリーズ名" in th_text:
-                    links = [a.get_text(strip=True) for a in td.find_all("a") if a.get_text(strip=True)]
-                    series_name = ",".join(links) if links else td_text
-                elif "ページ数" in th_text:
-                    m = re.search(r"(\d+)", td_text)
-                    if m:
-                        page_count = int(m.group(1))
-            author_detail = ",".join(authors)
-
-        if not author_detail:
-            maker_span = soup.select_one(".maker_name")
-            if maker_span:
-                maker_a = maker_span.select_one("a")
-                maker_text = maker_a.get_text(strip=True) if maker_a else maker_span.get_text(strip=True)
-                if maker_text:
-                    author_detail = f"サークル:{maker_text}"
+                    
+                    # ロール名を統一マッピング
+                    role = th_text
+                    if "声優" in th_text or "キャスト" in th_text:
+                        role = "声優(CV)"
+                    elif th_text == "サークル名":
+                        role = "サークル"
+                    elif th_text == "出版社名":
+                        role = "出版社"
+                    elif th_text == "作者":
+                        role = "著者"
+                    
+                    if role == "声優(CV)":
+                        cast_info = val
+                    elif role == "シリーズ名":
+                        series_name = val
+                    elif "ページ数" in role:
+                        m = re.search(r"(\d+)", val)
+                        if m:
+                            page_count = int(m.group(1))
+                    else:
+                        role_val_key = f"{role}:{val}"
+                        if role_val_key not in seen_roles:
+                            authors.append(role_val_key)
+                            seen_roles.add(role_val_key)
+                            
+        author_detail = ",".join(authors)
 
         # === 属性タグ取得（ジャンル行の<a>タグ） ===
         attr_tags = []
@@ -466,13 +541,14 @@ def scrape_dlsite_description(url):
 
 
 def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
-    if not product_url: return ""
+    if not product_url: return "", ""
     if "dlsite" in str(product_url).lower():
         desc, _tags, _excl, _auth_det, _cast, _series, _pages = scrape_dlsite_description(product_url)
-        return desc
+        return desc, _auth_det
 
     session = _make_dmm_session()
-    _any_desc_found = False  # あらすじテキストが何らか存在したか（短くても）
+    _any_desc_found = False
+    author_detail_extra = ""
     try:
         r = session.get(
             product_url,
@@ -486,7 +562,7 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
         is_comic = False
         has_format_tag = False
         is_novel_target = "novel" in genre
-        is_voice_target = "voice_" in genre  # v19.0.0: ボイスジャンル判定
+        is_voice_target = "voice_" in genre
         for dt in soup.find_all("dt"):
             if "作品形式" in dt.text or "形式" in dt.text or "ジャンル" in dt.text:
                 dd = dt.find_next_sibling("dd")
@@ -496,33 +572,42 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
                     if "コミック" in fmt_text or "劇画" in fmt_text or "マンガ" in fmt_text:
                         is_comic = True
                     break
-        # v19.0.0: ボイスジャンルはフォーマット不一致でも除外しない
-        # ランキング生成時（genreが単にBL/TL）は全形式を許容する
         is_ranking_final = is_ranking or (genre in ("BL", "TL"))
         if has_format_tag and not is_comic and not is_novel_target and not is_voice_target and not is_ranking_final:
             logger.warning(f"[DMM] マンガ以外の形式のため除外: {product_url}")
-            return "__EXCLUDED_TYPE__"
+            return "__EXCLUDED_TYPE__", ""
         page_title_tag = soup.find("title")
         page_title_str = page_title_tag.text if page_title_tag else ""
         FOREIGN_TITLE_PATTERNS = [
             "韓国語版", "한국어", "繁体中文", "繁體中文", "简体中文", "簡体中文",
             "中国語版", "English version", "English ver"
         ]
-        bracket_contents = re.findall(r'[【\[\（\(]([^】\]\）\)]+)[】\]\）\)]', page_title_str)
+        bracket_contents = re.findall(r'[【\[\（\(]([^】\]\）\)]+)[】\]\開\(]', page_title_str)
         for bc in bracket_contents:
             if any(fp in bc for fp in FOREIGN_TITLE_PATTERNS):
                 logger.warning(f"[DMM] 外国語版タイトルパターン（{bc}）のため除外: {product_url}")
-                return "__EXCLUDED_TYPE__"
+                return "__EXCLUDED_TYPE__", ""
         if any(kw in text for kw in ["カテゴリー</th><td>写真集", "カテゴリー</th><td>グラビア", "カテゴリー</th><td>文芸・小説", "カテゴリー</th><td>ライトノベル"]):
             logger.warning(f"[DMM] 禁止カテゴリーを検知: {product_url}")
-            return "__EXCLUDED_TYPE__"
-        # === あらすじ抽出（MAX文字数採用型ハイブリッド） ===
-        # JSON-LD と HTMLクラスの「両方」から取得し、文字数が多い方を自動採用する。
-        # - DMMブックス: HTMLクラスが存在しない(React SPA)ため JSON-LD が唯一の情報源（全文格納）
-        # - FANZA同人/らぶカル: JSON-LDは110文字に省略されるため HTMLクラスが唯一の全文情報源
-        # どちらか片方だけに依存すると、サイトによって全文が取れなくなるため必ず両方走らせる。
+            return "__EXCLUDED_TYPE__", ""
 
-        # ソース1: JSON-LD (Schema.org構造化データ)
+        # === らぶカル/DMM 同人追加情報のスクレイピング抽出 ===
+        extra_authors = []
+        for item in soup.select(".productInformation__item"):
+            title_el = item.select_one(".informationList__ttl")
+            txt_el = item.select_one(".informationList__txt")
+            if title_el and txt_el:
+                key = title_el.get_text(strip=True)
+                val = txt_el.get_text(strip=True)
+                if key in ["作者", "シナリオ", "イラスト", "声優", "キャスト"]:
+                    role = "著者" if key == "作者" else key
+                    if "声優" in key or "キャスト" in key:
+                        role = "声優(CV)"
+                    extra_authors.append(f"{role}:{val}")
+        if extra_authors:
+            author_detail_extra = ",".join(extra_authors)
+
+        # JSON-LD
         ld_desc = ""
         for ld_match in re.finditer(r'<script type="application/ld\+json">(.*?)</script>', text, re.DOTALL):
             try:
@@ -535,7 +620,7 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
             except Exception:
                 pass
 
-        # ソース2: HTMLの固定クラス要素（FANZA同人/らぶカルの全文はここにしかない）
+        # HTML
         html_desc = ""
         for selector in [".summary__txt", ".mg-b20", ".common-description", ".product-description__text"]:
             el = soup.select_one(selector)
@@ -544,30 +629,25 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
                 if len(t) > len(html_desc):
                     html_desc = t
 
-        # MAX判定: 文字数が多い方を採用（全文が取れる方が自動的に勝つ）
         best_desc = ld_desc if len(ld_desc) > len(html_desc) else html_desc
-        _any_desc_found = bool(ld_desc) or bool(html_desc)  # フィルター前に「何か存在」をフラグ保存
+        _any_desc_found = bool(ld_desc) or bool(html_desc)
 
-        # 省略検知フィルター: DMM側が省略した切り詰め文（末尾「…」等）だけを掴まされた場合を検出
-        # サイト構造変更で全文が取れなくなった際のサイレントエラーを防止する
         if len(best_desc) < 150 and best_desc.rstrip().endswith(("…", "...")):
             logger.warning(f"  [省略検知] 取得テキストが省略文のみ({len(best_desc)}文字): {product_url}")
-            best_desc = ""  # 省略文を破棄してAI修復へフォールスルー
+            best_desc = ""
 
-        # 結果判定
         if len(best_desc) > 50:
-            return best_desc.strip()
+            return best_desc.strip(), author_detail_extra
 
-        # 取得失敗 → 緊急AI修復（JSON-LDもHTMLクラスも不十分 = サイト構造変更の可能性が高いため通知）
         ai_desc = _run_emergency_ai_extraction(product_url, site_type="DMM.com")
         if ai_desc:
-            return ai_desc
+            return ai_desc, author_detail_extra
 
     except Exception as e:
         logger.warning(f"スクレイピング失敗 ({product_url}): {e}")
-    # あらすじが見つかったが短すぎた場合と、そもそも何も見つからなかった場合を区別する
-    return "__DESC_TOO_SHORT__" if _any_desc_found else ""
-
+    
+    final_desc = "__DESC_TOO_SHORT__" if _any_desc_found else ""
+    return final_desc, author_detail_extra
 
 
 # === 新着取得（API/スクレイピング） ===
@@ -765,17 +845,16 @@ def fetch_and_stock_all():
                 item["_series_name"] = dl_series
                 item["_page_count"] = dl_pages
             else:
-                desc = scrape_description(p_url, site=site, genre=target["genre"])
-                
-                # v14.4.0: 専売判定はAPI統一ルール（後段の共通処理で実施）
+                desc, dmm_auth_det = scrape_description(p_url, site=site, genre=target["genre"])
                 item["_original_tags"] = ""
                 item["_is_exclusive"] = 0
-                item["_author_detail"] = ""
+                item["_author_detail"] = dmm_auth_det
                 item["_cast_info"] = ""
                 item["_series_name"] = ""
                 item["_page_count"] = 0
             time.sleep(1.0)
             scraped_data.append((item, desc))
+
 
         scraped_data.sort(key=lambda x: len(x[1]) if x[1] else 0, reverse=True)
 
@@ -801,25 +880,52 @@ def fetch_and_stock_all():
                 _has_excl = any(g in ('専売', '独占', '独占販売') for g in _genre_names)
                 item["_is_exclusive"] = 1 if _has_excl else 0
 
-                # DMM APIからの追加スペック項目抽出
-                iteminfo = item.get("iteminfo", {}) or {}
+                # HTMLスクレイピングですでに取得済みの作者情報があればそれをベースにする
+                scraped_auth_detail = item.get("_author_detail", "")
+                authors = [a.strip() for a in scraped_auth_detail.split(",") if a.strip()]
+                seen_pairs = set(authors)
                 
-                # 著者
-                authors = []
-                # 一般作品
+                # 一般作品（著者・作者・イラスト）
+                iteminfo = item.get("iteminfo", {}) or {}
+                service_code = str(item.get("service_code", "")).lower()
+                floor_code = str(item.get("floor_code", "")).lower()
+                is_doujin = "doujin" in service_code or "doujin" in floor_code
+
                 for field in ["author", "writer", "artist"]:
                     vals = iteminfo.get(field, []) or []
                     for v in vals:
                         name = v.get("name", "") if isinstance(v, dict) else str(v)
                         role_label = {"author": "著者", "writer": "作者", "artist": "イラスト"}.get(field, "著者")
-                        if name and f"{role_label}:{name}" not in authors:
-                            authors.append(f"{role_label}:{name}")
-                # 同人作品 (maker)
+                        # 表記ゆれ統一
+                        if role_label == "作者":
+                            role_label = "著者"
+                        pair = f"{role_label}:{name}"
+                        if name and pair not in seen_pairs:
+                            authors.append(pair)
+                            seen_pairs.add(pair)
+                
+                # サークル・出版社 (maker)
                 makers = iteminfo.get("maker", []) or []
                 for m in makers:
                     name = m.get("name", "") if isinstance(m, dict) else str(m)
-                    if name and f"サークル:{name}" not in authors:
-                        authors.append(f"サークル:{name}")
+                    if name:
+                        # 商業なら「出版社」、同人なら「サークル」としてマッピング
+                        role_label = "サークル" if is_doujin else "出版社"
+                        pair = f"{role_label}:{name}"
+                        if pair not in seen_pairs:
+                            authors.append(pair)
+                            seen_pairs.add(pair)
+                            
+                # レーベル (label)
+                labels = iteminfo.get("label", []) or []
+                for l in labels:
+                    name = l.get("name", "") if isinstance(l, dict) else str(l)
+                    if name:
+                        pair = f"レーベル:{name}"
+                        if pair not in seen_pairs:
+                            authors.append(pair)
+                            seen_pairs.add(pair)
+                            
                 item["_author_detail"] = ",".join(authors) if authors else ""
                 
                 # 声優
