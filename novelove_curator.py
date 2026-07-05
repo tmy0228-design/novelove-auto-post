@@ -678,12 +678,16 @@ def _run_curator_logic(args):
         # 1. 吹き出し（セリフのみ）の生成
         bubble_html = wrap_speech_bubble(bubble_text, reviewer)
         
-        # 2. 見出しの生成 (h3タグ)
+        # 2. 見出しの生成 (目次除外のため <h3> ではなく装飾付き <div> を使用)
         heading_html = ""
         if heading_text:
             clean_heading = heading_text.replace("#", "").replace("[見出し]", "").strip()
             if clean_heading:
-                heading_html = f"<h3>{clean_heading}</h3>"
+                heading_html = (
+                    f'<div style="font-size: 1.15em; font-weight: bold; background: #f5f5f5; '
+                    f'border-left: 4px solid #888; padding: 10px 15px; margin: 20px 0 15px; '
+                    f'color: #333; border-radius: 2px; line-height: 1.4;">{clean_heading}</div>'
+                )
                 
         # 3. 通常の解説テキストの生成 (pタグ、です・ます調)
         detail_html = ""
