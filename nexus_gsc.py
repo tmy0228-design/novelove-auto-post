@@ -241,6 +241,15 @@ def run_gsc():
     # STEP 2: インデックス確認 + 死に記事判定（7日スキップを維持）
     # URL Inspection API は1件ずつ呼び出すため、1日600件の制限がある。
     # 7日以内に確認済みの記事はスキップして呼び出し数を節約する。
+    #
+    # 【絞り込み設計 v21.3.1】
+    # 「gsc_indexed=1 かつ gsc_impressions>0」の記事は現在もGoogleに
+    # 表示されている健全な記事のため、APIによる個別確認は不要。
+    # 以下の3条件のいずれかに該当する「要確認記事」のみをループ対象にする:
+    #   (A) gsc_indexed = 0        … まだインデックスされていない
+    #   (B) gsc_impressions = 0    … 表示がゼロ（インデックス脱落の可能性）
+    #   (C) gsc_last_checked IS NULL … 一度もチェックされていない新着記事
+    # これにより記事数が何万件に増えても1日600件の上限を超えない設計を実現。
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     try:
         conn = db_connect(DB_FILE_UNIFIED)
@@ -250,10 +259,16 @@ def run_gsc():
                FROM novelove_posts
                WHERE status='published'
                  AND wp_post_url != '' AND wp_post_url IS NOT NULL
-                 AND published_at <= ?""",
+                 AND published_at <= ?
+                 AND (
+                   gsc_indexed = 0
+                   OR gsc_impressions = 0
+                   OR gsc_last_checked IS NULL
+                 )""",
             (inspect_since_date,)
         ).fetchall()
         conn.close()
+        logger.info(f"  [GSC STEP2] インデックス確認対象: {len(rows)}件（健全な記事を除外済み）")
     except Exception as e:
         logger.warning(f"  [DB] 読み込みエラー: {e}")
         rows = []
