@@ -296,6 +296,13 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
                     subprocess.run([php_path, wp_path, "post", "meta", "update", str(wp_post_id), "the_page_meta_description", excerpt, doc_root, "--allow-root"], capture_output=True, timeout=30)
                 except Exception as e:
                     logger.warning(f"  [WP-CLI] メタディスクリプション設定失敗: {e}")
+
+            # 4. まとめ記事: Cocoon目次を非表示（the_page_toc_novisible = 1）
+            if is_curation:
+                try:
+                    subprocess.run([php_path, wp_path, "post", "meta", "update", str(wp_post_id), "the_page_toc_novisible", "1", doc_root, "--allow-root"], capture_output=True, timeout=30)
+                except Exception as e:
+                    logger.warning(f"  [WP-CLI] TOC非表示設定失敗: {e}")
                 
         return link, wp_post_id
     
