@@ -292,6 +292,7 @@ def run_gsc():
         gsc_info     = url_data.get(url_slash) or url_data.get(url_no_slash)
 
         impressions = gsc_info["impressions"] if gsc_info else 0
+        clicks      = gsc_info["clicks"]      if gsc_info else 0
 
         # インデックス確認（表示が0のURL のみ Inspection API 呼び出し）
         if gsc_info is None or impressions == 0:
@@ -326,20 +327,6 @@ def run_gsc():
         is_old_enough = published_at_str <= threshold_date
 
         if is_old_enough:
-            # STEP1でクリック数が更新済みのため、最新値をDBから取得
-            try:
-                _conn = db_connect(DB_FILE_UNIFIED)
-                _conn.row_factory = sqlite3.Row
-                _r = _conn.execute(
-                    "SELECT gsc_clicks, gsc_impressions FROM novelove_posts WHERE product_id = ?",
-                    (pid,)
-                ).fetchone()
-                _conn.close()
-                clicks      = _r["gsc_clicks"]      if _r else 0
-                impressions = _r["gsc_impressions"]  if _r else 0
-            except Exception:
-                clicks = 0
-
             if DEAD_LEVEL1_UNINDEXED and not indexed:
                 dead_lv1.append({"pid": pid, "url": url})
             elif DEAD_LEVEL2_ZERO_IMPR and indexed and impressions == 0:
