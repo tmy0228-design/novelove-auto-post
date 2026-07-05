@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v21.3.5 — カテゴリーSEOメタデータのキー修正とCocoon管理画面の連携修復 (2026-07-05)
+
+### 🚀 fix(theme): カテゴリーページのSEOタイトル/ディスクリプションのメタキーをCocoon標準のキーに修正
+
+- **メタキーの修正**: カテゴリー用のSEOタイトルおよびメタ説明文のメタキーを、投稿用の `the_page_seo_title` / `the_page_meta_description` から、Cocoonがカテゴリー編集画面で公式に読み書きする **`the_category_title` / `the_category_meta_description`** へ修正・再登録しました。
+- **管理画面の連携修復**: これにより、WP-CLI等の裏側から登録したSEOタイトルとディスクリプションが、WordPress管理画面の「カテゴリー編集」内の各テキストエリアに空欄にならず正しく表示されるように修復しました。
+- **functions.php パッチの更新**: `functions.php` 内のカテゴリータイトル書き換えフィルター（`document_title_parts`）が参照するキーも、正しい `the_category_title` に上書き更新しました。
+
+---
+
 ## v21.3.4 — まとめ記事カテゴリーのBL/TL完全分離とヘッダーメニューへの自動統合 (2026-07-05)
 
 ### 🚀 feat(theme/core): auto_post.py にまとめ記事の「BLまとめ」「TLまとめ」分岐を追加
