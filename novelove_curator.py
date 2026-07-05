@@ -274,7 +274,7 @@ def generate_intro_column(reviewer, tag_name, genre_group):
 
 # === AI執筆：ミニレビュー生成 ===
 def generate_mini_review(work, tag_name, reviewer):
-    """作品のテーマ特化ミニレビューをAIで生成する（セリフと解説の分離形式）"""
+    """作品のテーマ特化ミニレビューをAIで生成する（セリフ、見出し、解説の3段構成）"""
     display_tag = tag_name.replace(",", "と")
     
     # 伏字処理
@@ -282,7 +282,7 @@ def generate_mini_review(work, tag_name, reviewer):
     safe_desc = mask_input(work['description'] or "", level=0)
     
     prompt = f"""あなたは「Novelove」のライター「{reviewer['name']}」です。
-以下の作品あらすじを読み、「{display_tag}」というテーマでおすすめするキャラクターの「セリフ」と、そのテーマに特化した「詳細解説」を執筆してください。
+以下の作品あらすじを読み、「{display_tag}」というテーマでおすすめする「セリフ」「見出し」「解説」をそれぞれ執筆してください。
 
 【あなたの設定】
 性格: {reviewer['personality']}
@@ -294,28 +294,34 @@ def generate_mini_review(work, tag_name, reviewer):
 作品の属性タグ: {','.join(work['tags'])}
 
 【執筆ルール】
-1. 出力は必ず指定の【出力フォーマット】の通りに「[セリフ]」と「[解説]」というマーカーを使って2つのブロックに分けてください。
+1. 出力は必ず指定の【出力フォーマット】の通りに「[セリフ]」「[見出し]」「[解説]」というマーカーを使って3つのブロックに分けてください。
 2. 「[セリフ]」ブロックのルール:
    - キャラクターの口調全開で語る短い一言。
    - 文字数は50〜80字以内（1〜2文）とし、吹き出しの圧迫感を絶対に防いでください。
-3. 「[解説]」ブロックのルール:
+3. 「[見出し]」ブロックのルール:
+   - テーマである「{display_tag}」に関連した、作品の特定の魅力や二人の関係性の要約を表すキャッチーな見出し。
+   - 文字数は15〜25文字程度（1文）で、HTMLタグやマークダウン記号は含めずプレーンテキストで出力してください。
+4. 「[解説]」ブロックのルール:
+   - キャラクターの口調は一切使用せず、一般的な丁寧語「です・ます調」を使用して客観的な第三者視点で書いてください。
    - 作品全体の一般的なあらすじ紹介や、全体のストーリー要約は個別記事で解説するため、【絶対に出力禁止】とします。
-   - あらすじから読み取れる事実のみに基づき、今回のテーマである「{display_tag}」という属性・要素が、作品内でどのように魅力的に描かれているかだけをピンポイントで論理的に語ってください。
+   - あらすじから読み取れる事実のみに基づき、今回のテーマである「{display_tag}」という属性・要素が、作品内でどのように魅力的に描かれているかだけをピンポイントで論理的に解説してください。
    - 文字数は120〜150字以内（2〜3文）とし、2文ごとに必ず改行（空行）を挟んで読みやすく段落分けしてください。
-4. あらすじに存在しない設定、キャラクターの名前、詳細な展開を創作（ハルシネーション）することは絶対に禁止です。
+5. あらすじに存在しない設定、キャラクターの名前、詳細な展開を創作（ハルシネーション）することは絶対に禁止です。
 {FACT_GUARD}
-5. 以下の無難フレーズは使用禁止です。
+6. 以下の無難フレーズは使用禁止です。
 {NG_PHRASES}
 
 【出力フォーマット】
 [セリフ]
 （ここに短いキャラクター口調のセリフ）
+[見出し]
+（ここにキャッチーな魅力見出し）
 [解説]
-（ここにテーマ特化した詳しい解説）
+（ここにです・ます調によるテーマ特化した詳しい解説）
 """
 
     messages = [
-        {"role": "system", "content": "あなたは指定されたキャラクターになりきり、[セリフ]と[解説]の2つの指定ブロックで正確にレビューを書くプロです。"},
+        {"role": "system", "content": "あなたは指定されたフォーマットで、[セリフ]、[見出し]、[解説]の3ブロックを正確に執筆し分けるプロです。"},
         {"role": "user", "content": prompt}
     ]
     
@@ -323,7 +329,7 @@ def generate_mini_review(work, tag_name, reviewer):
     text, err = _call_deepseek_raw(messages, max_tokens=1000, temperature=0.7, thinking_disabled=True)
     if err != "ok" or not text:
         logger.error(f"[Curator] Failed to generate review for {work['title']}. Using default synopsis snippet.")
-        return f"[セリフ]\nおすすめの作品だよ！\n[解説]\n{(work['description'] or '')[:150]}..."
+        return f"[セリフ]\nおすすめの作品だよ！\n[見出し]\nこの作品の見どころ\n[解説]\n{(work['description'] or '')[:150]}..."
         
     return text.strip()
 
@@ -646,34 +652,52 @@ def _run_curator_logic(args):
         if rev_text.endswith("..."):  # フォールバック検知
             ai_fail_count += 1
             
-        # [セリフ] と [解説] でパースする
+        # [セリフ]、[見出し]、[解説] でパースする
         bubble_text = ""
+        heading_text = ""
         detail_text = ""
         
-        if "[解説]" in rev_text:
+        if "[見出し]" in rev_text and "[解説]" in rev_text:
+            parts_heading = rev_text.split("[見出し]")
+            bubble_text = parts_heading[0].replace("[セリフ]", "").strip()
+            
+            parts_detail = parts_heading[1].split("[解説]")
+            heading_text = parts_detail[0].strip()
+            detail_text = parts_detail[1].strip()
+        elif "[解説]" in rev_text:  # 見出しが欠落した場合のフォールバック
             parts = rev_text.split("[解説]")
             bubble_text = parts[0].replace("[セリフ]", "").strip()
             detail_text = parts[1].strip()
+            heading_text = ""
         else:
-            # 万が一のフォーマット崩れ対策（全体を吹き出しに収める）
+            # すべて崩れた場合の極限フォールバック
             bubble_text = rev_text.replace("[セリフ]", "").strip()
             detail_text = ""
+            heading_text = ""
             
-        # 1. 吹き出し（短いセリフ）の生成
+        # 1. 吹き出し（セリフのみ）の生成
         bubble_html = wrap_speech_bubble(bubble_text, reviewer)
         
-        # 2. 通常の解説テキストの生成（枠外）
+        # 2. 見出しの生成 (h3タグ)
+        heading_html = ""
+        if heading_text:
+            clean_heading = heading_text.replace("#", "").replace("[見出し]", "").strip()
+            if clean_heading:
+                heading_html = f"<h3>{clean_heading}</h3>"
+                
+        # 3. 通常の解説テキストの生成 (pタグ、です・ます調)
+        detail_html = ""
         if detail_text:
             formatted_detail = detail_text.replace("\n", "<br />")
-            detail_html = (
-                f'<div class="curation-detail-text" style="margin-top: 16px; margin-bottom: 28px; '
-                f'line-height: 1.8; color: #333; font-size: 15px; letter-spacing: 0.03em;">\n'
-                f'  {formatted_detail}\n'
-                f'</div>'
-            )
-            rev_html = bubble_html + "\n" + detail_html
-        else:
-            rev_html = bubble_html
+            # 通常記事のレイアウトと100%統一するために p タグを使用
+            detail_html = f"<p>{formatted_detail}</p>"
+            
+        # 3段を美しく結合
+        rev_html = bubble_html
+        if heading_html:
+            rev_html += "\n" + heading_html
+        if detail_html:
+            rev_html += "\n" + detail_html
             
         reviews_html.append(rev_html)
 
