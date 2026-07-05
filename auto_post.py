@@ -165,7 +165,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     if is_ranking:
         cat_name = "ランキング"
     elif is_curation:
-        cat_name = "まとめ"
+        cat_name = "BLまとめ" if is_bl else "TLまとめ"
     elif is_voice:
         # v19.0.0: ボイス作品用カテゴリ
         cat_name = "BLボイス" if is_bl else "TLボイス"
