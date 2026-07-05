@@ -730,6 +730,8 @@ def _run_curator_logic(args):
         intro_html, selected_works, reviews_html, table_html, footer_html,
         display_tag=display_tag, display_genre=display_genre
     )
+    # 修正18: 目次を非表示にする（ランキング記事と統一）
+    full_content = "[no_toc]\n" + full_content
 
     # 修正17: タイトルの決定（動的件数）
     num = len(selected_works)
