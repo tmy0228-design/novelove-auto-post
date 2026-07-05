@@ -524,7 +524,7 @@ def assemble_article(intro_html, works, reviews_html, table_html, footer_html, d
         content += "<!-- REVIEW START -->\n" + reviews_html[i] + "\n<!-- REVIEW END -->\n\n"
         # 内部リンク（個別レビュー記事への誘導）
         if w.get('wp_post_url'):
-            content += f'<p style="text-align:center; margin:10px 0 15px;"><a href="{w["wp_post_url"]}" style="color:#d81b60; font-weight:bold; text-decoration:none;">📖 この作品の詳しいレビューを読む →</a></p>\n'
+            content += f'<p style="text-align:center; margin:10px 0 15px;"><a href="{w["wp_post_url"]}" style="color:#d81b60; font-weight:bold; text-decoration:none;">📖 この作品の個別紹介を見る →</a></p>\n'
         content += btn_html + "\n"
         content += '<hr style="border:0; border-top:1px dashed #ddd; margin:40px 0;" />\n\n'
         
@@ -755,9 +755,10 @@ def _run_curator_logic(args):
     if is_eng_tag:
         slug_tag = tag_name.replace(",", "-").lower()
     else:
-        slug_tag = f"{sub_genre_lower}-w{week}"
+        slug_tag = f"w{week}"
 
-    slug = f"curation-{slug_tag}-{date_str}"
+    # 先頭を bl-curation / tl-curation の正順かつ英語スラッグで統一
+    slug = f"{sub_genre_lower}-curation-{slug_tag}-{date_str}"
     if len(slug) > 100:
         slug = f"curation-{date_str}-{random.randint(1000, 9999)}"
 
