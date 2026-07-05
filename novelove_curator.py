@@ -238,7 +238,7 @@ def generate_intro_column(reviewer, tag_name, genre_group):
     display_tag = tag_name.replace(",", "と")
     
     prompt = f"""あなたは「Novelove」のライター「{reviewer['name']}」です。
-以下のテーマに沿って、まとめ記事の冒頭に掲載する導入紹介コラムをキャラクターの口調で執筆してください。
+以下のテーマに沿って、まとめ記事の冒頭に掲載する短い導入挨拶コラムをキャラクターの口調で執筆してください。
 
 【あなたの設定】
 性格: {reviewer['personality']}
@@ -249,19 +249,18 @@ def generate_intro_column(reviewer, tag_name, genre_group):
 「{display_tag}」のおすすめ作品まとめ
 
 【執筆ルール】
-1. キャラクターの口調を全開にして、テーマの魅力や選定した興奮を熱く語ってください。
-2. 文字数は150〜200字程度を目安にしてください。
-3. HTMLタグ（divやpなど）は絶対に出力せず、純粋なプレーンテキストのみで出力してください。
-4. 以下のAI的で不自然な無難フレーズは一切使用禁止。
+1. キャラクターの口調を全開にして、読者を歓迎し、これからテーマに沿ったおすすめ作品を紹介する興奮を短く語ってください。
+2. 吹き出しの圧迫感を防ぐため、文字数は50〜80字程度（2文程度）に必ず収めてください。
+3. 作品の具体的なあらすじ紹介や、詳しいレビュー考察は個別記事で書くため、ここには一切記述しないでください。
+4. HTMLタグ（divやpなど）は絶対に出力せず、純粋なプレーンテキストのみで出力してください。
+5. 以下のAI的で不自然な無難フレーズは一切使用禁止。
 {NG_PHRASES}
-5. 読了済みを装う表現は禁止（あらすじから惹かれる・期待が高まる等の表現を使用する）。
-{FACT_GUARD}
 
 出力形式: プレーンテキストのみ（前後の挨拶や「はい、分かりました」等のメタ発言は一切不要）
 """
 
     messages = [
-        {"role": "system", "content": "あなたは指定されたキャラクターになりきって、プレーンテキストのコラムを書くプロです。"},
+        {"role": "system", "content": "あなたは指定されたキャラクターになりきって、プレーンテキストの短い挨拶を書くプロです。"},
         {"role": "user", "content": prompt}
     ]
     
@@ -275,7 +274,7 @@ def generate_intro_column(reviewer, tag_name, genre_group):
 
 # === AI執筆：ミニレビュー生成 ===
 def generate_mini_review(work, tag_name, reviewer):
-    """作品のテーマ特化ミニレビューをAIで生成する（プレーンテキストのみで出力させる）"""
+    """作品のテーマ特化ミニレビューをAIで生成する（セリフと解説の分離形式）"""
     display_tag = tag_name.replace(",", "と")
     
     # 伏字処理
@@ -283,7 +282,7 @@ def generate_mini_review(work, tag_name, reviewer):
     safe_desc = mask_input(work['description'] or "", level=0)
     
     prompt = f"""あなたは「Novelove」のライター「{reviewer['name']}」です。
-以下の作品あらすじを読み、なぜこの作品が「{display_tag}」というテーマでおすすめなのかを、特化した視点で語るミニレビューを執筆してください。
+以下の作品あらすじを読み、「{display_tag}」というテーマでおすすめするキャラクターの「セリフ」と、そのテーマに特化した「詳細解説」を執筆してください。
 
 【あなたの設定】
 性格: {reviewer['personality']}
@@ -295,19 +294,28 @@ def generate_mini_review(work, tag_name, reviewer):
 作品の属性タグ: {','.join(work['tags'])}
 
 【執筆ルール】
-1. なぜこの作品が「{display_tag}」というテーマでおすすめなのか、あらすじに書かれている事実だけに基づいて熱く語ってください。
-2. 文字数は150〜200字程度を目安にしてください。
-3. HTMLタグは絶対に出力せず、純粋なプレーンテキストのみで出力してください。
+1. 出力は必ず指定の【出力フォーマット】の通りに「[セリフ]」と「[解説]」というマーカーを使って2つのブロックに分けてください。
+2. 「[セリフ]」ブロックのルール:
+   - キャラクターの口調全開で語る短い一言。
+   - 文字数は50〜80字以内（1〜2文）とし、吹き出しの圧迫感を絶対に防いでください。
+3. 「[解説]」ブロックのルール:
+   - 作品全体の一般的なあらすじ紹介や、全体のストーリー要約は個別記事で解説するため、【絶対に出力禁止】とします。
+   - あらすじから読み取れる事実のみに基づき、今回のテーマである「{display_tag}」という属性・要素が、作品内でどのように魅力的に描かれているかだけをピンポイントで論理的に語ってください。
+   - 文字数は120〜150字以内（2〜3文）とし、2文ごとに必ず改行（空行）を挟んで読みやすく段落分けしてください。
 4. あらすじに存在しない設定、キャラクターの名前、詳細な展開を創作（ハルシネーション）することは絶対に禁止です。
 {FACT_GUARD}
 5. 以下の無難フレーズは使用禁止です。
 {NG_PHRASES}
 
-出力形式: プレーンテキストのみ（メタ発言や説明は一切不要）
+【出力フォーマット】
+[セリフ]
+（ここに短いキャラクター口調のセリフ）
+[解説]
+（ここにテーマ特化した詳しい解説）
 """
 
     messages = [
-        {"role": "system", "content": "あなたは指定されたキャラクターになりきり、あらすじ情報だけに基づいてプレーンテキストのレビューを書くプロです。"},
+        {"role": "system", "content": "あなたは指定されたキャラクターになりきり、[セリフ]と[解説]の2つの指定ブロックで正確にレビューを書くプロです。"},
         {"role": "user", "content": prompt}
     ]
     
@@ -315,19 +323,23 @@ def generate_mini_review(work, tag_name, reviewer):
     text, err = _call_deepseek_raw(messages, max_tokens=1000, temperature=0.7, thinking_disabled=True)
     if err != "ok" or not text:
         logger.error(f"[Curator] Failed to generate review for {work['title']}. Using default synopsis snippet.")
-        return (work['description'] or "")[:150] + "..."
+        return f"[セリフ]\nおすすめの作品だよ！\n[解説]\n{(work['description'] or '')[:150]}..."
         
     return text.strip()
 
 # === 吹き出しHTMLラッパー ===
 def wrap_speech_bubble(text, reviewer):
-    """プレーンテキストを speech-bubble HTMLに変換する"""
+    """プレーンテキストを speech-bubble HTMLに変換する（改行のHTML変換対応）"""
     face_img = reviewer['face_image']
     name = reviewer['name']
+    
+    # 吹き出し内での自動改行をサポート
+    formatted_text = str(text).replace("\n", "<br />")
+    
     return (
         f'<div class="speech-bubble-left">\n'
         f'  <img src="/wp-content/uploads/icons/{face_img}.png" alt="{name}" />\n'
-        f'  <div class="speech-text">{text}</div>\n'
+        f'  <div class="speech-text">{formatted_text}</div>\n'
         f'</div>'
     )
 
@@ -633,7 +645,36 @@ def _run_curator_logic(args):
         rev_text = generate_mini_review(w, tag_name, reviewer)
         if rev_text.endswith("..."):  # フォールバック検知
             ai_fail_count += 1
-        rev_html = wrap_speech_bubble(rev_text, reviewer)
+            
+        # [セリフ] と [解説] でパースする
+        bubble_text = ""
+        detail_text = ""
+        
+        if "[解説]" in rev_text:
+            parts = rev_text.split("[解説]")
+            bubble_text = parts[0].replace("[セリフ]", "").strip()
+            detail_text = parts[1].strip()
+        else:
+            # 万が一のフォーマット崩れ対策（全体を吹き出しに収める）
+            bubble_text = rev_text.replace("[セリフ]", "").strip()
+            detail_text = ""
+            
+        # 1. 吹き出し（短いセリフ）の生成
+        bubble_html = wrap_speech_bubble(bubble_text, reviewer)
+        
+        # 2. 通常の解説テキストの生成（枠外）
+        if detail_text:
+            formatted_detail = detail_text.replace("\n", "<br />")
+            detail_html = (
+                f'<div class="curation-detail-text" style="margin-top: 16px; margin-bottom: 28px; '
+                f'line-height: 1.8; color: #333; font-size: 15px; letter-spacing: 0.03em;">\n'
+                f'  {formatted_detail}\n'
+                f'</div>'
+            )
+            rev_html = bubble_html + "\n" + detail_html
+        else:
+            rev_html = bubble_html
+            
         reviews_html.append(rev_html)
 
     if ai_fail_count >= 2:
