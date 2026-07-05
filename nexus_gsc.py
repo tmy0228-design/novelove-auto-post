@@ -182,8 +182,66 @@ def run_gsc():
     dead_lv3 = []  # クリック0
     inspect_count = 0  # 今日の Inspection API 呼び出し数
 
-    # v18.0.0: 統合DB1本から全サイトの公開済み記事を取得
-    # ※ 日次上限チェックはループ内（下記 for row in rows 内）で行う
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # STEP 1: クリック数/表示数の更新（全公開記事・毎日・スキップなし）
+    # searchanalytics.query は1回の呼び出しで全URLのデータを取得済みのため
+    # APIの個別呼び出しは発生しない。よって7日スキップは不要。
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    try:
+        conn = db_connect(DB_FILE_UNIFIED)
+        conn.row_factory = sqlite3.Row
+        all_rows = conn.execute(
+            """SELECT product_id, wp_post_url, published_at, gsc_last_checked
+               FROM novelove_posts
+               WHERE status='published'
+                 AND wp_post_url != '' AND wp_post_url IS NOT NULL"""
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"  [DB] 読み込みエラー: {e}")
+        all_rows = []
+
+    clicks_updated = 0
+    for row in all_rows:
+        pid = row["product_id"]
+        url = row["wp_post_url"]
+
+        url_slash    = url if url.endswith('/') else url + '/'
+        url_no_slash = url.rstrip('/')
+        gsc_info     = url_data.get(url_slash) or url_data.get(url_no_slash)
+
+        impressions = gsc_info["impressions"] if gsc_info else 0
+        clicks      = gsc_info["clicks"]      if gsc_info else 0
+
+        # クリック実績がある記事は永久保護フラグを付与（殿堂入り）
+        should_protect = 1 if clicks >= 1 else None
+        try:
+            conn2 = db_connect(DB_FILE_UNIFIED)
+            conn2.execute(
+                """UPDATE novelove_posts
+                   SET gsc_impressions  = ?,
+                       gsc_clicks       = ?
+                   WHERE product_id = ?""",
+                (impressions, clicks, pid)
+            )
+            if should_protect:
+                conn2.execute(
+                    "UPDATE novelove_posts SET is_protected = 1 WHERE product_id = ? AND is_protected = 0",
+                    (pid,)
+                )
+            conn2.commit()
+            conn2.close()
+            clicks_updated += 1
+        except Exception as e:
+            logger.error(f"  [DB] クリック数更新失敗 ({pid}): {e}")
+
+    logger.info(f"  [GSC STEP1] クリック数/表示数を全件更新: {clicks_updated}件")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # STEP 2: インデックス確認 + 死に記事判定（7日スキップを維持）
+    # URL Inspection API は1件ずつ呼び出すため、1日600件の制限がある。
+    # 7日以内に確認済みの記事はスキップして呼び出し数を節約する。
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     try:
         conn = db_connect(DB_FILE_UNIFIED)
         conn.row_factory = sqlite3.Row
@@ -209,9 +267,9 @@ def run_gsc():
         url = row["wp_post_url"]
         last_checked = row["gsc_last_checked"]
 
-        # ━━ 7日以内に確認済みの記事は再チェックをスキップ ━━
+        # ━━ 7日以内にインデックス確認済みの記事はスキップ ━━
         if last_checked and last_checked >= recheck_cutoff:
-            logger.debug(f"  [GSC] {pid} — {INSPECT_RECHECK_DAYS}日以内に済みのためスキップ (last_checked={last_checked[:10]})")
+            logger.debug(f"  [GSC] {pid} — {INSPECT_RECHECK_DAYS}日以内に確認済みのためインデックスチェックをスキップ")
             continue
 
         url_slash    = url if url.endswith('/') else url + '/'
@@ -219,7 +277,6 @@ def run_gsc():
         gsc_info     = url_data.get(url_slash) or url_data.get(url_no_slash)
 
         impressions = gsc_info["impressions"] if gsc_info else 0
-        clicks      = gsc_info["clicks"]      if gsc_info else 0
 
         # インデックス確認（表示が0のURL のみ Inspection API 呼び出し）
         if gsc_info is None or impressions == 0:
@@ -233,30 +290,20 @@ def run_gsc():
             logger.warning(f"  [GSC] {pid} — インデックス判定不能のためスキップ")
             continue
 
-        # DB 更新 (v18.0.0: 統合DBに対して更新)
-        # v18.6.0: クリック実績がある記事に永久保護フラグを付与（殿堂入り）
-        should_protect = 1 if clicks >= 1 else None  # None=変更しない
+        # gsc_indexed と gsc_last_checked を更新（クリック数はSTEP1で更新済み）
         try:
             conn2 = db_connect(DB_FILE_UNIFIED)
             conn2.execute(
                 """UPDATE novelove_posts
                    SET gsc_indexed      = ?,
-                       gsc_impressions  = ?,
-                       gsc_clicks       = ?,
                        gsc_last_checked = ?
                    WHERE product_id = ?""",
-                (1 if indexed else 0, impressions, clicks, now_str, pid)
+                (1 if indexed else 0, now_str, pid)
             )
-            # 保護フラグは一度ONになったら二度と外さない（0→1のみ）
-            if should_protect:
-                conn2.execute(
-                    "UPDATE novelove_posts SET is_protected = 1 WHERE product_id = ? AND is_protected = 0",
-                    (pid,)
-                )
             conn2.commit()
             conn2.close()
         except Exception as e:
-            logger.error(f"  [DB] GSC 更新失敗 ({pid}): {e}")
+            logger.error(f"  [DB] インデックス状態更新失敗 ({pid}): {e}")
             continue
 
         # 死に記事判定（公開30日以上の記事のみアラート対象）
@@ -264,6 +311,20 @@ def run_gsc():
         is_old_enough = published_at_str <= threshold_date
 
         if is_old_enough:
+            # STEP1でクリック数が更新済みのため、最新値をDBから取得
+            try:
+                _conn = db_connect(DB_FILE_UNIFIED)
+                _conn.row_factory = sqlite3.Row
+                _r = _conn.execute(
+                    "SELECT gsc_clicks, gsc_impressions FROM novelove_posts WHERE product_id = ?",
+                    (pid,)
+                ).fetchone()
+                _conn.close()
+                clicks      = _r["gsc_clicks"]      if _r else 0
+                impressions = _r["gsc_impressions"]  if _r else 0
+            except Exception:
+                clicks = 0
+
             if DEAD_LEVEL1_UNINDEXED and not indexed:
                 dead_lv1.append({"pid": pid, "url": url})
             elif DEAD_LEVEL2_ZERO_IMPR and indexed and impressions == 0:
