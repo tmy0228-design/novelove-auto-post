@@ -77,7 +77,8 @@ def fetch_ranking_dmm(site, genre):
                 "title": title, "url": aff_url,
                 "image_url": item.get("imageURL", {}).get("large", ""),
                 "description": desc,
-                "content_id": item.get("content_id", "")
+                "content_id": item.get("content_id", ""),
+                "media_type": "doujin"
             })
         return final_items
 
@@ -100,6 +101,7 @@ def fetch_ranking_dmm(site, genre):
                 for item in r.json().get("result", {}).get("items", []):
                     title = item.get("title", "")
                     if _is_noise_content(title, ""): continue
+                    item['_dtype'] = dtype
                     if dtype == "comic":
                         comic_items.append(item)
                     else:
@@ -132,7 +134,8 @@ def fetch_ranking_dmm(site, genre):
             "title": title, "url": aff_url,
             "image_url": item.get("imageURL", {}).get("large", ""),
             "description": desc,
-            "content_id": item.get("content_id", "")
+            "content_id": item.get("content_id", ""),
+            "media_type": item.get("_dtype", "comic")
         })
         if len(final_items) >= 5: break
         
@@ -154,14 +157,21 @@ def _fetch_dlsite_ranking_items_from_url(url, is_bl, limit, skip_titles=None):
                 if title in skip_titles: continue
                 img_src = ""; desc = ""
                 is_r18_badge = False
+                media_type = "comic"
                 try:
                     dr = requests.get(link, headers=headers, timeout=10)
                     if dr.status_code == 200:
                         dsoup = BeautifulSoup(dr.text, 'html.parser')
                         badges = [wg.get('href', '') for wg in dsoup.select('.work_genre a')]
+                        badges_str = str(badges)
                         # 漫画(MNG) or 小説(NRE/NVL/TOW) or ボイス(SOU)のみ許可
-                        if not any(b in str(badges) for b in ['MNG', 'NRE', 'NVL', 'TOW', 'SOU']):
+                        if not any(b in badges_str for b in ['MNG', 'NRE', 'NVL', 'TOW', 'SOU']):
                             continue
+                        # メディアタイプ判定
+                        if 'SOU' in badges_str: media_type = "voice"
+                        elif any(x in badges_str for x in ['NRE', 'NVL', 'TOW']): media_type = "novel"
+                        else: media_type = "comic"
+                        
                         og_img = dsoup.select_one('meta[property="og:image"]')
                         if og_img: img_src = og_img.get('content', '')
                         desc_tag = dsoup.select_one('meta[property="og:description"]')
@@ -183,7 +193,7 @@ def _fetch_dlsite_ranking_items_from_url(url, is_bl, limit, skip_titles=None):
                     floor = "home"
                     
                 aff_url = f"https://dlaf.jp/{floor}/dlaf/=/t/n/link/work/aid/{aff_id}/id/{pid}.html"
-                items.append({"title": title, "url": aff_url, "image_url": img_src, "description": desc, "content_id": pid})
+                items.append({"title": title, "url": aff_url, "image_url": img_src, "description": desc, "content_id": pid, "media_type": media_type})
                 if len(items) >= limit: break
     except Exception as e:
         logger.error(f"DLsite Ranking URL Fetch Error ({url}): {e}")
@@ -291,29 +301,35 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 【2人の関係性】
 {relationship}
 【執筆の最重要ルール（必ず守ること）】
-1. 地の文は一切書かないこと。すべての文章を以下のどちらかの吹き出しHTMLで表現すること。
+1. 吹き出しHTMLと通常テキスト（あらすじ・見どころ紹介）を適切に組み合わせて執筆すること。
 2. {reviewer["name"]}の発言には必ず「メインMC吹き出し（左）」を使用すること:
 {mc_open}（セリフ）{mc_close}
 3. {guest["name"]}の発言には必ず「ゲスト吹き出し（右）」を使用すること:
 {guest_open}（セリフ）{guest_close}
 4. 【絶対禁止】{guest["name"]}の発言に speech-bubble-left クラスを使うことは絶対禁止。{reviewer["name"]}の発言に speech-bubble-right クラスを使うことも絶対禁止。
-5. 2人の性格の違いと関係性に基づいた自然なテンポで会話を進めること。
-6. raw HTMLのみを出力。```やコードブロックは使わないこと。
-7. 直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
-8. 紹介する作品には漫画、小説、音声作品（ボイス・ASMR）が含まれます。メディアタイプを特定する表現（「読む」「聴く」「本を開く」「耳を澄ます」など）は避け、どのメディアであっても違和感のない中立的な表現（「この作品を楽しむ」「チェックする」「体験する」など）で紹介してください。
+5. 【文字数厳守】各吹き出しの発言は必ず60文字以上・90文字以内（最大100文字厳守）。長文をダラダラと話すのは絶対禁止。
+6. 2人の性格の違いと関係性に基づいた自然なテンポで会話を進めること。
+7. raw HTMLのみを出力。```やコードブロックは使わないこと。
+8. 直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
+9. 紹介する作品には漫画、小説、音声作品（ボイス・ASMR）が含まれます。メディアタイプを特定する表現（「読む」「聴く」「本を開く」「耳を澄ます」など）は避け、どのメディアであっても違和感のない中立的な表現（「この作品を楽しむ」「チェックする」「体験する」など）で紹介してください。
 【冒頭の挨拶ルール】
 {mc_intro_rule}
 {guest_intro_rule}
-【記事の構成】
-- 冒頭：2人のオープニングトーク（お互いに挨拶し、今週ピックアップされた注目作品への期待を語る。合計4〜6往復。）
-- 第5位〜第2位：各作品ごとに、あらすじ説明（MC主導）→ゲストのリアクション→推しポイントの掘り下げ（最低3往復）
+【記事の構成（合計文字数目標: 3,000〜3,500文字）】
+- 冒頭：2人のオープニングトーク（今週の作品への期待を簡潔に語る。合計2往復。）
+- 第5位〜第2位：各作品ごとに以下の順で構成すること（吹き出しは計2往復＝4発言のみ）:
+  1. MCが作品への第一印象を吹き出し1発言で語る
+  2. 通常テキスト（<p>タグ）であらすじ・見どころを箇条書き（<ul><li>）2〜3点で紹介（吹き出し不使用）
+  3. ゲストがリアクション・推しポイントを吹き出し1発言で語る
+  4. MCが締めのひと言を吹き出し1発言で語る
   ・各作品の前後に必ず HTML プレースホルダーを置くこと:
+    [MEDIA_BADGE_{{rank}}]
     [IMAGE_{{rank}}]
     <div class="ranking-badge" style="font-size:1.6em;font-weight:bold;margin-bottom:15px;color:#ff4785;">[RANK_BADGE_{{rank}}]</div>
     <h3 style="margin-top:20px;font-size:1.3em;">[TITLE_{{rank}}]</h3>
     [REVIEW_LINK_{{rank}}]
-- 第1位：2人で熱量MAXに語り倒す（最低5往復）。プレースホルダーは同様に配置。
-- 締め：2人で今週の感想と読者へのメッセージを語る（合計3〜4往復）。
+- 第1位：少し熱量多めで語る（吹き出しは計3往復＝6発言）。プレースホルダーは同様に配置。
+- 締め：2人で今週の感想と読者へのメッセージを語る（合計2往復）。
 【ランキングデータ】
 {items_xml}
 {FACT_GUARD}{NG_PHRASES}
@@ -457,6 +473,15 @@ def process_ranking_articles():
                     rank = idx + 1
                     content_html = content_html.replace(f"[RANK_BADGE_{rank}]", medals.get(rank, f"{rank}位"))
                     content_html = content_html.replace(f"[TITLE_{rank}]", item["title"])
+                    # メディアタイプバッジの差し込み
+                    _badge_map = {
+                        "comic":  '<div style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:0.82em;font-weight:bold;margin-bottom:8px;background:#ffe0ef;color:#ff6b9d;">📖 漫画</div>',
+                        "novel":  '<div style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:0.82em;font-weight:bold;margin-bottom:8px;background:#f0e6ff;color:#9b59b6;">📝 小説</div>',
+                        "voice":  '<div style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:0.82em;font-weight:bold;margin-bottom:8px;background:#e6f3ff;color:#3498db;">🎧 ボイス</div>',
+                        "doujin": '<div style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:0.82em;font-weight:bold;margin-bottom:8px;background:#fff3e0;color:#e67e22;">📦 同人</div>',
+                    }
+                    _media = item.get("media_type", "comic")
+                    content_html = content_html.replace(f"[MEDIA_BADGE_{rank}]", _badge_map.get(_media, _badge_map["comic"]))
                     img_elem = f'<div style="text-align: center;"><a href="{item["url"]}" target="_blank" rel="noopener"><img src="{item["image_url"]}" alt="{item["title"]}" style="max-height: 400px; max-width: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" /></a></div>'
                     text_link_elem = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:10px; margin-bottom:15px;"><a href="{item["url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{item["title"]}』を試し読みする</a></p>'
                     content_html = content_html.replace(f"[IMAGE_{rank}]", f"{img_elem}{text_link_elem}")
