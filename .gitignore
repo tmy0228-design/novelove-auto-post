@@ -148,3 +148,7 @@ manual_run.py
 start_dashboard.py
 unlock.py
 backup_pre_refactor/
+
+# Temporary files
+novelove_unified.db.local_bak
+pulled_changes.diff
