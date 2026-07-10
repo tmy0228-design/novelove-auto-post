@@ -51,6 +51,7 @@ import sqlite3
 import time
 import re
 import base64
+import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 import argparse
@@ -74,7 +75,57 @@ from novelove_core import (
     DLSITE_AFFILIATE_ID,
     WP_PHP_PATH, WP_CLI_PATH, WP_DOC_ROOT,
     normalize_title, super_normalize_title,
+    acquire_lock, release_lock,
 )
+
+def _recover_posting_orphans():
+    """
+    status='posting' のまま残っている幽霊記事を検出・リカバリする。
+    WP上に記事が既に存在すれば status='published' に更新し、なければ 'pending' に戻す。
+    """
+    conn = db_connect(DB_FILE_UNIFIED)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    try:
+        orphans = c.execute(
+            "SELECT product_id, title FROM novelove_posts WHERE status='posting'"
+        ).fetchall()
+        if not orphans:
+            return
+
+        logger.warning(f"⚠️ [リカバリ] status='posting' のまま残っている記事が {len(orphans)} 件あります。WPと照合します。")
+        auth = (WP_USER, WP_APP_PASSWORD)
+
+        for row in orphans:
+            pid = row["product_id"]
+            title = row["title"]
+            try:
+                # WordPress から slug を条件に既存投稿を検索
+                r = requests.get(
+                    f"{WP_SITE_URL}/wp-json/wp/v2/posts",
+                    params={"slug": pid, "_fields": "id,link"},
+                    auth=auth, timeout=15
+                )
+                if r.status_code == 200 and r.json():
+                    wp_data = r.json()[0]
+                    c.execute(
+                        "UPDATE novelove_posts SET status='published', wp_post_id=?, wp_post_url=? WHERE product_id=?",
+                        (wp_data["id"], wp_data["link"], pid)
+                    )
+                    logger.info(f"  [リカバリ成功] {pid} ({title[:15]}) は既にWP上に存在するため published に修復しました。")
+                else:
+                    c.execute(
+                        "UPDATE novelove_posts SET status='pending', last_error='recovered_from_posting' WHERE product_id=?",
+                        (pid,)
+                    )
+                    logger.info(f"  [リカバリ成功] {pid} ({title[:15]}) はWP上に存在しないため pending に差し戻しました。")
+            except Exception as e:
+                logger.error(f"  [リカバリ失敗] {pid} のWP照合中にエラーが発生しました: {e}")
+        conn.commit()
+    except Exception as e:
+        logger.error(f"🚨 リカバリ処理全体でエラーが発生しました: {e}")
+    finally:
+        conn.close()
 
 from novelove_fetcher import (
     fetch_and_stock_all,
@@ -384,6 +435,9 @@ def _run_main_logic():
     if is_emergency_stop():
         logger.info("🚨 緊急停止中のためスキップ。解除: rm emergency_stop.lock")
         return
+
+    # 投稿状態の不整合リカバリを実行 (v21.3.0 追加)
+    _recover_posting_orphans()
 
     # クールダウンチェック (通常投稿: cron15分+cooldown25分で実効約30分間隔)
     # v11.4.12: 何よりも先に判定を行い、負荷をゼロにする
@@ -957,13 +1011,11 @@ def _execute_posting_flow(row, cursor, conn):
             if h2_match:
                 pos = h2_match.start()
                 content = content[:pos] + spec_html + content[pos:]
-            else:
-                bubble_close = re.search(r'</div>\s*</div>', content)
-                if bubble_close:
-                    pos = bubble_close.end()
-                    content = content[:pos] + "\n" + spec_html + content[pos:]
-                else:
-                    content = spec_html + content
+    # 🌟 中間ステートの書き込み: WP投稿前に status='posting' へ更新 (v21.3.0)
+    cursor.execute(
+        "UPDATE novelove_posts SET status='posting' WHERE product_id=?", (pid,)
+    )
+    conn.commit()
 
     link, wp_post_id = post_to_wordpress(
         wp_title, content, row["genre"], img_url,
@@ -1093,48 +1145,26 @@ def main():
 
     logger.info("Novelove エンジン v21.1.1 起動")
     init_db()
-    # メインロックチェック
-    if os.path.exists(MAIN_LOCK_FILE):
-        mtime = os.path.getmtime(MAIN_LOCK_FILE)
-        if time.time() - mtime > 7200:
-            logger.warning("🚨 メインロックが2時間を超えています。強制解除して続行します。")
-            try:
-                os.remove(MAIN_LOCK_FILE)
-            except Exception as e:
-                logger.error(f"ロック解除失敗: {e}")
-                return
-        else:
-            logger.info("🕒 メイン処理は既に実行中です。終了します。")
-            return
 
-    # ランキングロックチェック
+    # ランキングロックチェック (他プロセス排他チェックのみ)
     if os.path.exists(RANK_LOCK_FILE):
         mtime = os.path.getmtime(RANK_LOCK_FILE)
         if time.time() - mtime > 7200:
-            logger.warning("🚨 ランキングロックが2時間を超えています。強制解除して続行します。")
-            try:
-                os.remove(RANK_LOCK_FILE)
-            except Exception as e:
-                logger.error(f"ランキングロック解除失敗: {e}")
+            logger.warning("🚨 ランキングロックが2時間を超えています。強制解除します。")
+            release_lock(RANK_LOCK_FILE)
         else:
             logger.info("🕒 ランキング処理が実行中です。通常投稿はスキップします。")
             return
 
-    try:
-        with open(MAIN_LOCK_FILE, "w") as f:
-            f.write(str(os.getpid()))
-    except Exception as e:
-        logger.error(f"🚨 メインロック作成失敗: {e}")
+    # 原子的メインロック取得
+    if not acquire_lock(MAIN_LOCK_FILE, stale_timeout=7200):
+        logger.info("🕒 メイン処理は既に実行中です。終了します。")
         return
 
     try:
         _run_main_logic()
     finally:
-        try:
-            if os.path.exists(MAIN_LOCK_FILE):
-                os.remove(MAIN_LOCK_FILE)
-        except Exception as e:
-            logger.error(f"🚨 メインロック解除失敗: {e}")
+        release_lock(MAIN_LOCK_FILE)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Novelove Auto Posting Tool")

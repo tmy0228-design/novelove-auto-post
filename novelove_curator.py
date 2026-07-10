@@ -30,7 +30,8 @@ CURATION_LOCK_FILE = os.path.join(SCRIPT_DIR, "curation.lock")
 from novelove_core import (
     logger, DB_FILE_UNIFIED, db_connect, WP_SITE_URL,
     get_affiliate_button_html, notify_discord,
-    is_emergency_stop, MAIN_LOCK_FILE, RANK_LOCK_FILE
+    is_emergency_stop, MAIN_LOCK_FILE, RANK_LOCK_FILE,
+    acquire_lock, release_lock,
 )
 from novelove_soul import REVIEWERS, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS, AI_TAG_WHITELIST
 from novelove_writer import _call_deepseek_raw
@@ -551,40 +552,31 @@ def main():
     # 修正4: 他プロセスとの排他制御（dry-run時はスキップ）
     if not args.dry_run:
         if os.path.exists(MAIN_LOCK_FILE):
-            logger.info("🕒 [Curator] メイン投稿処理が実行中のためスキップ")
-            return
-        if os.path.exists(RANK_LOCK_FILE):
-            logger.info("🕒 [Curator] ランキング処理が実行中のためスキップ")
-            return
-        if os.path.exists(CURATION_LOCK_FILE):
-            mtime = os.path.getmtime(CURATION_LOCK_FILE)
-            if _time.time() - mtime > 3600:
-                logger.warning("🚨 [Curator] ロックが1時間を超えています。強制解除します。")
-                try:
-                    os.remove(CURATION_LOCK_FILE)
-                except Exception:
-                    pass
+            mtime = os.path.getmtime(MAIN_LOCK_FILE)
+            if _time.time() - mtime > 7200:
+                logger.warning("🚨 [Curator] メインロックが2時間を超えています。強制解除します。")
+                release_lock(MAIN_LOCK_FILE)
             else:
-                logger.info("🕒 [Curator] 既に実行中です。終了します。")
+                logger.info("🕒 [Curator] メイン投稿処理が実行中のためスキップ")
                 return
-
-    # ロック取得 → 実処理 → ロック解除
-    if not args.dry_run:
-        try:
-            with open(CURATION_LOCK_FILE, "w") as f:
-                f.write(str(os.getpid()))
-        except Exception as e:
-            logger.error(f"🚨 [Curator] ロック作成失敗: {e}")
+        if os.path.exists(RANK_LOCK_FILE):
+            mtime = os.path.getmtime(RANK_LOCK_FILE)
+            if _time.time() - mtime > 7200:
+                logger.warning("🚨 [Curator] ランキングロックが2時間を超えています。強制解除します。")
+                release_lock(RANK_LOCK_FILE)
+            else:
+                logger.info("🕒 [Curator] ランキング処理が実行中のためスキップ")
+                return
+        # 原子的キュレーションロック取得 (v21.3.0)
+        if not acquire_lock(CURATION_LOCK_FILE, stale_timeout=3600):
+            logger.info("🕒 [Curator] 既に実行中です。終了します。")
             return
 
     try:
         _run_curator_logic(args)
     finally:
-        if not args.dry_run and os.path.exists(CURATION_LOCK_FILE):
-            try:
-                os.remove(CURATION_LOCK_FILE)
-            except Exception:
-                pass
+        if not args.dry_run:
+            release_lock(CURATION_LOCK_FILE)
 
 
 def _run_curator_logic(args):

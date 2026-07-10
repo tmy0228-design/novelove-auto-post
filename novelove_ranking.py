@@ -17,14 +17,14 @@ from novelove_soul import REVIEWERS, get_relationship, FACT_GUARD, NG_PHRASES, M
 
 from novelove_core import (
     logger, notify_discord,
-
     _get_reviewer_for_genre, _genre_label,
     get_db_path, get_source_db, db_connect, init_db,
-    WP_SITE_URL, RANK_LOCK_FILE,
+    WP_SITE_URL, RANK_LOCK_FILE, MAIN_LOCK_FILE,
     is_emergency_stop,
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
     DLSITE_AFFILIATE_ID,
     generate_affiliate_url,
+    acquire_lock, release_lock,
 )
 
 from novelove_fetcher import (
@@ -385,12 +385,21 @@ def process_ranking_articles():
     logger.info("=" * 60)
     logger.info("ランキング記事自動生成モード開始")
 
-    try:
-        with open(RANK_LOCK_FILE, "w") as f:
-            f.write(datetime.now().isoformat())
-    except Exception as e:
-        logger.error(f"ランキングロック作成失敗: {e}")
+    # メイン投稿処理との排他チェック
+    if os.path.exists(MAIN_LOCK_FILE):
+        mtime = os.path.getmtime(MAIN_LOCK_FILE)
+        if time.time() - mtime > 7200:
+            logger.warning("🚨 通常投稿のロックが2時間を超えています。強制解除します。")
+            release_lock(MAIN_LOCK_FILE)
+        else:
+            logger.info("🕒 通常投稿処理が実行中のためランキングはスキップします。")
+            return
+
+    # 原子的ランキングロック取得
+    if not acquire_lock(RANK_LOCK_FILE, stale_timeout=7200):
+        logger.info("🕒 ランキング処理は既に実行中です。終了します。")
         return
+
     try:
         # 曜日判定 (0=月, 1=火, 2=水, 3=木, 4=金, 5=土, 6=日)
         weekday = datetime.now().weekday()
@@ -623,11 +632,7 @@ def process_ranking_articles():
                     logger.info("BLランキング投稿完了。TLは次回のCron起動で自動処理されます。")
                     return
     finally:
-        if os.path.exists(RANK_LOCK_FILE):
-            try:
-                os.remove(RANK_LOCK_FILE)
-            except Exception as e:
-                logger.error(f"ランキングロック削除失敗: {e}")
+        release_lock(RANK_LOCK_FILE)
     logger.info("ランキング記事自動生成モード終了")
     logger.info("=" * 60)
 

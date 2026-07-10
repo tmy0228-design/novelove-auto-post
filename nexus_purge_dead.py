@@ -56,7 +56,7 @@ RULE_B_MAX_CLICKS = 0      # クリック数がこれ以下で削除対象
 # =====================================================================
 def _delete_wp_post(product_id: str, wp_post_id: int = None) -> bool:
     """
-    WordPressの記事を完全削除する。
+    WordPressの記事を削除（ゴミ箱送り）する。
     wp_post_id がDBにあればそれを使い、なければslug検索する。
     """
     auth = (WP_USER, WP_APP_PASSWORD)
@@ -65,10 +65,10 @@ def _delete_wp_post(product_id: str, wp_post_id: int = None) -> bool:
         if wp_post_id:
             del_req = requests.delete(
                 f"{WP_SITE_URL}/wp-json/wp/v2/posts/{wp_post_id}",
-                auth=auth, params={"force": "true"}, timeout=20
+                auth=auth, timeout=20
             )
             if del_req.status_code in (200, 201):
-                logger.info(f"  → 🗑️ WP記事を削除完了: wp_post_id={wp_post_id}")
+                logger.info(f"  → 🗑️ WP記事を削除（ゴミ箱送り）完了: wp_post_id={wp_post_id}")
                 return True
             else:
                 logger.error(f"  → WP記事削除エラー(ID指定): {del_req.status_code}")
@@ -93,10 +93,10 @@ def _delete_wp_post(product_id: str, wp_post_id: int = None) -> bool:
         found_title = posts[0]['title']['rendered']
         del_req = requests.delete(
             f"{WP_SITE_URL}/wp-json/wp/v2/posts/{found_id}",
-            auth=auth, params={"force": "true"}, timeout=20
+            auth=auth, timeout=20
         )
         if del_req.status_code in (200, 201):
-            logger.info(f"  → 🗑️ WP記事を削除完了: ID={found_id} ({found_title[:30]})")
+            logger.info(f"  → 🗑️ WP記事を削除（ゴミ箱送り）完了: ID={found_id} ({found_title[:30]})")
             return True
         else:
             logger.error(f"  → WP記事削除エラー: {del_req.status_code}")
@@ -144,6 +144,7 @@ def run_purge_dead(dry_run=False):
           AND post_type = 'regular'
           AND is_protected = 0
           AND gsc_last_checked IS NOT NULL
+          AND gsc_last_checked >= date('now', '-7 days')
           AND gsc_indexed = 0
           AND published_at <= date('now', ? || ' days')
     """, (f"-{RULE_A_DAYS}",)).fetchall()
@@ -157,6 +158,7 @@ def run_purge_dead(dry_run=False):
           AND post_type = 'regular'
           AND is_protected = 0
           AND gsc_last_checked IS NOT NULL
+          AND gsc_last_checked >= date('now', '-7 days')
           AND gsc_impressions <= ?
           AND gsc_clicks <= ?
           AND published_at <= date('now', ? || ' days')
@@ -170,10 +172,33 @@ def run_purge_dead(dry_run=False):
     logger.info(f"  [ルールB] 低トラフィック({RULE_B_DAYS}日超): {len(rule_b_unique)}件")
     logger.info(f"  [合計] 削除対象: {len(rule_a_rows) + len(rule_b_unique)}件")
 
+    # === 事前通知と削除上限の設定 (v21.3.0) ===
+    MAX_PURGE_PER_RUN = 30
+    all_targets = list(rule_a_rows) + rule_b_unique
+
+    if all_targets:
+        preview_lines = []
+        for r in all_targets[:MAX_PURGE_PER_RUN]:
+            preview_lines.append(f"・{r['title'][:25]}... (imp:{r['gsc_impressions'] or 0}/clk:{r['gsc_clicks'] or 0})")
+        
+        mode_label = "🧪 DRY-RUN" if dry_run else "⚡ 本番実行"
+        preview_text = (
+            f"⚡ **[死に記事パージ予定]** ({mode_label})\n"
+            f"本日パージ対象: {len(all_targets)}件 (うち最大 {MAX_PURGE_PER_RUN}件を処理します)\n"
+            + "\n".join(preview_lines[:15])
+        )
+        if len(preview_lines) > 15:
+            preview_text += "\n..."
+        notify_discord(preview_text, username="⚡ 死に記事パージ (事前通知)")
+
     purged_count = 0
     failed_count = 0
 
-    for row in list(rule_a_rows) + rule_b_unique:
+    for row in all_targets:
+        if purged_count >= MAX_PURGE_PER_RUN:
+            logger.warning(f"⚠️ 1回あたりのパージ上限（{MAX_PURGE_PER_RUN}件）に達したため、残りは次回実行に持ち越します。")
+            break
+
         pid = row['product_id']
         title = (row['title'] or '')[:35]
         rule = "A:未インデックス" if pid in rule_a_pids else "B:低トラフィック"
