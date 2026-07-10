@@ -825,8 +825,17 @@ def _run_curator_logic(args):
                     full_image_url,
                     tag_name, excerpt
                 ))
+                
+                # === [v21.4.1] まとめ記事に選出された5作品を自動的に永久保護 (is_protected = 1) ===
+                for work in selected_works:
+                    c.execute(
+                        "UPDATE novelove_posts SET is_protected = 1 WHERE product_id = ?",
+                        (work['product_id'],)
+                    )
+                    logger.info(f"[Curator] Protected work: {work['title']} (ID: {work['product_id']})")
+                
                 conn.commit()
-                logger.info("[Curator] Curation post details saved to novelove_posts DB.")
+                logger.info("[Curator] Curation post details saved and 5 works marked as protected in DB.")
             except Exception as e:
                 # 修正11: DB INSERT失敗時のDiscord通知
                 logger.error(f"[Curator] Failed to save curation details to DB: {e}")
