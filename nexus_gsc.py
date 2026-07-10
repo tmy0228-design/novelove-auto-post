@@ -385,31 +385,116 @@ def sync_popular_to_wp():
     """GSCクリック数の上位10件のwp_post_idを取得し、
     WordPressのwp_optionsに 'novelove_popular_ids' として保存する。
     functions.php側でこのオプションを読み取り、注目作品セクションを表示する。
+    
+    【v21.4.0 改善】: 単純なクリック数順ではなく、収益性による重み付けと、
+    プラットフォーム別の枠制限（クォータ制：DLsite最大5、DMM最大2、らぶカル最低2確保）を適用する。
     """
     import subprocess, json
     try:
         conn = db_connect(DB_FILE_UNIFIED)
+        conn.row_factory = sqlite3.Row
         cursor = conn.execute(
-            "SELECT wp_post_id FROM novelove_posts "
-            "WHERE status='published' AND gsc_clicks > 0 AND wp_post_id IS NOT NULL AND wp_post_id > 0 "
-            "ORDER BY gsc_clicks DESC LIMIT 10"
+            "SELECT wp_post_id, source_db, is_exclusive, gsc_clicks FROM novelove_posts "
+            "WHERE status='published' AND gsc_clicks > 0 AND wp_post_id IS NOT NULL AND wp_post_id > 0"
         )
-        ids = [row[0] for row in cursor.fetchall()]
+        rows = cursor.fetchall()
         conn.close()
 
-        if not ids:
+        if not rows:
             logger.info("  [Popular] GSCクリック実績のある記事が0件のため同期スキップ")
             return
 
-        ids_json = json.dumps(ids)
+        # 1. 仮想スコアの計算と仕分け
+        candidates = []
+        for r in rows:
+            pid = r["wp_post_id"]
+            sdb = r["source_db"]
+            excl = r["is_exclusive"]
+            clicks = r["gsc_clicks"] or 0
+            
+            # 収益性に基づく重み付け
+            if sdb == 'dlsite' and excl == 1:
+                score = clicks * 2.0  # DLsite専売は2.0倍
+            elif sdb == 'dlsite':
+                score = clicks * 1.5  # DLsite通常は1.5倍
+            elif sdb == 'lovecal':
+                score = clicks * 1.5  # らぶカルは1.5倍 (高単価)
+            elif sdb == 'dmm':
+                score = clicks * 0.5  # DMM通常はレッドオーシャンのため0.5倍に抑制
+            else:
+                score = clicks * 1.0
+                
+            candidates.append({
+                "wp_post_id": pid,
+                "source_db": sdb,
+                "score": score
+            })
+
+        # スコア順（降順）にソート
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+
+        # 2. クォータ制（枠制限）の適用
+        selected_ids = []
+        dlsite_count = 0
+        dmm_count = 0
+        lovecal_count = 0
+
+        # 第1パス: 将来性のある「らぶカル（最低2件）」を優先的に確保
+        lovecal_candidates = [c for c in candidates if c["source_db"] == 'lovecal']
+        for c in lovecal_candidates[:2]:
+            selected_ids.append(c["wp_post_id"])
+            lovecal_count += 1
+
+        # 第2パス: 残りの枠（合計10件まで）をスコア順に埋める。ただし各上限を守る。
+        for c in candidates:
+            pid = c["wp_post_id"]
+            if pid in selected_ids:
+                continue
+                
+            sdb = c["source_db"]
+            
+            # 各種クォータ制限
+            if sdb == 'dlsite' and dlsite_count >= 5:
+                continue
+            if sdb == 'dmm' and dmm_count >= 2:
+                continue
+            if sdb == 'lovecal' and lovecal_count >= 5:
+                continue
+                
+            selected_ids.append(pid)
+            if sdb == 'dlsite':
+                dlsite_count += 1
+            elif sdb == 'dmm':
+                dmm_count += 1
+            elif sdb == 'lovecal':
+                lovecal_count += 1
+
+            if len(selected_ids) >= 10:
+                break
+
+        # 第3パス: もし10件に満たない場合で、未選出の候補があれば、上限を無視して10件になるまで補充
+        if len(selected_ids) < 10:
+            for c in candidates:
+                pid = c["wp_post_id"]
+                if pid not in selected_ids:
+                    selected_ids.append(pid)
+                if len(selected_ids) >= 10:
+                    break
+
+        if not selected_ids:
+            logger.info("  [Popular] 選出された記事が0件のため同期スキップ")
+            return
+
+        ids_json = json.dumps(selected_ids)
         wp_path = "/home/kusanagi/myblog/DocumentRoot"
-        # WP-CLIでwp_optionsに保存（autoload=yes で高速読み込み）
+        
+        # WP-CLIでWordPressのオプションを更新
         result = subprocess.run(
             ["wp", "option", "update", "novelove_popular_ids", ids_json, f"--path={wp_path}", "--allow-root"],
             capture_output=True, text=True, timeout=30
         )
         if result.returncode == 0:
-            logger.info(f"  [Popular] WordPress同期完了: {len(ids)}件のwp_post_idを保存 {ids}")
+            logger.info(f"  [Popular] WordPress同期完了: {len(selected_ids)}件のwp_post_idを保存 {selected_ids}")
         else:
             logger.error(f"  [Popular] WordPress同期失敗: {result.stderr}")
 
