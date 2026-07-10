@@ -73,12 +73,28 @@ def fetch_ranking_dmm(site, genre):
             desc, *_ = scrape_description(item.get("URL", ""), site=site, genre=genre, is_ranking=True)
             if _is_noise_content(title, desc): continue
             
+            # メディアタイプ判定 (Lovecal: 同人API内のジャンル名から動的に判定)
+            media_type = "comic"  # デフォルトは漫画
+            iteminfo = item.get("iteminfo", {})
+            genres = [g.get("name", "") for g in iteminfo.get("genre", [])]
+            genres_str = " ".join(genres)
+            
+            # 音声・ボイス系キーワード
+            voice_keywords = ["バイノーラル", "ASMR", "ボイス", "ボイスドラマ", "KU100", "3Dサウンド"]
+            # 小説系キーワード
+            novel_keywords = ["小説", "ノベル"]
+            
+            if any(k in genres_str for k in voice_keywords):
+                media_type = "voice"
+            elif any(k in genres_str for k in novel_keywords):
+                media_type = "novel"
+
             final_items.append({
                 "title": title, "url": aff_url,
                 "image_url": item.get("imageURL", {}).get("large", ""),
                 "description": desc,
                 "content_id": item.get("content_id", ""),
-                "media_type": "doujin"
+                "media_type": media_type
             })
         return final_items
 
@@ -490,7 +506,9 @@ def process_ranking_articles():
                         "doujin": '<div style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:0.82em;font-weight:bold;margin-bottom:8px;background:#fff3e0;color:#e67e22;">📦 同人</div>',
                     }
                     _media = item.get("media_type", "comic")
-                    content_html = content_html.replace(f"[MEDIA_BADGE_{rank}]", _badge_map.get(_media, _badge_map["comic"]))
+                    badge_elem = _badge_map.get(_media, _badge_map["comic"])
+                    badge_centered = f'<div style="text-align:center; margin-bottom:8px;">{badge_elem}</div>'
+                    content_html = content_html.replace(f"[MEDIA_BADGE_{rank}]", badge_centered)
                     img_elem = f'<div style="text-align: center;"><a href="{item["url"]}" target="_blank" rel="noopener"><img src="{item["image_url"]}" alt="{item["title"]}" style="max-height: 400px; max-width: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" /></a></div>'
                     text_link_elem = f'<p style="text-align:center; font-weight:bold; font-size:1.1em; margin-top:10px; margin-bottom:15px;"><a href="{item["url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">▶ 『{item["title"]}』を試し読みする</a></p>'
                     content_html = content_html.replace(f"[IMAGE_{rank}]", f"{img_elem}{text_link_elem}")
