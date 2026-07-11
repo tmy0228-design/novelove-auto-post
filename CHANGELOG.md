@@ -7,6 +7,10 @@
 - **修正 (`auto_post.py`)**: 認証付きで `status=any` → 見つからなければ status 省略、の順で再試行。
 - **ドキュメント**: `SPECIFICATIONS.md`（固定スラグ節に仕様凍結として追記）/ `CLAUDE.md`（やってはいけないこと #9）。
 
+### 🧹 chore(ops): 旧週次ランキング記事74本をゴミ箱へ（固定6本のみ公開残存）
+- 公開中の日付付きスラグ（`*-ranking-2026-*-w*` 等）をすべて trash（`force=false`）。固定6本は保持。
+- `novelove_posts` は日付付き行を `status=deleted` / `last_error=superseded_by_fixed_slug_v21.5.0`、固定6本は `posted`+正しい `wp_post_id`/`wp_post_url` で整合確認済み。
+
 ### 🔧 fix(ranking): らぶカルのボイス/小説/漫画判定を公式パス優先に刷新
 - **原因**: v21.4.2 のジャンル名キーワード判定だけでは、ジャンルに「バイノーラル/ASMR/ボイス」が付かないボイス作品（例: 耳舐めのみ）が漫画扱いになり、「試し読みする」CTAが付く事故が再発。
 - **修正 (`novelove_ranking.py`)**: 判定優先順を以下に固定（過去DB 503件で検証済み。`voice_*` は `/digital/voice/` 例外ゼロ）。
