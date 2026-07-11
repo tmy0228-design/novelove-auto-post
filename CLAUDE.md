@@ -19,7 +19,7 @@
 
 - **投稿サイト**: novelove.jp（WordPress / KUSANAGIサーバー）
 - **ダッシュボード**: nexus (/nexus) でStreamlitが稼働（要Basic認証）
-- **自動投稿**: 20分ごとにcronで `auto_post.py` が実行される（cooldown 35分との組み合わせでズレのない実効40分間隔）
+- **自動投稿**: 15分ごとにcronで `auto_post.py` が実行される（実効間隔はDB在庫に応じた動的cooldown。詳細は `SPECIFICATIONS.md`）
 
 ---
 
