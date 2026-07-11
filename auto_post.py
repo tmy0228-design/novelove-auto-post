@@ -177,11 +177,12 @@ def get_or_create_term(name, taxonomy):
     except Exception:
         return None
 
-def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None):
+def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None, overwrite=False):
     """
     WordPress REST API で投稿。FIFUプラグイン経由で外部リンクをアイキャッチに設定。
     image_url: 記事本文に埋め込む大きい画像URL
     thumb_url: FIFUアイキャッチに設定する軽量サムネURL（省略時はimage_urlをそのまま使用）
+    overwrite: True の場合、同一 slug の既存投稿があればそれを上書き更新する（v21.5.0: 固定スラグ・ランキング記事用）。
     """
     auth = (WP_USER, WP_APP_PASSWORD)
     # FIFUには軽量サムネを使用（A+C方式）
@@ -284,8 +285,30 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         "status": "publish", "slug": slug,
         "categories": categories, "tags": tag_ids, "meta": meta,
     }
+
+    # v21.5.0: overwrite=True かつ同一slugの既存投稿があれば、新規作成ではなく上書き更新する。
+    # （固定スラグ運用のランキング記事で、毎週スラグに -2 が付く重複を防止する）
+    endpoint = f"{WP_SITE_URL}/wp-json/wp/v2/posts"
+    if overwrite and slug:
+        try:
+            existing = requests.get(
+                endpoint, auth=auth,
+                params={"slug": slug, "status": ["publish", "draft", "pending", "future", "private"], "_fields": "id"},
+                timeout=20,
+            )
+            if existing.status_code == 200:
+                arr = existing.json()
+                if isinstance(arr, list) and arr and arr[0].get("id"):
+                    existing_id = arr[0]["id"]
+                    endpoint = f"{WP_SITE_URL}/wp-json/wp/v2/posts/{existing_id}"
+                    # 「今週のピックアップ」の鮮度を出すため公開日を現在時刻へ更新する
+                    post_data["date"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+                    logger.info(f"  [WP] 既存スラグ '{slug}' を上書き更新します (ID={existing_id})")
+        except Exception as e:
+            logger.warning(f"  [WP] 既存スラグ確認に失敗（新規作成にフォールバック）: {e}")
+
     try:
-        r = requests.post(f"{WP_SITE_URL}/wp-json/wp/v2/posts", auth=auth, json=post_data, timeout=40)
+        r = requests.post(endpoint, auth=auth, json=post_data, timeout=40)
     except Exception as e:
         logger.error(f"WordPress投稿接続エラー: {e}")
         return None, None

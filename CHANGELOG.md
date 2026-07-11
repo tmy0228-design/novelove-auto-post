@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## v21.5.0 — DLsiteランキング男性向け混入バグの根絶＆ランキング記事の固定スラグ運用化 (2026-07-11)
+
+### 🐛 fix(ranking): DLsite BL/TLランキングへの男性向け一般作品混入を根絶
+- **原因**: `novelove_ranking.py` / `nexus_revive.py` が全年齢ランキング取得に `https://www.dlsite.com/home/ranking/week?is_bl=1`（`is_tl=1`）を使用していたが、DLsiteはこのクエリを**無視**し男性向け一般ASMR等が上位を占める総合ランキングを返していた。結果、BL/TL週次ランキング記事に男性向け作品が2枠混入していた（5月第5週〜7月第2週で計14記事が汚染）。
+- **修正 (`novelove_ranking.py` `fetch_ranking_dlsite`)**: 全年齢（home）枠を全廃。女性向けであることが担保された R-18 `/bl/ranking/week`・`/girls/ranking/week` のみでTOP5を構成するようにした。
+- **修正 (`nexus_revive.py` `fetch_dlsite_ranking_product_ids`)**: 売れ筋タグ判定でも同じ壊れたhome URLを撤去。R-18 BL/TLランキングのみを参照。
+
+### 🔧 fix(nexus_revive): DMM売れ筋判定をBL/TLカテゴリ別ランキングに統一
+- 従来のDMM電子書籍売れ筋判定は「全ジャンル総合ランキング（comic/novel）」を見ており男性向けが大半を占めるため、女性向けBL/TL作品が売れ筋に載らず `best-seller` タグが付かない偽陰性が発生していた。
+- ランキング記事執筆（`fetch_ranking_dmm`）と同じ **BL/TLカテゴリID付き**（BL漫画=66036 / BL小説=66042 / TL漫画=66060 / TL小説=66064）rank取得に統一。
+
+### 🚀 feat(seo): ランキング記事を「固定スラグ・週次上書き」運用へ移行
+- **固定スラグ化 (`get_ranking_slug`)**: 週次日付付きスラグ（`dlsite-bl-ranking-2026-07-w2`）を廃止し、`dlsite-bl-ranking` / `dlsite-tl-ranking` / `lovecal-bl-ranking` / `lovecal-tl-ranking` / `dmm-bl-ranking` / `dmm-tl-ranking` の**固定6本**に統一。毎週新規作成せず同一URLを上書き更新することでSEO評価を1本に集約し、重複コンテンツリスクを排除。
+- **上書き投稿 (`auto_post.py` `post_to_wordpress`)**: `overwrite=True` 引数を追加。同一slugの既存投稿があればREST APIで新規作成せず上書き更新し、公開日を現在時刻へ更新して鮮度を出す。通常投稿の挙動は不変（デフォルト `overwrite=False`）。
+- **クールダウン刷新 (`process_ranking_articles`)**: 「DB行の有無」ではなく `published_at` が今週（ISO週）に属するかで二重投稿を防止するよう変更。
+- タイトルは従来どおり週次表記（例: 2026年7月第2週）を残し鮮度を維持。BL↔TL相互リンクは固定スラグ同士。
+
+---
+
 ## v21.4.3 — ボイス作品の通常記事執筆プロンプトの表現ルール精緻化 (2026-07-10)
 
 ### 🔧 fix(writer): ボイス記事プロンプトの「視聴済み偽装」バグを修正

@@ -216,34 +216,17 @@ def _fetch_dlsite_ranking_items_from_url(url, is_bl, limit, skip_titles=None):
     return items
 
 def fetch_ranking_dlsite(genre):
-    """v20.0.1: DLsiteのランキングからR18（3件）および一般（2件）を抽出してマージ"""
-    items = []
+    """v21.5.0: DLsiteランキングはR-18 女性向け（BL/TL）専用ページのみを使用。
+
+    旧v20.0.1では全年齢 `home/ranking/week?is_bl=1(is_tl=1)` を2件混ぜていたが、
+    DLsiteはこのクエリを無視し男性向け一般ASMR等が混入する事故が発生したため全廃。
+    女性向けであることが担保された `/bl/ranking/week`・`/girls/ranking/week` のみで
+    TOP5を構成する。
+    """
     is_bl = (genre == "BL")
-    
-    # 1. R18ランキング取得（目標3件）
     r18_path = "bl/ranking/week" if is_bl else "girls/ranking/week"
     r18_url = f"https://www.dlsite.com/{r18_path}"
-    r18_items = _fetch_dlsite_ranking_items_from_url(r18_url, is_bl, limit=3)
-    items.extend(r18_items)
-    
-    # 2. 一般（全年齢）ランキング取得（目標2件）
-    general_query = "is_bl=1" if is_bl else "is_tl=1"
-    general_url = f"https://www.dlsite.com/home/ranking/week?{general_query}"
-    general_items = _fetch_dlsite_ranking_items_from_url(general_url, is_bl, limit=2, skip_titles=[x["title"] for x in items])
-    items.extend(general_items)
-    
-    # もし合計が5件に満たない場合、残りをR18の残枠から補填する
-    if len(items) < 5:
-        needed = 5 - len(items)
-        more_r18 = _fetch_dlsite_ranking_items_from_url(r18_url, is_bl, limit=5, skip_titles=[x["title"] for x in items])
-        items.extend(more_r18[:needed])
-        
-    # それでも足りなければ一般ランキングからさらに補填
-    if len(items) < 5:
-        needed = 5 - len(items)
-        more_general = _fetch_dlsite_ranking_items_from_url(general_url, is_bl, limit=5, skip_titles=[x["title"] for x in items])
-        items.extend(more_general[:needed])
-        
+    items = _fetch_dlsite_ranking_items_from_url(r18_url, is_bl, limit=5)
     return items[:5]
 
 
@@ -353,9 +336,8 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 
 def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_image_url="", excerpt="", reviewer_name="", guest_name=""):
     from auto_post import post_to_wordpress  # 循環import回避
-    now = datetime.now()
-    week = str((now.day - 1) // 7 + 1)
-    slug = f"{site_name.lower()}-{genre.lower()}-ranking-{now.strftime('%Y')}-{now.strftime('%m')}-w{week}"
+    # v21.5.0: 固定スラグ運用。既存記事があればWP側を上書き更新する（overwrite=True）。
+    slug = get_ranking_slug(site_name, genre)
     
     tags_to_add = []
     if guest_name:
@@ -365,7 +347,7 @@ def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_ima
         title=title, content=content, genre=genre, image_url=top_image_url,
         excerpt=excerpt, seo_title=f"{title} | Novelove",
         slug=slug, is_r18=False, site_label=site_name,
-        reviewer=reviewer_name, ai_tags=tags_to_add
+        reviewer=reviewer_name, ai_tags=tags_to_add, overwrite=True
     )
     if wp_url:
         logger.info(f"✅ ランキング投稿成功: {wp_url}")
@@ -373,12 +355,18 @@ def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_ima
             db_path = get_db_path(site_name)
             conn = db_connect(db_path)
             c = conn.cursor()
-            # INSERT OR IGNORE: 同一スラグが既に存在する場合は上書きしない。
-            # INSERT OR REPLACE だと DELETE+INSERT になり ai_tags 等が消失するリスクがある。
-            c.execute("""INSERT OR IGNORE INTO novelove_posts
-                (product_id, title, genre, site, status, post_type, wp_post_url, published_at, reviewer, source_db)
-                VALUES (?, ?, ?, ?, 'published', 'ranking', ?, datetime('now', 'localtime'), ?, ?)""",
-                (slug, title, genre, site_name, wp_url, reviewer_name, get_source_db(site_name)))
+            # v21.5.0: 固定スラグは毎週上書き更新するため、published_at を最新化する必要がある。
+            # （クールダウン判定が「今週更新済みか」を published_at で判定するため）
+            # まずUPDATEを試み、対象行が無ければINSERTする（ai_tags等を消さないためON REPLACEは使わない）。
+            c.execute("""UPDATE novelove_posts
+                SET title=?, wp_post_url=?, published_at=datetime('now', 'localtime'), reviewer=?
+                WHERE product_id=? AND post_type='ranking'""",
+                (title, wp_url, reviewer_name, slug))
+            if c.rowcount == 0:
+                c.execute("""INSERT INTO novelove_posts
+                    (product_id, title, genre, site, status, post_type, wp_post_url, published_at, reviewer, source_db)
+                    VALUES (?, ?, ?, ?, 'published', 'ranking', ?, datetime('now', 'localtime'), ?, ?)""",
+                    (slug, title, genre, site_name, wp_url, reviewer_name, get_source_db(site_name)))
             conn.commit()
             conn.close()
         except Exception as e:
@@ -387,9 +375,10 @@ def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_ima
     return False
 
 def get_ranking_slug(site, genre):
-    now = datetime.now()
-    week = str((now.day - 1) // 7 + 1)
-    return f"{site.lower()}-{genre.lower()}-ranking-{now.strftime('%Y')}-{now.strftime('%m')}-w{week}"
+    # v21.5.0: 週次日付スラグを廃止し「固定スラグ」に統一。
+    # 例: dlsite-bl-ranking / lovecal-tl-ranking / dmm-bl-ranking
+    # 毎週新規作成せず、同一URLの記事を上書き更新することでSEO評価を1本に集約する。
+    return f"{site.lower()}-{genre.lower()}-ranking"
 
 def process_ranking_articles():
     from auto_post import post_to_wordpress  # 循環import回避
@@ -437,16 +426,26 @@ def process_ranking_articles():
             for genre in ["BL", "TL"]:
                 logger.info(f"  [{genre}総合] 取得開始...")
                 
-                # --- v15.0: DB確認によるクールダウンロジック ---
+                # --- v21.5.0: 固定スラグ運用に伴うクールダウンロジック ---
+                # 固定スラグは毎週上書きするため、「行の有無」ではなく
+                # published_at が今週（ISO週）に属するかで二重投稿を防止する。
                 slug = get_ranking_slug(site, genre)
                 db_path = get_db_path(site)
                 conn = db_connect(db_path)
                 c = conn.cursor()
-                row = c.execute("SELECT published_at FROM novelove_posts WHERE product_id=? AND status='published'", (slug,)).fetchone()
+                row = c.execute("SELECT published_at FROM novelove_posts WHERE product_id=? AND post_type='ranking'", (slug,)).fetchone()
                 conn.close()
-                if row:
-                    logger.info(f"  [{genre}総合] 今週の {site} {genre} は既に投稿済み（{slug}）。スキップします。")
-                    continue
+                if row and row[0]:
+                    try:
+                        _pub = datetime.strptime(str(row[0])[:19], "%Y-%m-%d %H:%M:%S")
+                        _now_iso = datetime.now().isocalendar()
+                        _pub_iso = _pub.isocalendar()
+                        already_this_week = (_pub_iso[0] == _now_iso[0] and _pub_iso[1] == _now_iso[1])
+                    except Exception:
+                        already_this_week = False
+                    if already_this_week:
+                        logger.info(f"  [{genre}総合] 今週の {site} {genre} は既に更新済み（{slug}）。スキップします。")
+                        continue
 
                 if site in ("DMM", "Lovecal"):
                     items = fetch_ranking_dmm(site, genre)

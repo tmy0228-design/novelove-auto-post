@@ -422,9 +422,16 @@ def fetch_dmm_ranking_product_ids():
     if not DMM_API_ID or not DMM_AFFILIATE_API_ID:
         return ranking_ids
 
+    # v21.5.0: DMM電子書籍を「全ジャンル総合ランキング」から
+    #   「BL/TLカテゴリ別ランキング」へ変更（ランキング記事 fetch_ranking_dmm と同じ取得軸に統一）。
+    #   従来の comic/novel 総合ランキングは男性向けが大半を占め、女性向けBL/TL作品が
+    #   売れ筋に載らず best-seller タグが付かない偽陰性の温床だった。
+    #   article_id: BL漫画=66036 / BL小説=66042 / TL漫画=66060 / TL小説=66064
     floors = [
-        {"site": "DMM.com", "service": "ebook", "floor": "comic"},
-        {"site": "DMM.com", "service": "ebook", "floor": "novel"},
+        {"site": "DMM.com", "service": "ebook", "floor": "comic", "article": "category", "article_id": "66036"},  # BL漫画
+        {"site": "DMM.com", "service": "ebook", "floor": "novel", "article": "category", "article_id": "66042"},  # BL小説
+        {"site": "DMM.com", "service": "ebook", "floor": "comic", "article": "category", "article_id": "66060"},  # TL漫画
+        {"site": "DMM.com", "service": "ebook", "floor": "novel", "article": "category", "article_id": "66064"},  # TL小説
         # らぶカルBL/TL（専用フロアがすべての同人作品を網羅する）
         {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_bl"},
         {"site": "FANZA", "service": "doujin", "floor": "digital_doujin_tl"},
@@ -442,6 +449,9 @@ def fetch_dmm_ranking_product_ids():
                 "sort": "rank",
                 "output": "json",
             }
+            if fl.get("article") and fl.get("article_id"):
+                params["article"] = fl["article"]
+                params["article_id"] = fl["article_id"]
             if fl.get("keyword"):
                 params["keyword"] = fl["keyword"]
             r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
@@ -529,12 +539,13 @@ def fetch_dlsite_ranking_product_ids():
     """
     RANKING_TOP_N = 30  # 各URLから取得するTOP件数（FANZA=20×4フロア に合わせたバランス調整）
     ranking_ids = set()
-    # v20.0.1: DLsite一般（全年齢）週間ランキングURLを追記
+    # v21.5.0: DLsite一般（全年齢）週間ランキングURLを撤去。
+    #   `home/ranking/week?is_tl=1(is_bl=1&is_gay=1)` はクエリが無視され男性向け一般が混入するため、
+    #   売れ筋タグ判定でも「女性向けBL/TLが売れ筋に載らない（偽陰性）」原因になっていた。
+    #   女性向けであることが担保された R-18 BL/TL 週間ランキングのみを使用する。
     ranking_urls = [
-        "https://www.dlsite.com/girls/ranking/week",  # 女性向け週間ランキング
+        "https://www.dlsite.com/girls/ranking/week",  # 女性向け（TL）週間ランキング
         "https://www.dlsite.com/bl/ranking/week",     # BL週間ランキング（v12.7.0追加）
-        "https://www.dlsite.com/home/ranking/week?is_tl=1",  # 女性向け一般週間ランキング
-        "https://www.dlsite.com/home/ranking/week?is_bl=1&is_gay=1",  # BL一般週間ランキング
     ]
     for url in ranking_urls:
         try:
