@@ -380,7 +380,10 @@ def get_ranking_slug(site, genre):
     # 毎週新規作成せず、同一URLの記事を上書き更新することでSEO評価を1本に集約する。
     return f"{site.lower()}-{genre.lower()}-ranking"
 
-def process_ranking_articles():
+def process_ranking_articles(force_all=False):
+    """force_all=True の場合、曜日スケジュールを無視して DLsite/らぶカル/DMM の
+    BL・TL 全6本を一括生成/更新する（v21.5.0: 固定スラグ移行時の初回一括生成用の特別モード）。
+    通常のcron運用では force_all=False（曜日ごとに1サイト、BL→TLの2回起動）。"""
     from auto_post import post_to_wordpress  # 循環import回避
 
     # ★ 緊急停止チェック
@@ -412,12 +415,16 @@ def process_ranking_articles():
         # 優先度: DLsite（最高・土曜最強枠）> らぶカル（金曜週末前）> DMM（日曜週末締め）
         schedule = {4: "Lovecal", 5: "DLsite", 6: "DMM"}
         
-        target_site = schedule.get(weekday)
-        if not target_site:
-            logger.info(f"今日はランキング投稿日ではありません (曜日コード: {weekday})")
-            return
-
-        sites = [target_site]
+        if force_all:
+            # v21.5.0: 特別モード。曜日制限を無視して全サイトを対象にする。
+            sites = ["DLsite", "Lovecal", "DMM"]
+            logger.info("🔧 強制全生成モード: 曜日制限を無視して6本すべてを生成/更新します")
+        else:
+            target_site = schedule.get(weekday)
+            if not target_site:
+                logger.info(f"今日はランキング投稿日ではありません (曜日コード: {weekday})")
+                return
+            sites = [target_site]
         medals = {1: "🥇 1位", 2: "🥈 2位", 3: "🥉 3位", 4: "4位", 5: "5位"}
         site_labels = {"DMM": "DMM.com", "DLsite": "DLsite", "Lovecal": "らぶカル"}
         
@@ -435,7 +442,7 @@ def process_ranking_articles():
                 c = conn.cursor()
                 row = c.execute("SELECT published_at FROM novelove_posts WHERE product_id=? AND post_type='ranking'", (slug,)).fetchone()
                 conn.close()
-                if row and row[0]:
+                if row and row[0] and not force_all:
                     try:
                         _pub = datetime.strptime(str(row[0])[:19], "%Y-%m-%d %H:%M:%S")
                         _now_iso = datetime.now().isocalendar()
@@ -646,7 +653,8 @@ def process_ranking_articles():
                 # BL投稿完了後はプロセスを即時終了する（ステートレス設計）
                 # TLは次回のCron起動時に「BLは投稿済み」と判定されて自動処理される
                 # ⚠️ Cron設定注意: ランキング処理日はBL・TL各1回ずつ合計2回以上スクリプトを起動すること
-                if genre == "BL":
+                # force_all時は途中終了せず、全サイト・全ジャンルを続けて処理する。
+                if genre == "BL" and not force_all:
                     logger.info("BLランキング投稿完了。TLは次回のCron起動で自動処理されます。")
                     return
     finally:

@@ -1192,8 +1192,11 @@ def main():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Novelove Auto Posting Tool")
     parser.add_argument("--ranking", action="store_true", help="Run the ranking generation workflow")
+    parser.add_argument("--ranking-force-all", action="store_true", help="Generate/overwrite all 6 fixed-slug ranking articles regardless of weekday (v21.5.0 one-time seeding)")
     args = parser.parse_args()
-    if args.ranking:
+    if args.ranking_force_all:
+        process_ranking_articles(force_all=True)
+    elif args.ranking:
         process_ranking_articles()
     else:
         main()
