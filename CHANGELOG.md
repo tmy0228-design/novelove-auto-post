@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## v21.5.2 — まとめ記事監査に基づく矛盾解消＆ランキングDB status是正 (2026-07-11)
+
+### 🔍 audit(curation): 本番crontabを正として書類・コードを同期
+- **本番確認**: 水曜11:10 `--force --genre=BL` / 金曜11:10 `--force --genre=TL`（CLAUDEの水曜11:00・READMEの日曜23:00は誤り）。
+- SEOメタ・TOC非表示・相対アイコンは公開4本で問題なし。`-2` なし。DB↔WPスラッグ一致。
+
+### 🔧 fix(curator): デッドだった `--force` を仕様どおりに実装
+- `--force` 単独はエラー終了。`--genre` または `--tag` 必須（本番cronと同じ使い方）。
+
+### 🔧 fix(curator): メディアバッジをランキング／SPECと統一
+- 漫画🎨→📖 / 小説📖→📝 / ボイス🎧（従来のまま）。
+
+### 🔧 fix(curator): ボイス作品ミニレビューに視聴済み装い禁止ルールを追加
+- `novelove_writer.py` の `voice_rules` 相当をまとめ側プロンプトへ接続。
+
+### 🔧 fix(curator): スラッグ長すぎ時も `{bl|tl}-curation-` 接頭辞を維持
+- 旧フォールバック `curation-{date}-{rand}` を廃止。
+
+### 🔧 fix(curator): WP実スラッグをDB `product_id` に保存／`wp_tags` にレビュアーを含める
+- `-2` 付与時の DB↔WP 乖離を防止。`wp_tags` = テーマ+レビュアー（v21.1.1整合）。
+
+### 🐛 fix(db): 固定ランキング6本の `status='posted'` を `published` に是正
+- 掃除時の誤表記。コード全体の正は `published`（cooldown/purge/rankingが参照）。
+
+---
+
 ## v21.5.1 — ランキング媒体判定の堅牢化と吹き出しアイコン強制修正 (2026-07-11)
 
 ### 🐛 fix(wp): 固定スラグ上書きが効かず `*-ranking-2` が量産されるバグを修正

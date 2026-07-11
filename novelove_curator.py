@@ -281,6 +281,19 @@ def generate_mini_review(work, tag_name, reviewer):
     # 伏字処理
     safe_title = mask_input(work['title'], level=0)
     safe_desc = mask_input(work['description'] or "", level=0)
+
+    # v21.5.2: ボイス作品は通常記事と同じ視聴済み装い禁止ルールを適用（SPEC 6-4）
+    voice_rules = ""
+    if "voice" in str(work.get("genre") or "").lower():
+        voice_rules = (
+            "\n7. ※音声作品のため「コマ」「見開き」「絵」「描画」「読む」等の漫画・小説表現は使わないこと。"
+            "\n※AIは実際に音声を聴くことができないため、「聴いてみたら〜だった」「耳元の囁きが〜だった」等の"
+            "【視聴済みを装う一人称の体験表現】は絶対禁止。"
+            "\n※ただし以下はすべてOK："
+            "①「ぜひ聴いてみて！」「イヤホン必須！」等の読者へのレコメンド表現、"
+            "②「想像しただけで鳥肌が立つ」等の期待・想像を語る表現、"
+            "③あらすじ・紹介文に明記されているセリフ・CV名・収録情報等の音声関連事実の引用・参照。"
+        )
     
     prompt = f"""あなたは「Novelove」のライター「{reviewer['name']}」です。
 以下の作品あらすじを読み、「{display_tag}」というテーマでおすすめする「セリフ」「見出し」「解説」をそれぞれ執筆してください。
@@ -311,6 +324,7 @@ def generate_mini_review(work, tag_name, reviewer):
 {FACT_GUARD}
 6. 以下の無難フレーズは使用禁止です。
 {NG_PHRASES}
+{voice_rules}
 
 【出力フォーマット】
 [セリフ]
@@ -473,9 +487,10 @@ def assemble_article(intro_html, works, reviews_html, table_html, footer_html, d
         is_voice = "voice" in g_lower
         is_novel = "novel" in g_lower
         
-        media_icon = "🎨"
+        # v21.5.2: ランキング／SPEC 6-4 と統一（📖漫画 / 📝小説 / 🎧ボイス）
+        media_icon = "📖"
         if is_voice: media_icon = "🎧"
-        elif is_novel: media_icon = "📖"
+        elif is_novel: media_icon = "📝"
         
         site_raw = w['site']
         site_display = site_raw.split(":")[0] if isinstance(site_raw, str) and ":" in site_raw else str(site_raw)
@@ -543,11 +558,18 @@ def main():
         return
 
     parser = argparse.ArgumentParser(description="ノベラブ・テーマ別まとめ記事自動生成バッチ")
-    parser.add_argument("--force", action="store_true", help="週判定をスキップして強制実行する")
+    parser.add_argument("--force", action="store_true", help="週番号ローテを使わず強制実行する（--genre または --tag 必須）")
     parser.add_argument("--genre", choices=["BL", "TL", "cross"], help="ジャンルグループを強制指定する")
     parser.add_argument("--tag", help="特定のタグ（カンマ区切りで複数も可）を強制指定する")
     parser.add_argument("--dry-run", action="store_true", help="WordPressに投稿せずローカルHTML出力のみ行う")
     args = parser.parse_args()
+
+    # v21.5.2: --force はデッドフラグにしない。週判定スキップには --genre/--tag が必要（本番cronも両方指定）
+    if args.force and not args.genre and not args.tag:
+        logger.error("[Curator] --force には --genre=BL|TL|cross または --tag の指定が必要です")
+        return
+    if args.force:
+        logger.info("[Curator] --force モード: 週番号によるジャンル自動判定を使わず指定ジャンル/タグで実行します")
 
     # 修正4: 他プロセスとの排他制御（dry-run時はスキップ）
     if not args.dry_run:
@@ -755,8 +777,9 @@ def _run_curator_logic(args):
 
     # 先頭を bl-curation / tl-curation の正順かつ英語スラッグで統一
     slug = f"{sub_genre_lower}-curation-{slug_tag}-{date_str}"
+    # v21.5.2: 長すぎる場合もジャンル接頭辞を落さない（旧 curation-{date}-{rand} は禁止）
     if len(slug) > 100:
-        slug = f"curation-{date_str}-{random.randint(1000, 9999)}"
+        slug = f"{sub_genre_lower}-curation-{date_str}-{random.randint(1000, 9999)}"
 
     # 修正2: FIFUサムネイル変換（A+C方式: 本文用=大きい画像、FIFU用=軽量サムネ）
     full_image_url = selected_works[0]['image_url']
@@ -806,6 +829,18 @@ def _run_curator_logic(args):
         if wp_post_id:
             logger.info(f"[Curator] Published successfully! ID: {wp_post_id}, URL: {link}")
 
+            # v21.5.2: WPが -2 を付けた場合に備え、実URLのスラッグを product_id にする
+            db_product_id = slug
+            if link:
+                m_slug = re.search(r"https?://[^/]+/([^/]+)/?", str(link))
+                if m_slug and m_slug.group(1):
+                    db_product_id = m_slug.group(1)
+                    if db_product_id != slug:
+                        logger.warning(f"[Curator] WPスラッグが意図と異なります: intended={slug} actual={db_product_id}")
+
+            # WPタグはテーマ + レビュアー（v21.1.1）。ai_tags / original_tags はテーマのみ
+            wp_tags_val = ",".join([t for t in excerpt_tags if t])
+
             # 修正8: DB INSERT改善（不要カラム削除、正確なデータ保存）
             c = conn.cursor()
             try:
@@ -820,8 +855,8 @@ def _run_curator_logic(args):
                               'C', ?, 1, 'curation',
                               ?, ?)
                 """, (
-                    slug, title, post_genre,
-                    wp_post_id, link, reviewer['name'], tag_name, tag_name,
+                    db_product_id, title, post_genre,
+                    wp_post_id, link, reviewer['name'], wp_tags_val, tag_name,
                     full_image_url,
                     tag_name, excerpt
                 ))

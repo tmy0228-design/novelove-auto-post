@@ -71,14 +71,15 @@ nexus_dashboard.py ← nexus系UI
 ### cron設定（変更前に必ず確認）
 
 ```
-*/20 * * * *  auto_post.py           → 自動投稿（20分ごと、cooldown 25分で実効約30分間隔≒48件/日）
-0 10 * * *    auto_post.py --ranking → ランキング記事1回目（BL）10時
-30 10 * * *   auto_post.py --ranking → ランキング記事2回目（TL）10:30、BL投稿済みを検知しTLを投稿
-0 11 * * 3    novelove_curator.py    → テーマ別まとめ記事（毎週水曜11:00）
-15 8,20 * * * nexus_revive.py        → セール/ランキングタグ付与・剥奪（朝8:15/夜8:15）
-*/30 * * * *  auto_deploy.sh         → GitHub自動デプロイ（30分ごと）
-30 3 * * *    nexus_gsc.py           → GSCデータ取得＆殿堂入り保護判定（毎日3:30）
-30 4 * * *    nexus_purge_dead.py    → 死に記事自動パージ（毎日4:30、GSCの1時間後）
+*/15 * * * *  auto_post.py                          → 自動投稿（15分ごと。実効間隔はDB在庫に応じた動的cooldown）
+0 10 * * *    auto_post.py --ranking                → ランキング記事1回目（BL）10時
+30 10 * * *   auto_post.py --ranking                → ランキング記事2回目（TL）10:30、BL投稿済みを検知しTLを投稿
+10 11 * * 3   novelove_curator.py --force --genre=BL → BLまとめ（毎週水曜11:10）
+10 11 * * 5   novelove_curator.py --force --genre=TL → TLまとめ（毎週金曜11:10）
+15 8,20 * * * nexus_revive.py                       → セール/ランキングタグ付与・剥奪（朝8:15/夜8:15）
+*/30 * * * *  auto_deploy.sh                        → GitHub自動デプロイ（30分ごと）
+30 3 * * *    nexus_gsc.py                          → GSCデータ取得＆殿堂入り保護判定（毎日3:30）
+30 4 * * *    nexus_purge_dead.py                   → 死に記事自動パージ（毎日4:30、GSCの1時間後）
 ```
 
 ### systemd（ダッシュボードサービス）
