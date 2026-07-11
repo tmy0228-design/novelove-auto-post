@@ -436,7 +436,7 @@ def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_ima
         
     wp_url, _wp_id = post_to_wordpress(
         title=title, content=content, genre=genre, image_url=top_image_url,
-        excerpt=excerpt, seo_title=f"{title} | Novelove",
+        excerpt=excerpt, seo_title=title,
         slug=slug, is_r18=False, site_label=site_name,
         reviewer=reviewer_name, ai_tags=tags_to_add, overwrite=True
     )

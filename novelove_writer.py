@@ -702,9 +702,13 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             site_raw = target.get("site", "DMM.com")
             site_display = site_raw.split(":")[0] if isinstance(site_raw, str) and ":" in site_raw else str(site_raw)
             format_name = _genre_label(target["genre"], target["title"])
-            icon = "📖"
-            if "ボイス" in format_name: icon = "🎧"
-            elif "コミック" in format_name or "漫画" in format_name: icon = "🎨"
+            # v21.5.3: まとめ／ランキング／SPECと統一（📖漫画 / 📝小説 / 🎧ボイス）
+            if "ボイス" in format_name:
+                icon = "🎧"
+            elif "小説" in format_name or "ノベル" in format_name:
+                icon = "📝"
+            else:
+                icon = "📖"
             # サイト名・フォーマット名の整形（らぶカル表記へのフォールバック）
             site_display = "らぶカル" if site_display == "Lovecal" else site_display
             badge_html = f'\n<p style="text-align:center; margin-bottom:20px;">\n<span style="background:#fefefe; border:1px solid #ddd; padding:6px 16px; border-radius:25px; font-weight:bold; color:#444; box-shadow:0 2px 4px rgba(0,0,0,0.05); display:inline-block;">{icon} {site_display} {format_name}</span>\n</p>'
@@ -747,16 +751,17 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
             tag_str = "・".join(tags_for_seo[:2]) if tags_for_seo else ""
 
             # SEOタイトル: AIが生成したものを優先。なければテンプレートフォールバック
+            # v21.5.3: 末尾「| Novelove」は付与しない（サイト名はGoogleのサイト名枠／テーマ側に任せる。全投稿タイプで統一）
             if ai_seo_title:
                 # 32文字超過サニタイズ
                 seo_title_body = ai_seo_title[:32]
                 seo_title = f"『{target['title']}』{seo_title_body}"
             elif tag_str:
-                seo_title = f"『{target['title']}』あらすじ紹介！{tag_str}の{format_name}を紹介 | Novelove"
+                seo_title = f"『{target['title']}』あらすじ紹介！{tag_str}の{format_name}を紹介"
             else:
-                seo_title = f"『{target['title']}』あらすじ紹介！注目の{format_name}を詳しく紹介 | Novelove"
+                seo_title = f"『{target['title']}』あらすじ紹介！注目の{format_name}を詳しく紹介"
             if len(seo_title) > 70:
-                seo_title = seo_title[:68] + "… | Novelove"
+                seo_title = seo_title[:69] + "…"
 
             # 抜粋: AIが生成したものを優先。なければテンプレートフォールバック
             if ai_meta_desc:
