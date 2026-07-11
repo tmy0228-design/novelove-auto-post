@@ -425,7 +425,7 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 {FACT_GUARD}{NG_PHRASES}
 '''
 
-def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_image_url="", excerpt="", reviewer_name="", guest_name=""):
+def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_image_url="", excerpt="", reviewer_name="", guest_name="", seo_title=""):
     from auto_post import post_to_wordpress  # 循環import回避
     # v21.5.0: 固定スラグ運用。既存記事があればWP側を上書き更新する（overwrite=True）。
     slug = get_ranking_slug(site_name, genre)
@@ -433,10 +433,13 @@ def _post_ranking_article_to_wordpress(title, content, genre, site_name, top_ima
     tags_to_add = []
     if guest_name:
         tags_to_add.append(guest_name)
+
+    # v21.5.4: H1(title)は週次の長い見出しのまま、SEOタイトルだけ短くする（未指定時はtitle）
+    seo = seo_title or title
         
     wp_url, _wp_id = post_to_wordpress(
         title=title, content=content, genre=genre, image_url=top_image_url,
-        excerpt=excerpt, seo_title=title,
+        excerpt=excerpt, seo_title=seo,
         slug=slug, is_r18=False, site_label=site_name,
         reviewer=reviewer_name, ai_tags=tags_to_add, overwrite=True
     )
@@ -713,6 +716,11 @@ def process_ranking_articles(force_all=False):
                 # v15.0: 全サイト統一で「厳選おすすめピックアップ」コンセプトに
                 post_title = f"【{disp_site}】今週の{genre_full}おすすめピックアップ5選！ノベラブ厳選ランキング（{title_date}）"
                 meta_desc = f"【{disp_site}】今週の{genre_full}の中から、ノベラブ編集部が厳選したおすすめ作品TOP5を{reviewer['name']}が熱く紹介！"
+                # v21.5.4: SERP表示枠向けにSEOタイトルだけ短縮（H1の post_title は変更しない）
+                genre_short = "BL" if genre == "BL" else "TL"
+                seo_title = f"【{disp_site}】{genre_short}おすすめ5選（{title_date}）"
+                if len(seo_title) > 35:
+                    seo_title = f"【{disp_site}】{genre_short}5選（{title_date}）"
                 
                 final_content = content_html
                 
@@ -742,7 +750,11 @@ def process_ranking_articles(force_all=False):
                 
                 logger.info(f"  -> {genre} 投稿実行中...")
                 guest_n = guest["name"] if guest else ""
-                _post_ranking_article_to_wordpress(post_title, final_content, genre, site, top_image_url, excerpt=meta_desc, reviewer_name=reviewer["name"], guest_name=guest_n)
+                _post_ranking_article_to_wordpress(
+                    post_title, final_content, genre, site, top_image_url,
+                    excerpt=meta_desc, reviewer_name=reviewer["name"], guest_name=guest_n,
+                    seo_title=seo_title,
+                )
                 
                 # BL投稿完了後はプロセスを即時終了する（ステートレス設計）
                 # TLは次回のCron起動時に「BLは投稿済み」と判定されて自動処理される
