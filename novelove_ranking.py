@@ -37,6 +37,107 @@ from novelove_writer import _call_deepseek_raw
 
 # post_to_wordpress は auto_post.py に残る（循環import回避のため関数内で遅延importする）
 
+# === ランキング用メディア判定・アイコン衛生 ===
+_LOVECAL_VOICE_GENRE_KW = ("バイノーラル", "ASMR", "ボイス", "ボイスドラマ", "KU100", "3Dサウンド", "シチュエーションボイス")
+_LOVECAL_NOVEL_GENRE_KW = ("小説", "ノベル")
+
+
+def _detect_lovecal_media_type(item, db_genre=None):
+    """らぶカル作品の media_type を判定する（v21.5.1）。
+
+    優先順（過去DB検証済み）:
+      1. 画像/商品URLの `/digital/voice/` パス（公式の種別パス。例外ほぼゼロ）
+      2. 自社DBに既存の通常記事があればその genre 接頭辞
+      3. APIジャンル名の音声/小説キーワード
+      4. デフォルト comic
+    ※ `/digital/novel/` はらぶカルではほぼ使われず小説も comic パスになるため、
+      小説判定は 2 or 3 に依存する。
+    """
+    img = (item.get("imageURL") or {}).get("large") or (item.get("imageURL") or {}).get("list") or ""
+    url = item.get("URL") or ""
+    blob = f"{img} {url}".lower()
+    if "/digital/voice/" in blob:
+        return "voice"
+
+    if db_genre:
+        g = str(db_genre).lower()
+        if g.startswith("voice"):
+            return "voice"
+        if g.startswith("novel"):
+            return "novel"
+        if g.startswith(("comic", "doujin")):
+            return "comic"
+
+    genres = [g.get("name", "") for g in (item.get("iteminfo") or {}).get("genre", [])]
+    genres_str = " ".join(genres)
+    if any(k in genres_str for k in _LOVECAL_VOICE_GENRE_KW):
+        return "voice"
+    if any(k in genres_str for k in _LOVECAL_NOVEL_GENRE_KW):
+        return "novel"
+    return "comic"
+
+
+def _lookup_db_genre_by_product_id(product_id):
+    """通常記事として published 済みなら genre を返す。なければ None。"""
+    if not product_id:
+        return None
+    try:
+        # site 横断の統合DBを参照（ランキングの site 引数に依存しない）
+        conn = db_connect(get_db_path())
+        row = conn.execute(
+            "SELECT genre FROM novelove_posts WHERE product_id=? AND status='published' AND post_type='regular' LIMIT 1",
+            (product_id,),
+        ).fetchone()
+        conn.close()
+        if not row:
+            return None
+        return row[0] if not isinstance(row, dict) else row.get("genre")
+    except Exception as e:
+        logger.warning(f"  [media_type] DBジャンル参照失敗 ({product_id}): {e}")
+        return None
+
+
+def _force_ranking_speech_icons(html, reviewer, guest=None):
+    """ランキングAI出力の吹き出しアイコンを担当者画像に強制上書きする（v21.5.1）。
+
+    通常記事の writer サニタイザーと同等の保護。AIが外部URLやゴミパスを
+    src に入れても、left=MC / right=ゲスト の正規アイコンへ置換する。
+    """
+    mc = reviewer.get("face_image", "momoka")
+    guest_face = (guest or reviewer).get("face_image", mc)
+    mc_src = f"/wp-content/uploads/icons/{mc}.png"
+    guest_src = f"/wp-content/uploads/icons/{guest_face}.png"
+    mc_alt = reviewer.get("name", "")
+    guest_alt = (guest or reviewer).get("name", mc_alt)
+
+    # writer と同様: 日本語・英語ファイル名のゆれを正規パスへ
+    _ICON_NAMES = r"(葵|紫苑|桃香|蓮|茉莉花|shion|marika|aoi|momoka|ren)"
+    html = re.sub(
+        rf'src="[^"]*?{_ICON_NAMES}\.png"',
+        r'src="/wp-content/uploads/icons/\1.png"',
+        html,
+    )
+
+    soup = BeautifulSoup(html, "html.parser")
+    changed = 0
+    for div in soup.select(".speech-bubble-left, .speech-bubble-right"):
+        img = div.find("img")
+        if img is None:
+            continue
+        is_left = "speech-bubble-left" in (div.get("class") or [])
+        want_src = mc_src if is_left else guest_src
+        want_alt = mc_alt if is_left else guest_alt
+        cur = img.get("src") or ""
+        if cur != want_src:
+            img["src"] = want_src
+            changed += 1
+        if want_alt and img.get("alt") != want_alt:
+            img["alt"] = want_alt
+    if changed:
+        logger.info(f"  [ランキング] 吹き出しアイコンを強制修正: {changed}件")
+    return str(soup)
+
+
 # === ランキング記事 ===
 def fetch_ranking_dmm(site, genre):
     """v15.0: Lovecal対応 ＆ アナログな交互表示(偏り)の廃止。
@@ -73,27 +174,17 @@ def fetch_ranking_dmm(site, genre):
             desc, *_ = scrape_description(item.get("URL", ""), site=site, genre=genre, is_ranking=True)
             if _is_noise_content(title, desc): continue
             
-            # メディアタイプ判定 (Lovecal: 同人API内のジャンル名から動的に判定)
-            media_type = "comic"  # デフォルトは漫画
-            iteminfo = item.get("iteminfo", {})
-            genres = [g.get("name", "") for g in iteminfo.get("genre", [])]
-            genres_str = " ".join(genres)
-            
-            # 音声・ボイス系キーワード
-            voice_keywords = ["バイノーラル", "ASMR", "ボイス", "ボイスドラマ", "KU100", "3Dサウンド"]
-            # 小説系キーワード
-            novel_keywords = ["小説", "ノベル"]
-            
-            if any(k in genres_str for k in voice_keywords):
-                media_type = "voice"
-            elif any(k in genres_str for k in novel_keywords):
-                media_type = "novel"
+            # v21.5.1: 画像パス → DBジャンル → APIジャンルKW の順で判定
+            cid = item.get("content_id", "")
+            db_genre = _lookup_db_genre_by_product_id(cid)
+            media_type = _detect_lovecal_media_type(item, db_genre=db_genre)
+            logger.info(f"  [Lovecal media] {cid} -> {media_type} (db_genre={db_genre})")
 
             final_items.append({
                 "title": title, "url": aff_url,
                 "image_url": item.get("imageURL", {}).get("large", ""),
                 "description": desc,
-                "content_id": item.get("content_id", ""),
+                "content_id": cid,
                 "media_type": media_type
             })
         return final_items
@@ -536,6 +627,9 @@ def process_ranking_articles(force_all=False):
 
                 content_html = re.sub(r"^```html\n?", "", content_html, flags=re.MULTILINE)
                 content_html = re.sub(r"^```\n?", "", content_html, flags=re.MULTILINE)
+
+                # v21.5.1: AIが吹き出しアイコンを捏造しても担当者画像へ強制上書き
+                content_html = _force_ranking_speech_icons(content_html, reviewer, guest)
                 
                 # v17.8.10: _wrap_html_block を削除（writer.py v17.8.3 revert と同様）
                 # 各speech-bubbleをwp:htmlで個別ラップするとGutenbergが大量ブロックを生成しページ崩れの原因になる
