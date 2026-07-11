@@ -288,22 +288,30 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
     # v21.5.0: overwrite=True かつ同一slugの既存投稿があれば、新規作成ではなく上書き更新する。
     # （固定スラグ運用のランキング記事で、毎週スラグに -2 が付く重複を防止する）
+    # v21.5.1: status を配列で渡すと WP REST が空配列を返すケースがあるため、
+    # 認証付きで status=any を使い、見つからなければ status 省略（公開のみ）で再試行する。
     endpoint = f"{WP_SITE_URL}/wp-json/wp/v2/posts"
     if overwrite and slug:
         try:
-            existing = requests.get(
-                endpoint, auth=auth,
-                params={"slug": slug, "status": ["publish", "draft", "pending", "future", "private"], "_fields": "id"},
-                timeout=20,
-            )
-            if existing.status_code == 200:
+            existing_id = None
+            for status_param in ("any", None):
+                params = {"slug": slug, "per_page": 1, "_fields": "id,slug,status"}
+                if status_param is not None:
+                    params["status"] = status_param
+                existing = requests.get(endpoint, auth=auth, params=params, timeout=20)
+                if existing.status_code != 200:
+                    continue
                 arr = existing.json()
                 if isinstance(arr, list) and arr and arr[0].get("id"):
                     existing_id = arr[0]["id"]
-                    endpoint = f"{WP_SITE_URL}/wp-json/wp/v2/posts/{existing_id}"
-                    # 「今週のピックアップ」の鮮度を出すため公開日を現在時刻へ更新する
-                    post_data["date"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-                    logger.info(f"  [WP] 既存スラグ '{slug}' を上書き更新します (ID={existing_id})")
+                    break
+            if existing_id:
+                endpoint = f"{WP_SITE_URL}/wp-json/wp/v2/posts/{existing_id}"
+                # 「今週のピックアップ」の鮮度を出すため公開日を現在時刻へ更新する
+                post_data["date"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+                logger.info(f"  [WP] 既存スラグ '{slug}' を上書き更新します (ID={existing_id})")
+            else:
+                logger.warning(f"  [WP] 既存スラグ '{slug}' が見つからないため新規作成します")
         except Exception as e:
             logger.warning(f"  [WP] 既存スラグ確認に失敗（新規作成にフォールバック）: {e}")
 
