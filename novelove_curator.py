@@ -56,6 +56,46 @@ def get_cooldown_tags(conn, days=90):
                 cooldown.add(t_clean)
     return cooldown
 
+
+def _ensure_curation_work_ids_column(conn):
+    """まとめ出演IDカラムが無ければ追加する（旧DB互換）"""
+    c = conn.cursor()
+    cols = {row[1] for row in c.execute("PRAGMA table_info(novelove_posts)").fetchall()}
+    if "curation_work_ids" not in cols:
+        c.execute("ALTER TABLE novelove_posts ADD COLUMN curation_work_ids TEXT DEFAULT ''")
+        conn.commit()
+        logger.info("[Curator] Added column curation_work_ids")
+
+
+def get_curation_featured_ids(conn):
+    """過去のまとめに出演済みの通常作品 product_id 集合を返す。"""
+    _ensure_curation_work_ids_column(conn)
+    c = conn.cursor()
+    c.execute(
+        "SELECT curation_work_ids FROM novelove_posts "
+        "WHERE post_type = 'curation' AND curation_work_ids IS NOT NULL AND curation_work_ids != ''"
+    )
+    featured = set()
+    for (ids_str,) in c.fetchall():
+        for pid in str(ids_str).split(","):
+            pid = pid.strip()
+            if pid:
+                featured.add(pid)
+    return featured
+
+
+def _select_five_unused_works(works, featured_ids):
+    """
+    まとめ未出演作品をクリック昇順で最大5本選ぶ。
+    未出演が5本未満なら None（そのタグ/ペアはスキップ対象）。
+    スキップしてもタグの90日クールダウンには入れない。
+    """
+    unused = [w for w in works if w["product_id"] not in featured_ids]
+    unused.sort(key=lambda x: x["clicks"])
+    if len(unused) < 5:
+        return None
+    return unused[:5]
+
 # === 週番号とジャンル選定 ===
 def _get_week_number():
     """今日の日付から週番号（1〜4）を算出する。29日以降は第4週とする。"""
@@ -86,9 +126,17 @@ def _determine_genre_for_week(week, conn):
 
 # === タグと作品の選定ロジック ===
 def select_theme_and_works(conn, week, forced_tag=None, forced_genre=None):
-    """テーマ（タグ）と5作品を選定する"""
+    """テーマ（タグ）と5作品を選定する。
+
+    v21.5.6:
+      - まとめ未出演作品を優先し、未出演が5本未満のタグ/ペアはその回スキップして次候補へ。
+      - スキップしても90日クールダウンには入れない（新規が増えたら翌週以降また候補になる）。
+      - 全候補が尽きて1本も書けない場合は (None, [], genre) を返す → 呼び出し側でDiscord通知。
+    """
     cooldown_tags = get_cooldown_tags(conn)
+    featured_ids = get_curation_featured_ids(conn)
     logger.info(f"[Curator] Cooldown tags: {cooldown_tags}")
+    logger.info(f"[Curator] Already featured in curation: {len(featured_ids)} works")
     
     # 1. 公開中の記事データをロード (wp_tags からロードし、post_type = 'regular' に限定)
     c = conn.cursor()
@@ -152,13 +200,18 @@ def select_theme_and_works(conn, week, forced_tag=None, forced_genre=None):
         selected_tag = forced_tag
         forced_tags = [t.strip() for t in forced_tag.split(",") if t.strip()]
         all_matching = [w for w in works if all(ft in w['tags'] for ft in forced_tags)]
-        all_matching.sort(key=lambda x: x['clicks'])
-        selected_works = all_matching[:5]
-        # ジャンルは作品比率から動的判定
+        picked = _select_five_unused_works(all_matching, featured_ids)
+        if not picked:
+            logger.warning(
+                f"[Curator] Forced tag '{selected_tag}' has only "
+                f"{sum(1 for w in all_matching if w['product_id'] not in featured_ids)} unused works (<5). Abort."
+            )
+            return None, [], genre_group
+        selected_works = picked
         bl_count = sum(1 for w in all_matching if 'bl' in w['genre'].lower())
         tl_count = sum(1 for w in all_matching if 'tl' in w['genre'].lower())
         genre_group = "BL" if bl_count >= tl_count else "TL"
-        logger.info(f"[Curator] Forced tag '{selected_tag}' matched {len(all_matching)} works. Selecting top {len(selected_works)}.")
+        logger.info(f"[Curator] Forced tag '{selected_tag}' matched {len(all_matching)} works. Selecting {len(selected_works)} unused.")
         
     elif target_genre in ("BL", "TL"):
         tag_map = tag_to_bl_works if target_genre == "BL" else tag_to_tl_works
@@ -183,13 +236,30 @@ def select_theme_and_works(conn, week, forced_tag=None, forced_genre=None):
         # クリック数の昇順（低い＝埋もれている）、同数なら作品数が多い方を優先
         candidates.sort(key=lambda x: (x['total_clicks'], -x['work_count']))
         
-        if candidates:
-            selected_tag = candidates[0]['tag']
-            sorted_works = sorted(candidates[0]['works'], key=lambda x: x['clicks'])
-            selected_works = sorted_works[:5]
-            logger.info(f"[Curator] Selected tag: '{selected_tag}' (Clicks: {candidates[0]['total_clicks']}, Works: {candidates[0]['work_count']})")
+        skipped = 0
+        for cand in candidates:
+            picked = _select_five_unused_works(cand["works"], featured_ids)
+            if not picked:
+                unused_n = sum(1 for w in cand["works"] if w["product_id"] not in featured_ids)
+                logger.info(
+                    f"[Curator] Skip tag '{cand['tag']}' (unused={unused_n}<5, "
+                    f"total={cand['work_count']}) → try next"
+                )
+                skipped += 1
+                continue
+            selected_tag = cand["tag"]
+            selected_works = picked
+            logger.info(
+                f"[Curator] Selected tag: '{selected_tag}' "
+                f"(Clicks: {cand['total_clicks']}, Works: {cand['work_count']}, "
+                f"unused_picked=5, skipped_tags={skipped})"
+            )
+            break
         else:
-            logger.warning("[Curator] No candidate tags found for normal week.")
+            logger.warning(
+                f"[Curator] No candidate tags with 5+ unused works for {target_genre} "
+                f"(candidates={len(candidates)}, skipped_insufficient={skipped})."
+            )
             
     elif target_genre == "cross":
         # クロスタグ（BLまたはTL内で、共通作品が5件以上ある2タグのペア）
@@ -215,18 +285,32 @@ def select_theme_and_works(conn, week, forced_tag=None, forced_genre=None):
                         
         cross_candidates.sort(key=lambda x: (x['total_clicks'], -x['work_count']))
         
-        if cross_candidates:
-            t1, t2 = cross_candidates[0]['tags']
-            # アルファベット/五十音順に並べ替えて結合
+        skipped = 0
+        for cand in cross_candidates:
+            picked = _select_five_unused_works(cand["works"], featured_ids)
+            if not picked:
+                unused_n = sum(1 for w in cand["works"] if w["product_id"] not in featured_ids)
+                logger.info(
+                    f"[Curator] Skip cross '{cand['tags'][0]}+{cand['tags'][1]}' "
+                    f"(unused={unused_n}<5) → try next"
+                )
+                skipped += 1
+                continue
+            t1, t2 = cand["tags"]
             sorted_tags = sorted([t1, t2])
             selected_tag = f"{sorted_tags[0]},{sorted_tags[1]}"
-            genre_group = f"cross-{cross_candidates[0]['genre'].lower()}"  # "cross-bl" または "cross-tl" に詳細化
-            
-            sorted_works = sorted(cross_candidates[0]['works'], key=lambda x: x['clicks'])
-            selected_works = sorted_works[:5]
-            logger.info(f"[Curator] Selected cross tags: '{selected_tag}' ({genre_group}) (Clicks: {cross_candidates[0]['total_clicks']}, Works: {cross_candidates[0]['work_count']})")
+            genre_group = f"cross-{cand['genre'].lower()}"
+            selected_works = picked
+            logger.info(
+                f"[Curator] Selected cross tags: '{selected_tag}' ({genre_group}) "
+                f"(Clicks: {cand['total_clicks']}, Works: {cand['work_count']}, skipped_pairs={skipped})"
+            )
+            break
         else:
-            logger.warning("[Curator] No cross tag candidates found.")
+            logger.warning(
+                f"[Curator] No cross tag pairs with 5+ unused works "
+                f"(pairs={len(cross_candidates)}, skipped={skipped})."
+            )
             
     return selected_tag, selected_works, genre_group
 
@@ -623,7 +707,17 @@ def _run_curator_logic(args):
     )
 
     if not tag_name or not selected_works:
-        logger.error("[Curator] No theme or works could be selected. Process aborted.")
+        mode = args.genre or args.tag or f"week{week}-auto"
+        logger.error(
+            f"[Curator] No theme or works could be selected. Process aborted. (mode={mode})"
+        )
+        notify_discord(
+            f"⚠️ **まとめ記事をスキップしました（候補ゼロ）**\n"
+            f"指定モード: `{mode}` / 週番号: 第{week}週\n"
+            f"原因: クールダウン外かつ未出演5本以上のタグ/ペアが見つかりませんでした。\n"
+            f"（個別タグの未出演不足スキップは正常動作。全候補が尽きたときだけこの通知が出ます）",
+            username="📚 まとめ記事投稿くん",
+        )
         conn.close()
         return
 
@@ -840,8 +934,10 @@ def _run_curator_logic(args):
 
             # WPタグはテーマ + レビュアー（v21.1.1）。ai_tags / original_tags はテーマのみ
             wp_tags_val = ",".join([t for t in excerpt_tags if t])
+            featured_ids_csv = ",".join(w["product_id"] for w in selected_works)
 
             # 修正8: DB INSERT改善（不要カラム削除、正確なデータ保存）
+            _ensure_curation_work_ids_column(conn)
             c = conn.cursor()
             try:
                 c.execute("""
@@ -849,16 +945,16 @@ def _run_curator_logic(args):
                         product_id, title, genre, site, status, published_at, post_type,
                         wp_post_id, wp_post_url, reviewer, wp_tags, ai_tags,
                         article_pattern, image_url, is_protected, source_db,
-                        original_tags, description
+                        original_tags, description, curation_work_ids
                     ) VALUES (?, ?, ?, 'Novelove', 'published', datetime('now', 'localtime'), 'curation',
                               ?, ?, ?, ?, ?,
                               'C', ?, 1, 'curation',
-                              ?, ?)
+                              ?, ?, ?)
                 """, (
                     db_product_id, title, post_genre,
                     wp_post_id, link, reviewer['name'], wp_tags_val, tag_name,
                     full_image_url,
-                    tag_name, excerpt
+                    tag_name, excerpt, featured_ids_csv
                 ))
                 
                 # === [v21.4.1] まとめ記事に選出された5作品を自動的に永久保護 (is_protected = 1) ===

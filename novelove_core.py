@@ -505,6 +505,10 @@ def init_db():
         ("source_db",         "TEXT DEFAULT ''"),      # DB所属: lovecal / dmm / dlsite
         # === 死に記事自動パージ・永久保護 (v18.6.0) ===
         ("is_protected",      "INTEGER DEFAULT 0"),    # 殿堂入り保護フラグ（1=永久保護、自動削除対象外）
+        # === まとめ出演作品ID (v21.5.6) ===
+        # curation 行に、そのまとめに出した通常作品の product_id をカンマ区切りで保存する。
+        # 殿堂入り(is_protected)と分離し、まとめ再選定時の「未出演優先」判定に使う。
+        ("curation_work_ids", "TEXT DEFAULT ''"),
     ]:
         try:
             c.execute(f"ALTER TABLE novelove_posts ADD COLUMN {col} {definition}")
