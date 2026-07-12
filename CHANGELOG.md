@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## v21.5.7 — DLsite新着の形式フィルタ修復（取りこぼし防止） (2026-07-12)
+
+### 🐛 fix(fetcher): DLsite一覧URLが work_type を無視していた問題を修正
+- **症状**: R-18の `/new/=/work_type/MNG|NRE|SOU/` が形式を無視し同一新着を返すため、詳細バッジで大半を落とし、小説・ボイス等が取りこぼされていた。home も `work_type_category=MNG/SOU` が無効で同様。
+- **対応 (`novelove_fetcher.py` `_fetch_dlsite_items`)**:
+  - R-18: `/{floor}/fsr/.../work_type[0]/{MNG|NRE|SOU}/` に変更
+  - home: 漫画=`comic`、小説=`novel`、ボイス=`work_type[0]/SOU`
+  - セレクタを fsr 用 `.search_result_img_box_inner` に統一（走査20件）
+  - home のみ詳細で BL=ボーイズラブ/ゲイ、TL=乙女向け を再判定（一覧の sex_category 分離が効かないため）
+- **影響外**: らぶカル / DMM.com の取得ロジックは変更なし。
+
+---
+
 ## v21.5.6 — まとめ選定の未出演優先＆枯渇スキップ防御 (2026-07-11)
 
 ### 🔧 feat(curator): 同じ作品の重複まとめを避けつつ、候補枯れでも黙って欠勤しない

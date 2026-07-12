@@ -31,6 +31,11 @@ Noveloveは、主要配信プラットフォーム（FANZA / DMM / DLsite / Love
 
 ### 2-1. データソースとアプローチ
 - **多段取得設計**: APIベース（DMM / FANZA / Lovecal）と、安定したスクレイピングベース（DLsite）を併用します。DMM系はAPIのフロア指定を用いてセーフサーチの影響を回避します。
+- **DLsite新着URL (v21.5.7 仕様凍結)**:
+  - **R-18（bl / girls / bl-pro / girls-pro）**: `/{floor}/fsr/=/language/jp/work_type[0]/{MNG|NRE|SOU}/order/release_d/` を使用。旧 `/new/=/work_type/X/genre/all/` は形式パラメータが無視され漫画・小説・ボイスが同一一覧になるため**使用禁止**。
+  - **全年齢 home**: 漫画=`work_type_category[0]/comic`、小説=`work_type_category[0]/novel`、ボイス=`work_type[0]/SOU`。`work_type_category` の `MNG`/`SOU` は効かないため使わない。
+  - **一覧セレクタ**: fsr は `.search_result_img_box_inner`（空のときのみ旧 `.n_worklist_item` フォールバック）。走査は最大20件。
+  - **home の BL/TL**: 一覧の `sex_category` だけでは分離できないため、詳細ページで BL=「ボーイズラブ/ゲイ」、TL=「乙女向け」（かつボーイズラブ除外）を要求する。
 - **DigiKet新規取得の停止 (v19.5.0)**: DigiKetは4,479クリックに対しCVR 0.0%（売上・報酬ゼロ）、かつDLsiteとの作品重複率が極めて高かったため、新規取得を停止。ランキング記事の水曜日スケジュールも廃止。その後、v20.0.4にて過去記事の完全削除に伴い全コードを完全クリーンアップしました。
 - **旧FANZA商業の完全停止とらぶカルの定義管理 (v19.4.0)**:
   自動投稿システムから旧FANZA商業（成人コミック・小説）を完全排除・取得停止し、過去データも本番DBから物理消去しました。らぶカル（同人漫画、同人小説、ボイス）は成人向け属性を識別し、DMM API等の外部連携やクレジット表示などの規約をシンプルに満たすため、定義上 `site: "FANZA"`の設定値を意図的に一部残していますが、データベース上では `site='Lovecal:r18=1'`、`source_db='lovecal'` に統一して論理的に完全に独立管理されています。

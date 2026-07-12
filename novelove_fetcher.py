@@ -657,16 +657,30 @@ def _fetch_dlsite_items(target):
     genre = target.get("genre", "")
     is_novel = genre in ("novel_bl", "novel_tl")
     is_voice = "voice_" in genre  # v19.0.0: ボイスジャンル判定
+    is_bl = "bl" in genre.lower()
     work_type = "SOU" if is_voice else ("NRE" if is_novel else "MNG")
+    # v21.5.7: DLsiteの形式絞り込み
+    # - R-18の `/new/=/work_type/X/genre/all/` は形式を無視し同一一覧を返すため使用禁止。
+    #   `/{floor}/fsr/=/language/jp/work_type[0]/{MNG|NRE|SOU}/order/release_d/` を使う。
+    # - homeの `work_type_category[0]/MNG|SOU` も効かない。漫画は comic、小説は novel、
+    #   ボイスは `work_type[0]/SOU` を使う。
+    # - homeの sex_category だけでは BL/TL が分離されないため、詳細ページで
+    #   BL=ボーイズラブ / TL=乙女向け を要求する。
     if floor == "home":
-        work_type_fsr = "novel" if is_novel else work_type
-        is_bl = "bl" in genre.lower()
-        if is_bl:
-            url = f"https://www.dlsite.com/home/fsr/=/language/jp/sex_category[0]/female/sex_category[1]/gay/work_type_category[0]/{work_type_fsr}/order/release_d/"
+        sex = (
+            "sex_category[0]/female/sex_category[1]/gay/"
+            if is_bl else
+            "sex_category[0]/female/"
+        )
+        if is_novel:
+            type_q = "work_type_category[0]/novel"
+        elif is_voice:
+            type_q = "work_type[0]/SOU"
         else:
-            url = f"https://www.dlsite.com/home/fsr/=/language/jp/sex_category[0]/female/work_type_category[0]/{work_type_fsr}/order/release_d/"
+            type_q = "work_type_category[0]/comic"
+        url = f"https://www.dlsite.com/home/fsr/=/language/jp/{sex}{type_q}/order/release_d/"
     else:
-        url = f"https://www.dlsite.com/{floor}/new/=/work_type/{work_type}/genre/all/"
+        url = f"https://www.dlsite.com/{floor}/fsr/=/language/jp/work_type[0]/{work_type}/order/release_d/"
     items = []
     VOICE_KEYWORDS = ["ボイス", "音声", "ASMR", "CV.", "CV:", "cv.", "cv:", "シチュエーションCD",
                       "バイノーラル", "ドラマCD", "全年齢ボイス", "簡体中文版", "繁体中文版",
@@ -678,9 +692,9 @@ def _fetch_dlsite_items(target):
         r = _fetch_with_retry(url, headers=headers, timeout=20, label=f"DLsite新着({work_type})")
         if r is None: return items
         soup = BeautifulSoup(r.text, "html.parser")
-        item_selector = ".search_result_img_box_inner" if floor == "home" else ".n_worklist_item"
-        works = soup.select(item_selector)
-        for work in works[:10]:
+        # fsr 一覧は search_result。旧new一覧用セレクタはフォールバックのみ。
+        works = soup.select(".search_result_img_box_inner") or soup.select(".n_worklist_item")
+        for work in works[:20]:
             title_tag = work.select_one(".work_name a")
             if not title_tag: continue
             title_text = title_tag.text.strip()
@@ -701,6 +715,7 @@ def _fetch_dlsite_items(target):
             if not pid: continue
             image_url = ""
             is_r18_badge = False
+            dr_wg_links = []
             try:
                 dr = _fetch_with_retry(detail_url, headers=headers, timeout=10, label="DLsite詳細(形式判定)")
                 if dr is None:
@@ -719,6 +734,22 @@ def _fetch_dlsite_items(target):
                 if not valid_badge:
                     logger.info(f"  [DLsite] 期待する形式バッジなしのためスキップ: {title_text[:30]}")
                     continue
+
+                # v21.5.7: home のみ BL/TL を詳細ラベルで再判定（一覧の sex_category が効かないため）
+                if floor == "home":
+                    sex_blob = " ".join(
+                        a.get_text(strip=True)
+                        for a in dsoup.select("#work_outline a, .work_genre a")
+                    )
+                    if is_bl:
+                        if "ボーイズラブ" not in sex_blob and "ゲイ" not in sex_blob:
+                            logger.info(f"  [DLsite] home BL対象外（ボーイズラブ/ゲイなし）: {title_text[:30]}")
+                            continue
+                    else:
+                        if "乙女向け" not in sex_blob or "ボーイズラブ" in sex_blob:
+                            logger.info(f"  [DLsite] home TL対象外（乙女向け以外）: {title_text[:30]}")
+                            continue
+
                 og_img = dsoup.select_one('meta[property="og:image"]')
                 if og_img: image_url = og_img.get("content", "")
 
@@ -745,8 +776,9 @@ def _fetch_dlsite_items(target):
                     if _is_thin_content(title_text, pages=dlsite_pages):
                         logger.info(f"  [DLsite 薄いコンテンツ除外] {title_text[:40]} ({dlsite_pages}P)")
                         continue
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"  [DLsite] 詳細判定失敗のためスキップ: {title_text[:30]} ({e})")
+                continue
             if not image_url:
                 img_tag = work.select_one("img")
                 if img_tag:
