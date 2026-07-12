@@ -143,38 +143,43 @@ def fetch_ranking_dmm(site, genre):
     """v15.0: Lovecal対応 ＆ アナログな交互表示(偏り)の廃止。
     らぶカルは統合ランキングをそのまま取得。
     FANZA/DMMは漫画3枠・小説2枠を取得し、1位は漫画固定、残りはシャッフル。
+
+    v21.5.8: あらすじノイズ除外後に5件未満へ落ちないよう、候補を補充してから確定する。
+    （DLsite側はもともと上位30件走査で同等の補充あり）
     """
     is_bl = (genre == "BL")
-    
+
     if site == "Lovecal":
-        items = []
+        candidates = []
         params = {
             "api_id": DMM_API_ID, "affiliate_id": DMM_AFFILIATE_API_ID,
-            "site": "FANZA", "service": "doujin", 
+            "site": "FANZA", "service": "doujin",
             "floor": "digital_doujin_bl" if is_bl else "digital_doujin_tl",
-            "hits": 10, "sort": "rank", "output": "json",
+            "hits": 20, "sort": "rank", "output": "json",
         }
         try:
             r = requests.get("https://api.dmm.com/affiliate/v3/ItemList", params=params, timeout=15)
             if r.status_code == 200:
                 for item in r.json().get("result", {}).get("items", []):
                     title = item.get("title", "")
-                    if _is_noise_content(title, ""): continue
-                    items.append(item)
-                    if len(items) >= 5: break
+                    if _is_noise_content(title, ""):
+                        continue
+                    candidates.append(item)
         except Exception as e:
             logger.error(f"Lovecal API Fetch Error ({genre}): {e}")
-            
+
         final_items = []
-        for item in items:
+        for item in candidates:
+            if len(final_items) >= 5:
+                break
             title = item.get("title", "")
             base_url = item.get("URL", "")
-            # generate_affiliate_url が lovecul.dmm.co.jp を検知し自動でDMM用URLに変換する
             aff_url = generate_affiliate_url("FANZA", base_url)
             desc, *_ = scrape_description(item.get("URL", ""), site=site, genre=genre, is_ranking=True)
-            if _is_noise_content(title, desc): continue
-            
-            # v21.5.1: 画像パス → DBジャンル → APIジャンルKW の順で判定
+            if _is_noise_content(title, desc):
+                logger.info(f"  [Lovecal ranking] あらすじNGのためスキップ・次点補充: {title[:40]}")
+                continue
+
             cid = item.get("content_id", "")
             db_genre = _lookup_db_genre_by_product_id(cid)
             media_type = _detect_lovecal_media_type(item, db_genre=db_genre)
@@ -189,14 +194,14 @@ def fetch_ranking_dmm(site, genre):
             })
         return final_items
 
-    # --- FANZA / DMM.com の場合 ---
+    # --- DMM.com: 漫画3・小説2を狙いつつ、desc NG時は同タイプ優先で補充 ---
     comic_items = []
     novel_items = []
-    
+
     for dtype in ["comic", "novel"]:
         params = {
             "api_id": DMM_API_ID, "affiliate_id": DMM_AFFILIATE_API_ID,
-            "hits": 10, "sort": "rank", "output": "json",
+            "hits": 20, "sort": "rank", "output": "json",
         }
         floor = "novel" if dtype == "novel" else "comic"
         art_id = ("66042" if dtype == "novel" else "66036") if is_bl else ("66064" if dtype == "novel" else "66060")
@@ -207,8 +212,10 @@ def fetch_ranking_dmm(site, genre):
             if r.status_code == 200:
                 for item in r.json().get("result", {}).get("items", []):
                     title = item.get("title", "")
-                    if _is_noise_content(title, ""): continue
-                    item['_dtype'] = dtype
+                    if _is_noise_content(title, ""):
+                        continue
+                    item = dict(item)
+                    item["_dtype"] = dtype
                     if dtype == "comic":
                         comic_items.append(item)
                     else:
@@ -216,27 +223,28 @@ def fetch_ranking_dmm(site, genre):
         except Exception as e:
             logger.error(f"DMM API Fetch Error ({site}/{genre}/{dtype}): {e}")
 
-    # 漫画3枠、小説2枠を抽出してシャッフル
-    selected = []
+    # 希望枠: 1位漫画固定 + (漫画2・小説2をシャッフル)
+    preferred = []
     if comic_items:
-        selected.append(comic_items[0]) # 1位固定
-    
-    pool = []
-    for c in comic_items[1:3]: pool.append(c)
-    for n in novel_items[:2]:  pool.append(n)
+        preferred.append(comic_items[0])
+    pool = list(comic_items[1:3]) + list(novel_items[:2])
     random.shuffle(pool)
-    
-    selected.extend(pool)
-    
+    preferred.extend(pool)
+
+    preferred_ids = {it.get("content_id") for it in preferred if it.get("content_id")}
+    unused_comics = [c for c in comic_items if c.get("content_id") not in preferred_ids]
+    unused_novels = [n for n in novel_items if n.get("content_id") not in preferred_ids]
+
     final_items = []
-    for item in selected:
+
+    def _try_add(item):
         title = item.get("title", "")
         base_url = item.get("URL", "")
-        # generate_affiliate_url が FANZA/DMM.com を自動判定してURLを生成する
         aff_url = generate_affiliate_url(site, base_url)
         desc, *_ = scrape_description(item.get("URL", ""), site=site, genre=genre, is_ranking=True)
-        if _is_noise_content(title, desc): continue
-        
+        if _is_noise_content(title, desc):
+            logger.info(f"  [DMM ranking] あらすじNGのためスキップ・次点補充: {title[:40]}")
+            return False
         final_items.append({
             "title": title, "url": aff_url,
             "image_url": item.get("imageURL", {}).get("large", ""),
@@ -244,8 +252,27 @@ def fetch_ranking_dmm(site, genre):
             "content_id": item.get("content_id", ""),
             "media_type": item.get("_dtype", "comic")
         })
-        if len(final_items) >= 5: break
-        
+        return True
+
+    for item in preferred:
+        if len(final_items) >= 5:
+            break
+        _try_add(item)
+
+    # 同タイプ優先補充（漫画3・小説2に近づける）。足りなければ異タイプでも埋める。
+    while len(final_items) < 5 and (unused_comics or unused_novels):
+        comic_n = sum(1 for x in final_items if x.get("media_type") == "comic")
+        novel_n = sum(1 for x in final_items if x.get("media_type") == "novel")
+        if comic_n < 3 and unused_comics:
+            nxt = unused_comics.pop(0)
+        elif novel_n < 2 and unused_novels:
+            nxt = unused_novels.pop(0)
+        elif unused_comics:
+            nxt = unused_comics.pop(0)
+        else:
+            nxt = unused_novels.pop(0)
+        _try_add(nxt)
+
     return final_items
 
 def _fetch_dlsite_ranking_items_from_url(url, is_bl, limit, skip_titles=None):
