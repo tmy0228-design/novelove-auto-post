@@ -313,6 +313,19 @@ def get_source_db(site_raw):
 def normalize_title(title):
     """タイトルから装飾（括弧とその中身）とスペースを除去し、スッピン文字列を返す。"""
     t = str(title)
+    # 波ダッシュ・ダッシュ類の表記ゆれを統一（〜 vs ‾ 等で類似度が割れるのを防ぐ）
+    t = t.translate(str.maketrans({
+        "～": "〜",  # fullwidth tilde
+        "‾": "〜",  # overline (DLsite等で波線代わりに使われる)
+        "∼": "〜",
+        "〰": "〜",
+        "－": "ー",
+        "―": "ー",
+        "─": "ー",
+        "–": "ー",
+        "—": "ー",
+        "-": "ー",
+    }))
     # 全体が括弧で囲まれている場合、括弧のみを除去して中身を保護する
     brackets = [('「', '」'), ('『', '』'), ('【', '】'), ('（', '）'), ('(', ')'), ('[', ']')]
     for start, end in brackets:
@@ -345,6 +358,133 @@ def normalize_title(title):
     # スペース除去
     t = re.sub(r'[\s　]+', '', t)
     return t.strip()
+
+
+_TITLE_DASH_MAP = str.maketrans({
+    "～": "〜", "‾": "〜", "∼": "〜", "〰": "〜",
+    "－": "ー", "―": "ー", "─": "ー", "–": "ー", "—": "ー", "-": "ー",
+})
+
+_CIRCLED_EP = {
+    "①": 1, "②": 2, "③": 3, "④": 4, "⑤": 5, "⑥": 6, "⑦": 7, "⑧": 8, "⑨": 9, "⑩": 10,
+    "⑪": 11, "⑫": 12, "⑬": 13, "⑭": 14, "⑮": 15, "⑯": 16, "⑰": 17, "⑱": 18, "⑲": 19, "⑳": 20,
+}
+
+# 複数話パッケージ（個別話数付きタイトルとは別SKU）
+_PACKAGE_EDITIONS = frozenset({"tateyomi", "gappei", "tankobon", "comics"})
+
+_EDITION_RULES = [
+    (re.compile(r"【[^】]*タテヨミ[^】]*】"), "tateyomi"),
+    (re.compile(r"【[^】]*合本[^】]*】"), "gappei"),
+    (re.compile(r"【[^】]*単行本[^】]*】"), "tankobon"),
+    (re.compile(r"【[^】]*コミックス版?[^】]*】"), "comics"),
+    (re.compile(r"【[^】]*電子単行本[^】]*】"), "tankobon"),
+    (re.compile(r"【[^】]*全年齢[^】]*】"), "allages"),
+    (re.compile(r"[（(]\s*単話\s*[）)]"), "single"),
+]
+
+
+def _to_int_digits(num_str):
+    num_str = "".join(chr(ord(c) - 0xFEE0) if "０" <= c <= "９" else c for c in str(num_str))
+    try:
+        return int(num_str)
+    except ValueError:
+        return None
+
+
+def parse_title_parts(title):
+    """
+    タイトルを本体・話数・売り方ラベルに分解する（v21.5.13）。
+    returns dict: base, episode, editions, is_package, is_single_sale
+    """
+    raw = str(title or "")
+    t = raw.translate(_TITLE_DASH_MAP)
+    t = t.replace("！", "!").replace("？", "?")
+    t = re.sub(r"[○●＊*✕×]", "○", t)
+
+    editions = set()
+    for cre, label in _EDITION_RULES:
+        if cre.search(t):
+            editions.add(label)
+            t = cre.sub("", t)
+    # 括弧除去後に残る「単話」「単話版」
+    if re.search(r"単話版?$", t) or "単話" in t:
+        # タイトル末尾寄りのみ（作品名に単話が含まれる稀例は許容）
+        if re.search(r"単話版?\s*$", t):
+            editions.add("single")
+            t = re.sub(r"単話版?\s*$", "", t)
+
+    episode = None
+    # 丸数字
+    if t and t[-1] in _CIRCLED_EP:
+        episode = _CIRCLED_EP[t[-1]]
+        t = t[:-1]
+    else:
+        ep_res = [
+            re.compile(r"[\[\(（【〈《「『]\s*([0-9０-９]+)\s*[話巻]?\s*[\]\)）】〉》」』]\s*$"),
+            re.compile(r"第\s*([0-9０-９]+)\s*[話巻]\s*$"),
+            # 記号区切りの末尾数字のみ（プロジェクション20 のような密着数字は話数にしない）
+            re.compile(r"[〜ー・]\s*([0-9０-９]+)\s*[話巻]?\s*[!?\.…]*$"),
+            re.compile(r"([0-9０-９]+)\s*[話巻]\s*$"),
+        ]
+        for cre in ep_res:
+            m = cre.search(t)
+            if m:
+                episode = _to_int_digits(m.group(1))
+                t = t[: m.start()]
+                break
+
+    # 残りの装飾括弧を除去
+    t = re.sub(r"[\[\(（【〈《「『].*?[\]\)）】〉》」』]", "", t)
+    t = re.sub(r"[\s　]+", "", t)
+    base = re.sub(r"[^\w]", "", t)
+
+    return {
+        "base": base,
+        "episode": episode,
+        "editions": editions,
+        "is_package": bool(editions & _PACKAGE_EDITIONS),
+        "is_single_sale": "single" in editions,
+    }
+
+
+def title_core_for_fuzzy(title):
+    """Fuzzy比較用の本体文字列（parse_title_parts の base）。"""
+    return parse_title_parts(title)["base"]
+
+
+def author_token_set(author=None, author_detail=None):
+    """作者・詳細を正規化し、比較用トークン集合にする。"""
+    text = " ".join([str(author or ""), str(author_detail or "")]).strip()
+    if not text:
+        return set()
+    text = text.translate(_TITLE_DASH_MAP)
+    text = re.sub(
+        r"(著者|作者|イラスト|原作|作画|シナリオ|漫画|ネーム|サークル|出版社|レーベル)\s*[:：]?",
+        " ",
+        text,
+    )
+    parts = re.split(r"[,，/／、&＆・\|｜\s　]+", text)
+    tokens = set()
+    for p in parts:
+        p = re.sub(r"[\s　]+", "", p)
+        p = re.sub(r"[^\w]", "", p)
+        if len(p) >= 2:
+            tokens.add(p)
+    return tokens
+
+
+def base_digit_suffix_conflict(a, b):
+    """一方が他方＋密着数字だけのとき（プロジェクション20 vs プロジェクション）は別作品。"""
+    if not a or not b or a == b:
+        return False
+    longer, shorter = (a, b) if len(a) > len(b) else (b, a)
+    if longer.startswith(shorter):
+        rest = longer[len(shorter) :]
+        if rest and re.fullmatch(r"[0-9０-９]+", rest):
+            return True
+    return False
+
 
 def super_normalize_title(title):
     """normalize_titleを適用後、さらに記号類をすべて排除した純粋な文字列を返す。"""
@@ -421,7 +561,7 @@ def calculate_local_priority(title: str, desc: str, tags: str = "", original_tag
 
     # 3. パワーワード加点（需要高タグ）
     power_words = ["溺愛", "ヤンデレ", "スパダリ", "オメガバース", "執着", "独占欲", "幼なじみ", "NTR", "身分差", "再会", "契約結婚", "一途", "初恋",
-                   "ざまぁ", "悪役令嬢", "婚約破棄", "異世界", "健気", "身代わり", "冷遇"]  # v20.0.0: トレンドワード追加
+                   "ざまぁ", "悪役令嬢", "婚約破棄", "異世界", "健気", "身代わり"]  # v21.5.12: 冷遇削除（他タグと被りやすく付与が薄い）
     for pw in power_words:
         if pw in full_text:
             score += 2

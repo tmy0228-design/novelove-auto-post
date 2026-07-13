@@ -74,7 +74,8 @@ from novelove_core import (
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
     DLSITE_AFFILIATE_ID,
     WP_PHP_PATH, WP_CLI_PATH, WP_DOC_ROOT,
-    normalize_title, super_normalize_title,
+    normalize_title, super_normalize_title, title_core_for_fuzzy,
+    parse_title_parts, author_token_set, base_digit_suffix_conflict,
     acquire_lock, release_lock,
 )
 
@@ -681,55 +682,104 @@ def extract_tail_number(title_str):
             
     return None
 
-# === [v12.2.0] クロスDB重複排除（Fuzzy Matching）===
-def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90):
-    """全DBを横断し、スッピンタイトルの類似度が閾値以上の published 記事があるか判定する。"""
-    norm_new_clean = super_normalize_title(new_title)
-    if not norm_new_clean:
+# === [v12.2.0 / v21.5.13] クロスDB重複排除（タイトル分解 + 作者 + あらすじ）===
+def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90,
+                          author=None, author_detail=None):
+    """
+    全DBを横断し、同一作品の published 記事があるか判定する。
+    - 表記ゆれ正規化＋本体/話数/売り方分解
+    - タテヨミ等パッケージ × 個別話数は別SKU
+    - 単話 × 話数は同一話候補
+    - 作者トークン一致で補強（話数判別には使わない）
+    """
+    parts_new = parse_title_parts(new_title)
+    if not parts_new["base"]:
         return False, "", 0.0
-    
-    # 記号・スペースを排除した純粋なスッピンタイトルの先頭5文字を部分一致のキーにする
-    clean_prefix = norm_new_clean[:5]
-    if not clean_prefix:
-        clean_prefix = norm_new_clean[:2]  # フォールバック
+
+    clean_prefix = parts_new["base"][:5] or parts_new["base"][:2]
     if not clean_prefix:
         return False, "", 0.0
-        
     query_pattern = f"%{clean_prefix}%"
-    norm_new = normalize_title(new_title)
-    new_tail_num = extract_tail_number(new_title)
-    
-    # v18.0.0: 統合DB1本で全サイト横断検索（検索漏れがなくなり改善）
+    authors_new = author_token_set(author, author_detail)
+
     try:
         c2 = db_connect(DB_FILE_UNIFIED)
         c2.row_factory = sqlite3.Row
-        # SQL側で正規化タイトルに対する部分一致で高速絞り込み（LIMIT制限なし）
         rows = c2.execute(
-            "SELECT product_id, title, description FROM novelove_posts WHERE status='published' AND product_id!=? AND super_normalize_title(title) LIKE ?",
-            (current_pid, query_pattern)
+            "SELECT product_id, title, description, author, author_detail "
+            "FROM novelove_posts WHERE status='published' AND product_id!=? "
+            "AND super_normalize_title(title) LIKE ?",
+            (current_pid, query_pattern),
         ).fetchall()
         c2.close()
+
         for r in rows:
-            norm_existing = normalize_title(r['title'])
-            if not norm_existing:
+            parts_old = parse_title_parts(r["title"])
+            if not parts_old["base"]:
                 continue
-                
-            # 話数・巻数（末尾数字）の異なる作品を重複から除外（救済）
-            existing_tail_num = extract_tail_number(r['title'])
-            if new_tail_num is not None and existing_tail_num is not None and new_tail_num != existing_tail_num:
-                logger.info(f"  [重複回避(話数違い)] 新規末尾: {new_tail_num}, 既存末尾: {existing_tail_num} のため別作品と判定します (既存: {r['title'][:20]})")
+
+            if (
+                parts_new["episode"] is not None
+                and parts_old["episode"] is not None
+                and parts_new["episode"] != parts_old["episode"]
+            ):
+                logger.info(
+                    f"  [重複回避(話数違い)] 新規:{parts_new['episode']} 既存:{parts_old['episode']} "
+                    f"({r['title'][:20]})"
+                )
                 continue
-                
-            ratio = difflib.SequenceMatcher(None, norm_new, norm_existing).ratio()
-            if ratio >= threshold:
-                # あらすじ（description）の類似度セーフガード
-                existing_desc = r['description']
-                if new_desc and existing_desc:
-                    desc_ratio = difflib.SequenceMatcher(None, str(new_desc), str(existing_desc)).ratio()
-                    if desc_ratio < 0.30:
-                        logger.info(f"  [重複回避(救済)] タイトル類似度 {ratio:.0%} ({r['title'][:20]}) ですが、あらすじ類似度 {desc_ratio:.0%} のため別作品と判定します")
-                        continue
-                return True, r['title'], ratio
+
+            if (parts_new["is_package"] and parts_old["episode"] is not None) or (
+                parts_old["is_package"] and parts_new["episode"] is not None
+            ):
+                logger.info(
+                    f"  [重複回避(版違い)] パッケージ×話数のため別SKU ({r['title'][:20]})"
+                )
+                continue
+
+            if base_digit_suffix_conflict(parts_new["base"], parts_old["base"]):
+                continue
+
+            ratio = difflib.SequenceMatcher(
+                None, parts_new["base"], parts_old["base"]
+            ).ratio()
+            if ratio < threshold:
+                continue
+
+            existing_desc = r["description"]
+            desc_ratio = None
+            if new_desc and existing_desc:
+                desc_ratio = difflib.SequenceMatcher(
+                    None, str(new_desc), str(existing_desc)
+                ).ratio()
+                if desc_ratio < 0.30:
+                    logger.info(
+                        f"  [重複回避(あらすじ)] タイトル{ratio:.0%}だがあらすじ{desc_ratio:.0%} "
+                        f"({r['title'][:20]})"
+                    )
+                    continue
+
+            authors_old = author_token_set(r["author"], r["author_detail"])
+            author_overlap = bool(authors_new & authors_old) if (authors_new and authors_old) else None
+
+            ep_mismatch = (parts_new["episode"] is None) != (parts_old["episode"] is None)
+            single_bridge = parts_new["is_single_sale"] or parts_old["is_single_sale"]
+            if ep_mismatch and not single_bridge:
+                desc_ok = desc_ratio is not None and desc_ratio >= 0.70
+                if not (author_overlap or desc_ok):
+                    logger.info(
+                        f"  [重複回避(片側話数・根拠不足)] ({r['title'][:20]})"
+                    )
+                    continue
+
+            if author_overlap is False:
+                if not (desc_ratio is not None and desc_ratio >= 0.70):
+                    logger.info(
+                        f"  [重複回避(作者不一致)] ({r['title'][:20]})"
+                    )
+                    continue
+
+            return True, r["title"], ratio
     except Exception as e:
         logger.warning(f"  [重複チェック] DB読み込みエラー: {e}")
     return False, "", 0.0
@@ -922,8 +972,14 @@ def _execute_posting_flow(row, cursor, conn):
         "is_exclusive":  row["is_exclusive"] if "is_exclusive" in row.keys() else 0,
     }
 
-    # v12.2.0: 統合DB・Fuzzy Matching重複チェック (旧24hガードレールを完全置換)
-    is_dup, dup_title, dup_ratio = is_cross_db_duplicate(title, desc_str, pid)
+    # v12.2.0 / v21.5.13: 統合DB・タイトル分解ベースの重複チェック
+    is_dup, dup_title, dup_ratio = is_cross_db_duplicate(
+        title,
+        desc_str,
+        pid,
+        author=row["author"] or "",
+        author_detail=row["author_detail"] if "author_detail" in row.keys() else "",
+    )
     if is_dup:
         logger.warning(f"  [重複ブロック] スッピンタイトル '{normalize_title(title)}' は '{normalize_title(dup_title)}' と類似度 {dup_ratio:.0%} のためスキップ (元: {dup_title[:40]})")
         cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='duplicate_fuzzy' WHERE product_id=?", (pid,))
