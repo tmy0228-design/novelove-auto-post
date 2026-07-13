@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v21.5.11 — YARPP関連記事の同スコア時は古い記事優先 (2026-07-13)
+
+### 🔧 fix(theme): 関連度タイブレークを `post_date ASC` に安定化
+- **背景**: YARPPは `ORDER BY score DESC` のみで、同点時の並びが不定（実質 ID 寄り）。関連度は保ったまま、古い記事をやや前面に出したい。
+- **対応**: 子テーマ `cocoon-child-master/functions.php` に `yarpp_results` フィルターを追加。score DESC を維持し、同点のみ `post_date` 昇順（さらに同日は ID）。
+- **触らないもの**: YARPPプラグイン本体、FIFU関連サムネ回避フック（v21.5.5）、人気5枠・まとめ頻度。
+- **バックアップ**: `functions.php.bak_*_yarpp_older_tiebreak`
+
+---
+
 ## v21.5.10 — 感情モードから読了感を除去 (2026-07-12)
 
 ### 🔧 fix(soul): MOOD_PATTERNS を「あらすじから来る期待・熱量」に寄せる
