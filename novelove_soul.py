@@ -265,10 +265,26 @@ def get_relationship(id1, id2):
     return RELATIONSHIPS.get(key, "同じノベラブのレビュアー仲間として、お互いの視点を尊重しつつ熱量高く作品の魅力を語り合う。")
 
 
+# 全ライター共通。きつくしすぎない最小ガード（ペルソナの熱量・早口は殺さない）
+# v21.5.15: まとめ専用にせず soul に置き、全系統へ注入。各キャラの tone 本文は変更しない。
+SPEECH_SOFT_GUARD = (
+    "読者への命令・威圧・詰問調は使わない"
+    "（例:「〜しろよ」「わかるよな？」「みんな聴いてくれ／見てくれ」）。"
+    "興奮・熱量・早口・驚きの表現はOK。作中セリフの「」引用は例外。"
+)
+
+
 def first_person_prompt_line(reviewer):
-    """プロンプト用の一人称固定1行（空なら省略可）。"""
+    """プロンプト用：一人称＋共通口調ガード。"""
+    parts = []
     rule = (reviewer or {}).get("first_person_rule") or ""
-    if not rule:
-        return ""
-    return f"一人称: {rule}"
+    if rule:
+        parts.append(f"一人称: {rule}")
+    parts.append(f"口調ガード: {SPEECH_SOFT_GUARD}")
+    return "\n".join(parts)
+
+
+def persona_voice_bullets(reviewer):
+    """ランキング用の「・」付きブロック。"""
+    return "\n".join(f"・{p}" for p in first_person_prompt_line(reviewer).split("\n") if p)
 

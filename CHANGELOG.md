@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v21.5.15 — 口調ソフトガードをsoul共通化 (2026-07-15)
+
+### 🔧 fix(soul): まとめ専用ではなくペルソナ側に最小の口調ガード
+- **方針**: 禁止は最小。各ペルソナの personality / tone 本文は変更しない。熱量・早口は殺さない。
+- **共通 `SPEECH_SOFT_GUARD`**: 読者への命令・威圧・詰問（「〜しろよ」「わかるよな？」「聴いてくれ」等）のみ禁止。作中「」引用は例外。
+- **注入**: 既存の `first_person_prompt_line` に同梱 → writer/curator/ranking/bluesky すべてへ自動適用。
+
+---
+
 ## v21.5.14 — ライター一人称のペルソナ固定 (2026-07-15)
 
 ### 🔧 fix(soul/writer/curator/ranking): 性別に合わせた一人称を明示
