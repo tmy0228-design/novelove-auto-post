@@ -13,7 +13,7 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 
-from novelove_soul import REVIEWERS, get_relationship, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS
+from novelove_soul import REVIEWERS, get_relationship, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS, first_person_prompt_line
 
 from novelove_core import (
     logger, notify_discord,
@@ -374,6 +374,7 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 【キャラクター設定: {reviewer["name"]}】
 ・性格: {reviewer["personality"]}
 ・文体: {reviewer["tone"]}
+・{first_person_prompt_line(reviewer) or "一人称: キャラ設定に従う"}
 【執筆ルール】HTML形式で出力してください。
 ・直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
 ※紹介する作品には漫画、小説、音声作品（ボイス・ASMR）が含まれます。メディアタイプを特定する表現（「読む」「聴く」「本を開く」「耳を澄ます」など）は避け、どのメディアであっても違和感のない中立的な表現（「この作品を楽しむ」「チェックする」「体験する」など）で紹介してください。
@@ -412,9 +413,11 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 【メインMC: {reviewer["name"]}】
 ・性格: {reviewer["personality"]}
 ・文体: {reviewer["tone"]}
+・{first_person_prompt_line(reviewer) or "一人称: キャラ設定に従う"}
 【ゲスト: {guest["name"]}】
 ・性格: {guest["personality"]}
 ・文体: {guest["tone"]}
+・{first_person_prompt_line(guest) or "一人称: キャラ設定に従う"}
 【2人の関係性】
 {relationship}
 【執筆の最重要ルール（必ず守ること）】

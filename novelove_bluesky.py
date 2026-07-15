@@ -30,7 +30,7 @@ import datetime
 import requests
 from atproto import Client, client_utils, models
 from novelove_core import logger, DEEPSEEK_API_KEY
-from novelove_soul import REVIEWERS
+from novelove_soul import REVIEWERS, first_person_prompt_line
 
 # --- 認証情報（環境変数から取得）---
 BLUESKY_HANDLE   = os.environ.get("BLUESKY_HANDLE", "")
@@ -95,17 +95,21 @@ def _generate_marika_comment(title: str, excerpt: str, genre_label: str) -> str:
     marika = next((r for r in REVIEWERS if r["id"] == "marika"), None)
     personality = marika["personality"] if marika else ""
     tone = marika["tone"] if marika else ""
+    fp_line = first_person_prompt_line(marika) if marika else ""
+    fp_block = f"【{fp_line}】\n" if fp_line else ""
 
     safe_excerpt = (excerpt or "")[:120]
     prompt = (
         f"あなたはSNSを担当している「茉莉花」です。\n"
         f"【キャラクター】\n{personality}\n"
-        f"【口調】\n{tone}\n\n"
+        f"【口調】\n{tone}\n"
+        f"{fp_block}\n"
         f"以下の作品をBlueskyで軽く紹介するコメントを書いてください。\n"
         f"ルール：\n"
         f"・80文字程度、2文以内で\n"
         f"・友達におすすめする感覚で、作品のあらすじに沿った具体的な魅力に触れること\n"
         f"・他のライター名は出さない\n"
+        f"・一人称はキャラ設定どおりに固定すること\n"
         f"・毎回同じような言い回しにならないよう、作品の内容に合わせて自由に表現すること\n\n"
         f"ジャンル: {genre_label}\n"
         f"タイトル: {title}\n"

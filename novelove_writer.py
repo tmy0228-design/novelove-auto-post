@@ -9,7 +9,7 @@ import re
 import time
 import requests
 
-from novelove_soul import REVIEWERS, MOOD_PATTERNS, get_relationship, AI_TAG_WHITELIST, TAGS_COMMON, TAGS_VOICE_ONLY
+from novelove_soul import REVIEWERS, MOOD_PATTERNS, get_relationship, AI_TAG_WHITELIST, TAGS_COMMON, TAGS_VOICE_ONLY, first_person_prompt_line
 
 from novelove_core import (
     logger, ArticleResult,
@@ -343,15 +343,18 @@ def build_prompt(target, reviewer, mask_level=0, is_novel=False, is_guest=False,
             f"タグ候補: {_common_str}"
         )
 
+    fp_line = first_person_prompt_line(reviewer)
+    fp_block = f"\n{fp_line}" if fp_line else ""
+
     return f"""あなたは「Novelove」のライター「{reviewer["name"]}」です。
 
 【あなたのキャラクター】
 性格: {reviewer["personality"]}
-口調: {reviewer["tone"]}
+口調: {reviewer["tone"]}{fp_block}
 注目点（{medium_label}）: {focus}{mood_note}{guest_hint}{novel_rules}{voice_rules}
 
 【ルール】
-1. 吹き出しコメント＝あなたの口調全開。本文（h2/p/ul/liタグ内）＝標準語・ですます調で客観的に。この2つは絶対に混ぜない。
+1. 吹き出しコメント＝あなたの口調全開。本文（h2/p/ul/liタグ内）＝標準語・ですます調で客観的に。この2つは絶対に混ぜない。一人称はキャラ設定どおりに固定（作中セリフの「」引用のみ例外）。
 2. あなたはあらすじや公開情報だけを頼りに紹介している立場。作品を実際に読んだ・聴いた・体験したかのような表現は使わない。あらすじに書かれていない設定・キャラ名・展開の創作も禁止。あらすじの事実は自信を持って断定してよい。
 3. 直接的な性的単語は官能的な比喩に。テーマ傾向は「○○な関係性が堪らない」のように自然な文脈で語る（リスト列挙・メタ言及は禁止）。
 4. 本文の各セクション（h2直下のpタグ）は1段落あたり120〜180字を目安に、内容の区切りで複数の<p>タグに分けること。400字以上を1つの<p>に詰め込まない。

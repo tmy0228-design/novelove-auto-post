@@ -33,7 +33,7 @@ from novelove_core import (
     is_emergency_stop, MAIN_LOCK_FILE, RANK_LOCK_FILE,
     acquire_lock, release_lock,
 )
-from novelove_soul import REVIEWERS, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS, AI_TAG_WHITELIST
+from novelove_soul import REVIEWERS, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS, AI_TAG_WHITELIST, first_person_prompt_line
 from novelove_writer import _call_deepseek_raw
 from novelove_fetcher import mask_input
 
@@ -322,19 +322,22 @@ def generate_intro_column(reviewer, tag_name, genre_group):
     # クロスタグ用の表記整形
     display_tag = tag_name.replace(",", "と")
     
+    fp_line = first_person_prompt_line(reviewer)
+    fp_block = f"\n{fp_line}" if fp_line else ""
+
     prompt = f"""あなたは「Novelove」のライター「{reviewer['name']}」です。
 以下のテーマに沿って、まとめ記事の冒頭に掲載する短い導入挨拶コラムをキャラクターの口調で執筆してください。
 
 【あなたの設定】
 性格: {reviewer['personality']}
-口調: {reviewer['tone']}
+口調: {reviewer['tone']}{fp_block}
 今回の感情: {mood}
 
 【コラムのテーマ】
 「{display_tag}」のおすすめ作品まとめ
 
 【執筆ルール】
-1. キャラクターの口調を全開にして、読者を歓迎し、これからテーマに沿ったおすすめ作品を紹介する興奮を短く語ってください。
+1. キャラクターの口調を全開にして、読者を歓迎し、これからテーマに沿ったおすすめ作品を紹介する興奮を短く語ってください。一人称はキャラ設定どおりに固定すること（作中セリフ引用を除く）。
 2. 吹き出しの圧迫感を防ぐため、文字数は50〜80字程度（2文程度）に必ず収めてください。
 3. 作品の具体的なあらすじ紹介や、詳しいレビュー考察は個別記事で書くため、ここには一切記述しないでください。
 4. HTMLタグ（divやpなど）は絶対に出力せず、純粋なプレーンテキストのみで出力してください。
@@ -379,12 +382,15 @@ def generate_mini_review(work, tag_name, reviewer):
             "③あらすじ・紹介文に明記されているセリフ・CV名・収録情報等の音声関連事実の引用・参照。"
         )
     
+    fp_line = first_person_prompt_line(reviewer)
+    fp_block = f"\n{fp_line}" if fp_line else ""
+
     prompt = f"""あなたは「Novelove」のライター「{reviewer['name']}」です。
 以下の作品あらすじを読み、「{display_tag}」というテーマでおすすめする「セリフ」「見出し」「解説」をそれぞれ執筆してください。
 
 【あなたの設定】
 性格: {reviewer['personality']}
-口調: {reviewer['tone']}
+口調: {reviewer['tone']}{fp_block}
 
 【対象作品】
 作品名: {safe_title}
@@ -394,7 +400,7 @@ def generate_mini_review(work, tag_name, reviewer):
 【執筆ルール】
 1. 出力は必ず指定の【出力フォーマット】の通りに「[セリフ]」「[見出し]」「[解説]」というマーカーを使って3つのブロックに分けてください。
 2. 「[セリフ]」ブロックのルール:
-   - キャラクターの口調全開で語る短い一言。
+   - キャラクターの口調全開で語る短い一言。一人称はキャラ設定どおりに固定（作中セリフの「」引用のみ例外）。
    - 文字数は50〜80字以内（1〜2文）とし、吹き出しの圧迫感を絶対に防いでください。
 3. 「[見出し]」ブロックのルール:
    - テーマである「{display_tag}」に関連した、作品の特定の魅力や二人の関係性の要約を表すキャッチーな見出し。
