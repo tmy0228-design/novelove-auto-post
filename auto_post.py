@@ -76,6 +76,7 @@ from novelove_core import (
     WP_PHP_PATH, WP_CLI_PATH, WP_DOC_ROOT,
     normalize_title, super_normalize_title, title_core_for_fuzzy,
     parse_title_parts, author_token_set, base_digit_suffix_conflict,
+    parse_cast_names, extract_cast_from_author_detail,
     acquire_lock, release_lock,
 )
 
@@ -178,12 +179,13 @@ def get_or_create_term(name, taxonomy):
     except Exception:
         return None
 
-def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None, overwrite=False):
+def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None, overwrite=False, cast_names=None):
     """
     WordPress REST API で投稿。FIFUプラグイン経由で外部リンクをアイキャッチに設定。
     image_url: 記事本文に埋め込む大きい画像URL
     thumb_url: FIFUアイキャッチに設定する軽量サムネURL（省略時はimage_urlをそのまま使用）
     overwrite: True の場合、同一 slug の既存投稿があればそれを上書き更新する（v21.5.0: 固定スラグ・ランキング記事用）。
+    cast_names: 声優(CV)名のリスト（v21.6.0: parse_cast_names() 済みの正規化名を渡すこと）。通常記事のみタグ化される。
     """
     auth = (WP_USER, WP_APP_PASSWORD)
     # FIFUには軽量サムネを使用（A+C方式）
@@ -244,6 +246,12 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 
     if ai_tags:
         for t in ai_tags:
+            if t and t not in tag_names: tag_names.append(t)
+
+    # 声優(CV)タグの付与 (v21.6.0)
+    # ※ランキング・まとめは後段の特例処理でリストが再構築されるため自然に除外される
+    if cast_names:
+        for t in cast_names:
             if t and t not in tag_names: tag_names.append(t)
 
     # 担当者タグの付与
@@ -1082,6 +1090,12 @@ def _execute_posting_flow(row, cursor, conn):
     
     genre_str = row_dict.get("genre", "") or ""
     is_voice = "voice" in str(genre_str).lower()
+
+    # v21.6.0: 声優(CV)タグ用の正規化名リスト（cast_info優先、空ならauthor_detailの声優欄から回収）
+    cast_names_for_tags = parse_cast_names(cast_inf)
+    if not cast_names_for_tags:
+        cast_names_for_tags = extract_cast_from_author_detail(auth_det)
+
     spec_html = build_specs_html(row["release_date"], auth_det, cast_inf, ser_name, pg_count, fallback_author=row["author"], site_label=site_label, is_voice=is_voice)
     if spec_html:
         # 二重挿入防止ガードレール
@@ -1111,7 +1125,7 @@ def _execute_posting_flow(row, cursor, conn):
         wp_title, content, row["genre"], img_url,
         excerpt=excerpt, seo_title=seo_title, slug=pid, is_r18=is_r18,
         site_label=site_label, ai_tags=final_ai_tags, reviewer=rev_name,
-        thumb_url=thumb_url
+        thumb_url=thumb_url, cast_names=cast_names_for_tags
     )
     
     if link:
@@ -1124,6 +1138,10 @@ def _execute_posting_flow(row, cursor, conn):
         if _site_name_for_wp:
             _wp_tags_parts.append(_site_name_for_wp)
         for _t in final_ai_tags:
+            if _t and _t not in _wp_tags_parts:
+                _wp_tags_parts.append(_t)
+        # v21.6.0: 声優(CV)タグ（post_to_wordpress と同一順序で挿入）
+        for _t in cast_names_for_tags:
             if _t and _t not in _wp_tags_parts:
                 _wp_tags_parts.append(_t)
         if rev_name and rev_name not in _wp_tags_parts:

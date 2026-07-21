@@ -474,6 +474,72 @@ def author_token_set(author=None, author_detail=None):
     return tokens
 
 
+# === 声優(CV)名の共通パーサ (v21.6.0) ===
+# cast_info / author_detail の声優欄を唯一のルールで分割・正規化する。
+# WPタグ生成・DBバックフィル・fetcher保存のすべてがこの関数を通ること（表記ゆれ防止）。
+
+_CAST_SPLIT_RE = re.compile(r"[,，、/／;；\|｜\n]+")
+_CAST_NOISE_TOKENS = {"他", "ほか", "他数名", "その他", "未定", "非公開", "秘密", "？", "?", "-", "―", "なし"}
+_CAST_PREFIX_RE = re.compile(r"^(?:CV|ＣＶ|声優|キャスト|出演)[.．:：\s]*", re.IGNORECASE)
+
+
+def parse_cast_names(raw):
+    """声優(CV)文字列を人名リストへ分割・正規化する。
+
+    - 区切り: カンマ・読点・スラッシュ・セミコロン・パイプ・改行
+      （「・」は人名内で使われるため区切りとして扱わない）
+    - 各名前: NFKC正規化 → CV等の接頭辞除去 → 前後空白除去
+    - 「他」「ほか」等のノイズトークンは破棄（不完全リストをタグ化しない）
+    - 順序保持で重複除去
+    """
+    import unicodedata
+    if not raw:
+        return []
+    text = unicodedata.normalize("NFKC", str(raw))
+    names = []
+    seen = set()
+    for part in _CAST_SPLIT_RE.split(text):
+        name = _CAST_PREFIX_RE.sub("", part.strip())
+        name = re.sub(r"[\s　]+", " ", name).strip()
+        # 括弧だけの注記 (例: "(仮)") や役名注記 "名前(役名)" の括弧部を除去
+        name = re.sub(r"[（(][^（()）]*[)）]$", "", name).strip()
+        # 末尾の「〇〇 他」「〇〇ほか」を除去（不完全リスト表記の掃除）
+        name = re.sub(r"[\s　]+(?:他|ほか)$", "", name).strip()
+        if not name or name in _CAST_NOISE_TOKENS:
+            continue
+        if len(name) > 25:  # 人名としてありえない長さは説明文等の混入とみなす
+            continue
+        if name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
+def extract_cast_from_author_detail(author_detail):
+    """author_detail（"役割:名前" カンマ区切り）から声優(CV)の人名リストを抽出する。
+
+    らぶカル/DMM系は声優が cast_info でなく author_detail に
+    「声優(CV):A/B/C」形式で入っているため、そこから回収する。
+    値内にカンマが含まれる場合（"声優(CV):A,B"）も、後続の
+    「役割:」を持たないパートを継続として取り込む。
+    """
+    if not author_detail:
+        return []
+    parts = str(author_detail).split(",")
+    buf = []
+    in_cast = False
+    for p in parts:
+        s = p.strip()
+        if re.match(r"^声優\s*\(?(?:CV|ＣＶ)\)?\s*[:：]", s):
+            in_cast = True
+            buf.append(re.sub(r"^声優\s*\(?(?:CV|ＣＶ)\)?\s*[:：]", "", s))
+        elif in_cast and ":" not in s and "：" not in s:
+            buf.append(s)  # CV値の継続（カンマ区切りの複数人）
+        else:
+            in_cast = False
+    return parse_cast_names(",".join(buf))
+
+
 def base_digit_suffix_conflict(a, b):
     """一方が他方＋密着数字だけのとき（プロジェクション20 vs プロジェクション）は別作品。"""
     if not a or not b or a == b:

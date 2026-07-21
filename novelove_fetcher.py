@@ -34,6 +34,7 @@ from novelove_core import (
     DMM_API_ID, DMM_AFFILIATE_API_ID,
     generate_affiliate_url,
     DEEPSEEK_API_KEY,
+    parse_cast_names, extract_cast_from_author_detail,
 )
 
 # スクレイピング構造変化の検知閾値（連続N回で緊急停止）
@@ -873,7 +874,8 @@ def fetch_and_stock_all():
                 item["_original_tags"] = dl_tags_str
                 item["_is_exclusive"] = 1 if dl_is_exclusive else 0
                 item["_author_detail"] = dl_auth_det
-                item["_cast_info"] = dl_cast
+                # v21.6.0: 共通パーサで正規化してから保存（表記ゆれ・区切りゆれ防止）
+                item["_cast_info"] = ",".join(parse_cast_names(dl_cast))
                 item["_series_name"] = dl_series
                 item["_page_count"] = dl_pages
             else:
@@ -963,6 +965,12 @@ def fetch_and_stock_all():
                 # 声優
                 actresses = iteminfo.get("actress", []) or []
                 casts = [act.get("name", "") for act in actresses if act.get("name")]
+                if casts:
+                    casts = parse_cast_names(",".join(casts))
+                else:
+                    # v21.6.0: APIのactressが空でも、スクレイピングで author_detail に
+                    # 入った「声優(CV):〜」から回収する（らぶカルのcast_info欠落バグ修正）
+                    casts = extract_cast_from_author_detail(item.get("_author_detail", ""))
                 item["_cast_info"] = ",".join(casts) if casts else ""
                 
                 # シリーズ

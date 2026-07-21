@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## v21.6.0 — 声優(CV)のWPタグ自動付与＆cast_info一元化 (2026-07-21)
+
+### ✨ feat(core/fetcher/auto_post/rewrite): 声優名をWPタグ化してSEO・回遊導線を作る
+- **共通パーサ `parse_cast_names()` / `extract_cast_from_author_detail()`** を `novelove_core.py` に新設。
+  - 区切り（`,` `、` `/` `／` `;` `|` 改行）で分割。「・」は人名内使用のため区切らない。
+  - NFKC正規化・`CV.`等の接頭辞除去・末尾括弧注記除去・「他/ほか」ノイズ破棄・順序保持dedupe。
+  - **タグ生成・DB保存・バックフィルの全経路がこの関数を通ること（表記ゆれ防止の一元化）**。
+- **fetcherバグ修正**: らぶカル（FANZA/DMM系）はスクレイピングで `author_detail` に `声優(CV):〜` が入るのに、APIの `actress`（常に空）で `cast_info` を上書きしていた → actress空時は `author_detail` から回収するフォールバックを追加。DLsiteの `cast_info` も保存前にパーサで正規化。
+- **auto_post.py**: 通常記事の投稿時、`cast_info`（空なら `author_detail` の声優欄）から正規化した声優名をWPタグに追加（AIタグの後・担当者タグの前）。ランキング・まとめ記事は従来どおり特例処理で除外。`wp_tags` DB書き戻しミラーも同一順序で更新。
+- **nexus_rewrite.py**: `_build_new_tag_ids()` / `_db_update_after_rewrite()` に `cast_names` を追加し、リライトでCVタグが剥がれないようにした。DB SELECTに `author_detail`, `cast_info` を追加。
+- **SEO側の安全弁**: タグページは `functions.php` の既存ルール（記事5件未満=自動noindex）が効くため、1〜2作品しかない声優タグがインデックス汚染することはない。
+- **過去記事**: サーバーDBの `cast_info` バックフィル（`author_detail` の声優欄→`cast_info`、既存値も正規化）と、published記事へのWPタグ一括付与を実施。
+
+---
+
 ## v21.5.15 — 口調ソフトガードをsoul共通化 (2026-07-15)
 
 ### 🔧 fix(soul): まとめ専用ではなくペルソナ側に最小の口調ガード

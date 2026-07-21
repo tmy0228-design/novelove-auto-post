@@ -67,6 +67,8 @@ Noveloveは、主要配信プラットフォーム（FANZA / DMM / DLsite / Love
 通常記事のファーストビューにスリムなスペック表を挿入するため、情報収集時に以下のスペック項目を自動的に抽出して `novelove_posts` テーブルの新規カラムに保存します。
 - `author_detail` (TEXT): 著者詳細（例: "著者:〇〇,イラスト:▲▲"）。DLsiteのスペック表、またはDMM APIの `author`, `writer`, `artist` から抽出。
 - `cast_info` (TEXT): 出演声優キャスト情報（カンマ区切り）。DLsiteのスペック表、またはDMM APIの `actress` から抽出。声優がいない作品は空文字。
+  - **v21.6.0**: 保存前に必ず共通パーサ `novelove_core.parse_cast_names()` で正規化する（NFKC・接頭辞/括弧注記除去・「他」破棄・dedupe）。らぶカル系はAPIの `actress` が常に空のため、スクレイピングで `author_detail` に入る `声優(CV):〜` を `extract_cast_from_author_detail()` で回収して `cast_info` に格納する。
+  - **v21.6.0 WPタグ化**: 通常記事の投稿・リライト時、`cast_info`（空なら `author_detail` の声優欄）から取り出した声優名をWPタグとして付与する（AIタグの後・担当者タグの前）。ランキング・まとめ記事は対象外。低件数の声優タグは `functions.php` の5件ルールで自動noindexされるためSEO汚染なし。
 - `series_name` (TEXT): シリーズ名。DLsiteのスペック表、またはDMM APIの `series` から抽出。（※シリーズ名はデータ収集は行われますが、表のスリム化のため自動表示からは除外されています）
 - `page_count` (INTEGER): 作品のページ数（ボイス作品の場合は音声本数）。DLsiteのスペック表、またはDMM API of `volume` から数値を抽出。
 

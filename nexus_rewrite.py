@@ -43,6 +43,7 @@ from novelove_core import (
     db_connect, notify_discord, generate_affiliate_url,
     WP_SITE_URL, SCRIPT_DIR,
     WP_USER, WP_APP_PASSWORD, SSH_PASS,
+    parse_cast_names, extract_cast_from_author_detail,
 )
 # auto_post.py から執筆エンジン補助関数・WordPressヘルパーを借用
 from auto_post import get_or_create_term, _evaluate_article_potential
@@ -125,7 +126,8 @@ def _get_published_row(product_id):
             """SELECT product_id, title, author, genre, site, status,
                       description, affiliate_url, image_url, product_url, wp_post_url,
                       ai_tags, desc_score, original_tags, is_exclusive,
-                      release_date, reviewer, rewrite_count, wp_tags, wp_post_id
+                      release_date, reviewer, rewrite_count, wp_tags, wp_post_id,
+                      author_detail, cast_info
                FROM novelove_posts
                WHERE LOWER(product_id) = LOWER(?)""",
             (normalized,)
@@ -251,11 +253,12 @@ def _wp_get_protected_tag_ids(current_tag_ids):
     return protected
 
 
-def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected_ids, is_exclusive=False):
+def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected_ids, is_exclusive=False, cast_names=None):
     """
     新しいタグ名リストを構築し、WP上のタグID（なければ作成）に変換する。
     post_to_wordpress() の L730-L792 と同一ルールで構築。
     保護タグ（セール/売れ筋）は最後にマージして返す。
+    cast_names: 声優(CV)名リスト（v21.6.0: リライトでCVタグが剥がれないよう必ず渡すこと）
 
     戻り値: list[int] （最終的にWPへ送信するタグIDリスト）
     """
@@ -269,6 +272,11 @@ def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected
 
     # AI 生成タグ
     for t in (ai_tags or []):
+        if t and t not in tag_names:
+            tag_names.append(t)
+
+    # 声優(CV)タグ (v21.6.0: post_to_wordpress と同一順序)
+    for t in (cast_names or []):
         if t and t not in tag_names:
             tag_names.append(t)
 
@@ -408,7 +416,8 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
 # 4. DB 更新
 # =====================================================================
 def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
-                              site_label, is_ranking, ai_score, article_pattern=None):
+                              site_label, is_ranking, ai_score, article_pattern=None,
+                              cast_names=None):
     """
     リライト成功後に DB を更新する。
     - ai_tags, wp_tags, reviewer を最新値で上書き
@@ -423,6 +432,10 @@ def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
     if site_name:
         wp_tags_parts.append(site_name)
     for t in ai_tags_list:
+        if t and t not in wp_tags_parts:
+            wp_tags_parts.append(t)
+    # v21.6.0: 声優(CV)タグ（_build_new_tag_ids と同一順序）
+    for t in (cast_names or []):
         if t and t not in wp_tags_parts:
             wp_tags_parts.append(t)
     if rev_name and rev_name not in wp_tags_parts:
@@ -646,6 +659,14 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     _wp_cli_update_meta(wp_post_id, seo_title, excerpt)
 
     logger.info("  [WP] タグを再構築・更新中...")
+    # v21.6.0: 声優(CV)タグ（cast_info優先、空ならauthor_detailの声優欄から回収）
+    _row_keys = row.keys()
+    _cast_raw = row["cast_info"] if "cast_info" in _row_keys else ""
+    _auth_det_raw = row["author_detail"] if "author_detail" in _row_keys else ""
+    cast_names_for_tags = parse_cast_names(_cast_raw)
+    if not cast_names_for_tags:
+        cast_names_for_tags = extract_cast_from_author_detail(_auth_det_raw)
+
     new_tag_ids = _build_new_tag_ids(
         ai_tags=ai_tags_from_ai,
         site_label=site_label,
@@ -653,6 +674,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         is_ranking=is_ranking,
         protected_ids=protected_ids,
         is_exclusive=is_exclusive,
+        cast_names=cast_names_for_tags,
     )
     if not _wp_update_tags(wp_post_id, new_tag_ids):
         logger.warning("  ⚠️ タグ更新に失敗しました（記事本文は更新済み）")
@@ -667,6 +689,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         is_ranking=is_ranking,
         ai_score=ai_score,
         article_pattern=article_pattern,
+        cast_names=cast_names_for_tags,
     )
 
     # Discord 通知
