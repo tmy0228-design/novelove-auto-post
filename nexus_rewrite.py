@@ -44,9 +44,10 @@ from novelove_core import (
     WP_SITE_URL, SCRIPT_DIR,
     WP_USER, WP_APP_PASSWORD, SSH_PASS,
     parse_cast_names, extract_cast_from_author_detail,
+    extract_circle_names, extract_author_names,
 )
 # auto_post.py から執筆エンジン補助関数・WordPressヘルパーを借用
-from auto_post import get_or_create_term, _evaluate_article_potential
+from auto_post import get_or_create_term, set_tag_type, _evaluate_article_potential
 # 執筆エンジン本体は novelove_writer.py から
 from novelove_writer import generate_article
 from novelove_core import ArticleResult  # v13.10.0: generate_article 戻り値
@@ -253,17 +254,20 @@ def _wp_get_protected_tag_ids(current_tag_ids):
     return protected
 
 
-def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected_ids, is_exclusive=False, cast_names=None):
+def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected_ids, is_exclusive=False, cast_names=None, circle_names=None, author_names=None):
     """
     新しいタグ名リストを構築し、WP上のタグID（なければ作成）に変換する。
-    post_to_wordpress() の L730-L792 と同一ルールで構築。
+    post_to_wordpress() と同一ルール・同一順序で構築。
     保護タグ（セール/売れ筋）は最後にマージして返す。
-    cast_names: 声優(CV)名リスト（v21.6.0: リライトでCVタグが剥がれないよう必ず渡すこと）
+    順序: サイト → AI → 専売 → 声優 → サークル → 作者 → ライター
+      （v21.7.0: 専売の位置を post_to_wordpress に合わせて cast より前へ統一）
+    cast_names/circle_names/author_names: リライトで各タグが剥がれないよう必ず渡すこと。
 
     戻り値: list[int] （最終的にWPへ送信するタグIDリスト）
     """
     # --- (1) タグ名リストの構築 ---
     tag_names = []
+    entity_type_map = {}  # name -> nv_tag_type（種別印付与用）
 
     # サイト名タグ
     site_name = NORMALIZED_LABELS.get(site_label, site_label)
@@ -275,16 +279,7 @@ def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected
         if t and t not in tag_names:
             tag_names.append(t)
 
-    # 声優(CV)タグ (v21.6.0: post_to_wordpress と同一順序)
-    for t in (cast_names or []):
-        if t and t not in tag_names:
-            tag_names.append(t)
-
-    # ライター名タグ
-    if reviewer_name and reviewer_name not in tag_names:
-        tag_names.append(reviewer_name)
-
-    # 専売タグの付与（auto_post.py _execute_posting_flow と同一ルール）
+    # 専売タグ（auto_post.py と同一ルール・同一位置＝AI直後 / cast より前）
     if is_exclusive:
         _sn_map = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "Lovecal": "Lovecal"}
         _sn = _sn_map.get(site_label, site_label)
@@ -293,6 +288,24 @@ def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected
             excl_tag = "らぶカル専売"
         if excl_tag and excl_tag not in tag_names:
             tag_names.append(excl_tag)
+
+    # 声優(CV) → サークル → 作者 (v21.6.0 / v21.7.0)
+    for t in (cast_names or []):
+        if t and t not in tag_names:
+            tag_names.append(t)
+            entity_type_map.setdefault(t, "cast")
+    for t in (circle_names or []):
+        if t and t not in tag_names:
+            tag_names.append(t)
+            entity_type_map.setdefault(t, "circle")
+    for t in (author_names or []):
+        if t and t not in tag_names:
+            tag_names.append(t)
+            entity_type_map.setdefault(t, "author")
+
+    # ライター名タグ
+    if reviewer_name and reviewer_name not in tag_names:
+        tag_names.append(reviewer_name)
 
     # ランキング記事特例（サイト名とライター名のみに絞る）
     if is_ranking:
@@ -310,8 +323,16 @@ def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected
     # 不要タグ除外フィルタ（post_to_wordpress と同一）
     tag_names = [t for t in tag_names if t not in EXCLUDE_TAG_NAMES]
 
-    # --- (2) タグ名 → WP タグ ID に変換（なければ作成） ---
-    tag_ids = [tid for tid in [get_or_create_term(name, "tags") for name in tag_names] if tid]
+    # --- (2) タグ名 → WP タグ ID に変換（なければ作成）＋種別印付与 ---
+    tag_ids = []
+    for name in tag_names:
+        tid = get_or_create_term(name, "tags")
+        if not tid:
+            continue
+        tag_ids.append(tid)
+        _etype = entity_type_map.get(name)
+        if _etype:
+            set_tag_type(tid, _etype)
 
     # --- (3) 保護タグをマージ（上書き禁止のセール/売れ筋タグを復元） ---
     for pid in protected_ids:
@@ -417,7 +438,8 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
 # =====================================================================
 def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
                               site_label, is_ranking, ai_score, article_pattern=None,
-                              cast_names=None):
+                              cast_names=None, circle_names=None, author_names=None,
+                              is_exclusive=False):
     """
     リライト成功後に DB を更新する。
     - ai_tags, wp_tags, reviewer を最新値で上書き
@@ -426,7 +448,8 @@ def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
     - article_pattern を更新（A/B/C/D）
     - status, published_at は変更しない
     """
-    # wp_tags の文字列を構築（post_to_wordpress / _execute_posting_flow と同一ルール）
+    # wp_tags の文字列を構築（_build_new_tag_ids と同一ルール・同一順序）
+    # 順序: サイト → AI → 専売 → 声優 → サークル → 作者 → ライター
     site_name = NORMALIZED_LABELS.get(site_label, site_label)
     wp_tags_parts = []
     if site_name:
@@ -434,8 +457,23 @@ def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
     for t in ai_tags_list:
         if t and t not in wp_tags_parts:
             wp_tags_parts.append(t)
-    # v21.6.0: 声優(CV)タグ（_build_new_tag_ids と同一順序）
+    # 専売タグ（_build_new_tag_ids と同一位置＝AI直後）
+    if is_exclusive:
+        _sn_map = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "Lovecal": "Lovecal"}
+        _sn = _sn_map.get(site_label, site_label)
+        _excl = {"DLsite": "DLsite専売", "FANZA": "FANZA専売", "DMM": "DMM独占", "Lovecal": "らぶカル専売"}.get(_sn, "")
+        if not _excl and "らぶカル" in str(site_label):
+            _excl = "らぶカル専売"
+        if _excl and _excl not in wp_tags_parts:
+            wp_tags_parts.append(_excl)
+    # v21.6.0/v21.7.0: 声優 → サークル → 作者（_build_new_tag_ids と同一順序）
     for t in (cast_names or []):
+        if t and t not in wp_tags_parts:
+            wp_tags_parts.append(t)
+    for t in (circle_names or []):
+        if t and t not in wp_tags_parts:
+            wp_tags_parts.append(t)
+    for t in (author_names or []):
         if t and t not in wp_tags_parts:
             wp_tags_parts.append(t)
     if rev_name and rev_name not in wp_tags_parts:
@@ -666,6 +704,9 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     cast_names_for_tags = parse_cast_names(_cast_raw)
     if not cast_names_for_tags:
         cast_names_for_tags = extract_cast_from_author_detail(_auth_det_raw)
+    # v21.7.0: サークル/作者タグ（author_detail の サークル: / 著者: のみ）
+    circle_names_for_tags = extract_circle_names(_auth_det_raw)
+    author_names_for_tags = extract_author_names(_auth_det_raw)
 
     new_tag_ids = _build_new_tag_ids(
         ai_tags=ai_tags_from_ai,
@@ -675,6 +716,8 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         protected_ids=protected_ids,
         is_exclusive=is_exclusive,
         cast_names=cast_names_for_tags,
+        circle_names=circle_names_for_tags,
+        author_names=author_names_for_tags,
     )
     if not _wp_update_tags(wp_post_id, new_tag_ids):
         logger.warning("  ⚠️ タグ更新に失敗しました（記事本文は更新済み）")
@@ -690,6 +733,9 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         ai_score=ai_score,
         article_pattern=article_pattern,
         cast_names=cast_names_for_tags,
+        circle_names=circle_names_for_tags,
+        author_names=author_names_for_tags,
+        is_exclusive=is_exclusive,
     )
 
     # Discord 通知

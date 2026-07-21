@@ -540,6 +540,93 @@ def extract_cast_from_author_detail(author_detail):
     return parse_cast_names(",".join(buf))
 
 
+# === サークル・作者名の共通パーサ / 名寄せ (v21.7.0) ===
+# 声優(parse_cast_names)と異なり「/」「・」「&」は正式名の一部なので分割しない。
+# 表示名は元表記を尊重し、合流判定(名寄せ)は normalize_entity_key のみで行う。
+_ENTITY_MAXLEN = 40
+_ENTITY_NOISE = {"", "-", "―", "なし", "不明", "未定", "非公開", "秘密", "？", "?"}
+
+
+def normalize_entity_key(name):
+    """名寄せ用キー。表示ではなく「同じサークル/作者か」の判定にのみ使う。
+    NFKC + 全空白除去 + 全角&を半角化 + 小文字化。
+    （例: '青長 花芽'↔'青長花芽'、'＆'↔'&'、'Rhplus'↔'RHplus' を同一視）
+    """
+    import unicodedata
+    if not name:
+        return ""
+    s = unicodedata.normalize("NFKC", str(name))
+    s = s.replace("＆", "&")
+    s = re.sub(r"[\s\u3000]+", "", s)
+    return s.lower()
+
+
+def _normalize_entity_display(name):
+    """表示用の軽い整形。名前の中身（/ ・ & 等）は壊さない。"""
+    import unicodedata
+    if not name:
+        return ""
+    s = unicodedata.normalize("NFKC", str(name)).strip()
+    s = re.sub(r"[\s\u3000]+", " ", s)  # 連続空白のみ1つに畳む
+    return s
+
+
+def _extract_entity_names(author_detail, wanted_roles):
+    """author_detail（"役割:名前" カンマ区切り）から指定役割の名前リストを抽出。
+
+    - `/`『・』『&』等は分割しない（実在するサークル/作者の正式名を壊さない）
+    - 「役割:」を持たない後続パートは直前役割の継続として取り込む（複数人カンマ区切り）
+    - 表示名は元表記、重複は normalize_entity_key で除去
+    """
+    if not author_detail:
+        return []
+    role_re = re.compile(
+        r"^(著者|サークル|出版社|レーベル|シナリオ|イラスト|原作|WA|声優\s*\(?(?:CV|ＣＶ)\)?)\s*[:：]\s*(.*)$"
+    )
+    names = []
+    seen = set()
+    current = None
+    for raw in str(author_detail).split(","):
+        s = raw.strip()
+        if not s:
+            continue
+        m = role_re.match(s)
+        if m:
+            role = re.sub(r"\s+", "", m.group(1))
+            if role.startswith("声優"):
+                role = "声優"
+            current = role
+            val = m.group(2).strip()
+        elif current is not None and ":" not in s and "：" not in s:
+            val = s  # 直前役割の継続
+        else:
+            current = None
+            continue
+        if current not in wanted_roles or not val:
+            continue
+        disp = _normalize_entity_display(val)
+        if not disp or disp in _ENTITY_NOISE or len(disp) > _ENTITY_MAXLEN:
+            continue
+        if len(disp) < 2:  # 1文字はゴミデータ（例: "u"）とみなす
+            continue
+        key = normalize_entity_key(disp)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        names.append(disp)
+    return names
+
+
+def extract_circle_names(author_detail):
+    """author_detail から「サークル:」の値のみを抽出（出版社/レーベルは除外）。"""
+    return _extract_entity_names(author_detail, ("サークル",))
+
+
+def extract_author_names(author_detail):
+    """author_detail から「著者:」の値のみを抽出。"""
+    return _extract_entity_names(author_detail, ("著者",))
+
+
 def base_digit_suffix_conflict(a, b):
     """一方が他方＋密着数字だけのとき（プロジェクション20 vs プロジェクション）は別作品。"""
     if not a or not b or a == b:

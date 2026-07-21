@@ -72,12 +72,16 @@ def _get_client() -> Client:
     return client
 
 
-def _parse_tags(wp_tags_str: str) -> list:
-    """wp_tagsからレビュアー名・専売系タグを除外してリストで返す。"""
+def _parse_tags(wp_tags_str: str, exclude_extra=None) -> list:
+    """wp_tagsからレビュアー名・専売系タグを除外してリストで返す。
+    exclude_extra: 追加で除外する名前（声優/サークル/作者など。SNSでは属性タグを優先し人名/サークル名は出さない）。
+    """
     raw = [t.strip() for t in wp_tags_str.split(",") if t.strip()]
+    extra = set(exclude_extra or [])
     return [
         t for t in raw
         if t not in REVIEWER_NAMES
+        and t not in extra
         and not any(t.endswith(s) for s in EXCLUDE_SUFFIXES)
     ]
 
@@ -156,6 +160,7 @@ def post_to_bluesky(
     wp_tags_str: str,
     image_url: str,
     is_r18: bool = False,
+    exclude_extra=None,
 ) -> bool:
     """
     茉莉花（SNS担当）としてBlueskyへ投稿する。
@@ -183,7 +188,7 @@ def post_to_bluesky(
         marika_comment = _generate_marika_comment(title, excerpt, g_label)
 
         # --- タグ処理 ---
-        tags = _parse_tags(wp_tags_str or "")
+        tags = _parse_tags(wp_tags_str or "", exclude_extra=exclude_extra)
         tail_tags = tags[:3]
 
         # --- あらすじの動的トリミング（茉莉花コメント優先） ---

@@ -77,6 +77,7 @@ from novelove_core import (
     normalize_title, super_normalize_title, title_core_for_fuzzy,
     parse_title_parts, author_token_set, base_digit_suffix_conflict,
     parse_cast_names, extract_cast_from_author_detail,
+    extract_circle_names, extract_author_names,
     acquire_lock, release_lock,
 )
 
@@ -187,13 +188,33 @@ def get_or_create_term(name, taxonomy):
     except Exception:
         return None
 
-def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None, overwrite=False, cast_names=None):
+
+def set_tag_type(term_id, tag_type):
+    """タグ(post_tag)に種別印 nv_tag_type を付与する (v21.7.0)。
+    functions.php の noindex/sitemap 閾値分岐・ナビ振り分けが参照する。
+    声優/サークル/作者を index閾値10 で扱うために使用。失敗しても投稿は継続。
+    """
+    if not term_id or not tag_type:
+        return False
+    try:
+        requests.post(
+            f"{WP_SITE_URL}/wp-json/wp/v2/tags/{term_id}",
+            auth=(WP_USER, WP_APP_PASSWORD),
+            json={"meta": {"nv_tag_type": tag_type}}, timeout=15,
+        )
+        return True
+    except Exception:
+        return False
+
+def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None, overwrite=False, cast_names=None, circle_names=None, author_names=None):
     """
     WordPress REST API で投稿。FIFUプラグイン経由で外部リンクをアイキャッチに設定。
     image_url: 記事本文に埋め込む大きい画像URL
     thumb_url: FIFUアイキャッチに設定する軽量サムネURL（省略時はimage_urlをそのまま使用）
     overwrite: True の場合、同一 slug の既存投稿があればそれを上書き更新する（v21.5.0: 固定スラグ・ランキング記事用）。
     cast_names: 声優(CV)名のリスト（v21.6.0: parse_cast_names() 済みの正規化名を渡すこと）。通常記事のみタグ化される。
+    circle_names: サークル名リスト（v21.7.0: extract_circle_names() 済み）。通常記事のみタグ化。
+    author_names: 作者名リスト（v21.7.0: extract_author_names() 済み）。通常記事のみタグ化。
     """
     auth = (WP_USER, WP_APP_PASSWORD)
     # FIFUには軽量サムネを使用（A+C方式）
@@ -256,11 +277,25 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         for t in ai_tags:
             if t and t not in tag_names: tag_names.append(t)
 
-    # 声優(CV)タグの付与 (v21.6.0)
+    # 声優(CV)/サークル/作者タグの付与 (v21.6.0 / v21.7.0)
     # ※ランキング・まとめは後段の特例処理でリストが再構築されるため自然に除外される
+    # 順序: サイト → AI(+専売) → 声優 → サークル → 作者 → 担当者
+    entity_type_map = {}  # name -> nv_tag_type（種別印付与用）
     if cast_names:
         for t in cast_names:
-            if t and t not in tag_names: tag_names.append(t)
+            if t and t not in tag_names:
+                tag_names.append(t)
+                entity_type_map.setdefault(t, "cast")
+    if circle_names:
+        for t in circle_names:
+            if t and t not in tag_names:
+                tag_names.append(t)
+                entity_type_map.setdefault(t, "circle")
+    if author_names:
+        for t in author_names:
+            if t and t not in tag_names:
+                tag_names.append(t)
+                entity_type_map.setdefault(t, "author")
 
     # 担当者タグの付与
     if reviewer and reviewer not in tag_names:
@@ -295,7 +330,16 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     tag_names = [t for t in tag_names if t not in exclude_list]
 
     # WordPress側にカテゴリやタグを問い合わせてID化
-    tag_ids = [t for t in [get_or_create_term(name, "tags") for name in tag_names] if t]
+    # v21.7.0: 声優/サークル/作者タグには種別印(nv_tag_type)を付与（index閾値10・ナビ振り分け用）
+    tag_ids = []
+    for name in tag_names:
+        tid = get_or_create_term(name, "tags")
+        if not tid:
+            continue
+        tag_ids.append(tid)
+        _etype = entity_type_map.get(name)
+        if _etype:
+            set_tag_type(tid, _etype)
 
     post_data = {
         "title": title, "content": content, "excerpt": excerpt,
@@ -1103,6 +1147,9 @@ def _execute_posting_flow(row, cursor, conn):
     cast_names_for_tags = parse_cast_names(cast_inf)
     if not cast_names_for_tags:
         cast_names_for_tags = extract_cast_from_author_detail(auth_det)
+    # v21.7.0: サークル/作者タグ用（author_detail の サークル: / 著者: のみ、出版社・レーベルは除外）
+    circle_names_for_tags = extract_circle_names(auth_det)
+    author_names_for_tags = extract_author_names(auth_det)
 
     spec_html = build_specs_html(row["release_date"], auth_det, cast_inf, ser_name, pg_count, fallback_author=row["author"], site_label=site_label, is_voice=is_voice)
     if spec_html:
@@ -1133,7 +1180,8 @@ def _execute_posting_flow(row, cursor, conn):
         wp_title, content, row["genre"], img_url,
         excerpt=excerpt, seo_title=seo_title, slug=pid, is_r18=is_r18,
         site_label=site_label, ai_tags=final_ai_tags, reviewer=rev_name,
-        thumb_url=thumb_url, cast_names=cast_names_for_tags
+        thumb_url=thumb_url, cast_names=cast_names_for_tags,
+        circle_names=circle_names_for_tags, author_names=author_names_for_tags
     )
     
     if link:
@@ -1148,8 +1196,14 @@ def _execute_posting_flow(row, cursor, conn):
         for _t in final_ai_tags:
             if _t and _t not in _wp_tags_parts:
                 _wp_tags_parts.append(_t)
-        # v21.6.0: 声優(CV)タグ（post_to_wordpress と同一順序で挿入）
+        # v21.6.0/v21.7.0: 声優→サークル→作者（post_to_wordpress と同一順序で挿入）
         for _t in cast_names_for_tags:
+            if _t and _t not in _wp_tags_parts:
+                _wp_tags_parts.append(_t)
+        for _t in circle_names_for_tags:
+            if _t and _t not in _wp_tags_parts:
+                _wp_tags_parts.append(_t)
+        for _t in author_names_for_tags:
             if _t and _t not in _wp_tags_parts:
                 _wp_tags_parts.append(_t)
         if rev_name and rev_name not in _wp_tags_parts:
@@ -1227,6 +1281,7 @@ def _execute_posting_flow(row, cursor, conn):
                     wp_tags_str=wp_tags_str,
                     image_url=img_url,
                     is_r18=is_r18,
+                    exclude_extra=(cast_names_for_tags + circle_names_for_tags + author_names_for_tags),
                 )
             except Exception as _bsky_err:
                 logger.error(f"🚨 Bluesky呼び出しで予期せぬエラー（続行）: {_bsky_err}")

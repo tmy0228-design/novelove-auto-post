@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## v21.7.0 — サークル/作者のWPタグ自動化＋タグ種別印(nv_tag_type)＋クリエイターナビ (2026-07-22)
+
+### ✨ feat(core): サークル/作者の抽出＆名寄せ関数を新設
+- `novelove_core.py` に `extract_circle_names()` / `extract_author_names()` / `normalize_entity_key()` / `_extract_entity_names()` を追加。
+  - `author_detail` の **`サークル:` / `著者:` のみ**を対象（`出版社:` / `レーベル:` は商業レーベルで検索価値が薄いため除外）。
+  - 声優パーサと違い **`/`・`・`・`&` は正式名の一部として分割しない**（例: `ふはい鍋/宮浜りょう`, `24/7` を壊さない）。
+  - 名寄せは `normalize_entity_key`（NFKC＋全空白除去＋`＆`→`&`＋小文字）で判定し、**表示名は元表記を尊重**（`RHplus`↔`Rhplus`、`青長 花芽`↔`青長花芽` を同一視して1タグに集約）。1文字名（`u`等のゴミ）は破棄。
+
+### ✨ feat(auto_post/rewrite): サークル/作者タグ付与＋投稿↔リライトの順序統一
+- 通常記事のタグ順を **サイト → AI(+専売) → 声優 → サークル → 作者 → 担当者** に統一（`auto_post.py` と `nexus_rewrite.py` 双方）。
+  - リライト側は従来 専売タグが担当者の後だったズレを **AI直後（cast前）** に統一。`_db_update_after_rewrite` の `wp_tags` ミラーにも専売・サークル・作者を反映しWP実タグと一致させた。
+- 出版社/レーベルはタグ化しない。ランキング・まとめは従来どおり特例で除外。
+
+### ✨ feat(nv_tag_type): タグ種別印を全タグへ付与
+- `functions.php` で `register_term_meta('post_tag','nv_tag_type')` を登録。種別は `cast/circle/author/ai/site/reviewer/system/exclusive`。
+- `auto_post.set_tag_type()` を新設し、投稿/リライト時に声優・サークル・作者タグへ種別印をREST付与（`get_or_create_term` はコア関数のまま流用）。
+
+### ✨ feat(functions.php): 種別ごとindex閾値＋sitemap＋クリエイターナビ
+- **index閾値を種別で分岐**: 声優/サークル/作者は **10件以上**、他（AIジャンル等）は従来どおり **5件以上**でindex解禁（`nv_tag_index_threshold()`）。noindex判定・sitemap除外・タグJSON-LD出力の3経路を同関数に単一化。
+- **ナビ改修**（`novelove_navigator_v3`）:
+  - 「今の気分は？」から種別=声優/サークル/作者を除外（人名がジャンル枠に混ざらない）。
+  - 新セクション「クリエイターで探す」を追加（声優/サークル/作者のタブ切替）。PHPが index対象(10件+)のプールを各種別最大20件シャッフルで出力し、JS側で毎回6件をランダム表示（キャッシュされても顔ぶれが変わる）。トップからの内部リンク導線を確保しつつHTMLリンク総数を抑制。
+
+### 🔧 chore(bluesky): SNSハッシュタグから人名/サークル/作者を除外
+- `novelove_bluesky.post_to_bluesky(exclude_extra=...)` を追加。声優・サークル・作者・担当者・専売系はハッシュタグ化せず、テーマ性のあるAIタグを優先。
+
+### 🗄️ data: 既存タグの種別印＋サークル/作者の遡り付与（追加のみ・サーバDB正本）
+- 公開中の通常記事 **3060件** にサークル/作者タグを **追加のみ**（`wp_set_object_terms append=true`、既存タグ・投稿は一切削除せず）で付与。**新規タグ2888件**作成、全タグ **3115件**に種別印付与（エラー0）。
+- WPコア関数（`wp eval-file`）で実行したため `&amp;` 問題は原理的に発生しない。名寄せで表記ゆれ6グループを集約。
+- 初期のindex対象クリエイタータグは **30件**（声優11/サークル11/作者8）。1記事あたり平均タグ数 6.67・最大12で肥大化なし。
+
+---
+
 ## v21.6.2 — タグ説明の最新作動的差し込み＆「&」タグ付与漏れ修正 (2026-07-21)
 
 ### ✨ feat(functions.php): タグmeta descriptionへ最新作タイトルを動的挿入
