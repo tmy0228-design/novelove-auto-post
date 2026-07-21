@@ -47,7 +47,10 @@ from novelove_core import (
     extract_circle_names, extract_author_names,
 )
 # auto_post.py から執筆エンジン補助関数・WordPressヘルパーを借用
-from auto_post import get_or_create_term, set_tag_type, _evaluate_article_potential
+from auto_post import (
+    get_or_create_term, set_tag_type, _infer_tag_type,
+    _REVIEWER_TAG_NAMES, _SITE_TAG_NAMES, _evaluate_article_potential,
+)
 # 執筆エンジン本体は novelove_writer.py から
 from novelove_writer import generate_article
 from novelove_core import ArticleResult  # v13.10.0: generate_article 戻り値
@@ -65,12 +68,11 @@ EXCLUDE_TAG_NAMES = {
     "商業BL", "同人BL", "商業TL", "同人TL",
     "商業BL小説", "商業TL小説",
 }
-# サイト名の正規化マップ（post_to_wordpress と同一）
+# サイト名の正規化マップ（post_to_wordpress と同一。v21.7.2で DLsite→がるまに表記に統一）
 NORMALIZED_LABELS = {
     "DMM.com": "DMM",
     "FANZA":   "FANZA",
-    "DLsite":  "DLsite",
-
+    "DLsite":  "DLsite（がるまに）",
     "Lovecal": "らぶカル",
 }
 
@@ -283,23 +285,26 @@ def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected
     if is_exclusive:
         _sn_map = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "Lovecal": "Lovecal"}
         _sn = _sn_map.get(site_label, site_label)
-        excl_tag = {"DLsite": "DLsite専売", "FANZA": "FANZA専売", "DMM": "DMM独占", "Lovecal": "らぶカル専売"}.get(_sn, "")
+        # v21.7.2: FANZA専売は運用停止済み（v18.1.2）。auto_post と同一マップに統一
+        excl_tag = {"DLsite": "DLsite専売", "DMM": "DMM独占", "Lovecal": "らぶカル専売"}.get(_sn, "")
         if not excl_tag and "らぶカル" in str(site_label):
             excl_tag = "らぶカル専売"
         if excl_tag and excl_tag not in tag_names:
             tag_names.append(excl_tag)
 
     # 声優(CV) → サークル → 作者 (v21.6.0 / v21.7.0)
+    # v21.7.2: レビュアー名・サイト名と衝突する人物/団体名は種別印がぶれるので除外
+    _entity_guard = _REVIEWER_TAG_NAMES | _SITE_TAG_NAMES
     for t in (cast_names or []):
-        if t and t not in tag_names:
+        if t and t not in _entity_guard and t not in tag_names:
             tag_names.append(t)
             entity_type_map.setdefault(t, "cast")
     for t in (circle_names or []):
-        if t and t not in tag_names:
+        if t and t not in _entity_guard and t not in tag_names:
             tag_names.append(t)
             entity_type_map.setdefault(t, "circle")
     for t in (author_names or []):
-        if t and t not in tag_names:
+        if t and t not in _entity_guard and t not in tag_names:
             tag_names.append(t)
             entity_type_map.setdefault(t, "author")
 
@@ -323,16 +328,14 @@ def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected
     # 不要タグ除外フィルタ（post_to_wordpress と同一）
     tag_names = [t for t in tag_names if t not in EXCLUDE_TAG_NAMES]
 
-    # --- (2) タグ名 → WP タグ ID に変換（なければ作成）＋種別印付与 ---
+    # --- (2) タグ名 → WP タグ ID に変換（なければ作成）＋全タグ種別印付与 ---
     tag_ids = []
     for name in tag_names:
         tid = get_or_create_term(name, "tags")
         if not tid:
             continue
         tag_ids.append(tid)
-        _etype = entity_type_map.get(name)
-        if _etype:
-            set_tag_type(tid, _etype)
+        set_tag_type(tid, _infer_tag_type(name, entity_type_map))
 
     # --- (3) 保護タグをマージ（上書き禁止のセール/売れ筋タグを復元） ---
     for pid in protected_ids:
@@ -461,7 +464,8 @@ def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
     if is_exclusive:
         _sn_map = {"DMM.com": "DMM", "FANZA": "FANZA", "DLsite": "DLsite", "Lovecal": "Lovecal"}
         _sn = _sn_map.get(site_label, site_label)
-        _excl = {"DLsite": "DLsite専売", "FANZA": "FANZA専売", "DMM": "DMM独占", "Lovecal": "らぶカル専売"}.get(_sn, "")
+        # v21.7.2: FANZA専売は運用停止済み。auto_post と同一マップに統一
+        _excl = {"DLsite": "DLsite専売", "DMM": "DMM独占", "Lovecal": "らぶカル専売"}.get(_sn, "")
         if not _excl and "らぶカル" in str(site_label):
             _excl = "らぶカル専売"
         if _excl and _excl not in wp_tags_parts:
@@ -707,6 +711,11 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     # v21.7.0: サークル/作者タグ（author_detail の サークル: / 著者: のみ）
     circle_names_for_tags = extract_circle_names(_auth_det_raw)
     author_names_for_tags = extract_author_names(_auth_det_raw)
+    # v21.7.2: レビュアー名・サイト名と衝突する人物/団体名は除外
+    _entity_guard = _REVIEWER_TAG_NAMES | _SITE_TAG_NAMES
+    cast_names_for_tags = [t for t in cast_names_for_tags if t not in _entity_guard]
+    circle_names_for_tags = [t for t in circle_names_for_tags if t not in _entity_guard]
+    author_names_for_tags = [t for t in author_names_for_tags if t not in _entity_guard]
 
     new_tag_ids = _build_new_tag_ids(
         ai_tags=ai_tags_from_ai,

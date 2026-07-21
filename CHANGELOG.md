@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## v21.7.2 — リライトのサイト/専売ズレ修正＋ライブ名寄せ＋気分プール30 (2026-07-22)
+
+### 🐛 fix(rewrite): DLsiteサイトタグとFANZA専売ゾンビ
+- `nexus_rewrite.NORMALIZED_LABELS` の `DLsite` を **`DLsite（がるまに）`** に修正（auto_postと統一）。リライトで裸の `DLsite` タグが新規作成され正しいサイトタグが剥がれる事故を防止。
+- 専売マップから **`FANZA専売` を削除**（v18.1.2運用停止済み／auto_postと同一：`DLsite専売`/`DMM独占`/`らぶカル専売` のみ）。
+
+### ✨ feat(auto_post): ライブ投稿でも表記ゆれ名寄せ
+- `get_or_create_term()` がタグ検索時に `normalize_entity_key` でも照合。例: 既存 `RHplus` に対し新規 `Rhplus` が来ても同一タグへ合流（表示名は既存側を維持）。本番で `Rhplus→RHplus(id同一)` を確認済み。
+- 投稿/リライト時、**全タグ**に `nv_tag_type` を付与（`_infer_tag_type`：site/reviewer/system/exclusive/ai + entity）。レビュアー名・サイト名と衝突する人物/団体名は除外。
+
+### ✨ feat(functions.php): 「今の気分は？」HTMLプールを30に削減
+- 議論どおり実装。候補をshuffle後 `array_slice(..., 30)`。JS側のPC12/スマホ8表示は維持。キャッシュ再生成ごとに顔ぶれが入れ替わる。
+
+---
+
 ## v21.7.1 — クリエイターナビを選択式（まとめ検索）に修正 (2026-07-22)
 
 ### 🔧 fix(functions.php): 「クリエイターで探す」のタグが即単体遷移していた

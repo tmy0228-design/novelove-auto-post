@@ -77,7 +77,7 @@ from novelove_core import (
     normalize_title, super_normalize_title, title_core_for_fuzzy,
     parse_title_parts, author_token_set, base_digit_suffix_conflict,
     parse_cast_names, extract_cast_from_author_detail,
-    extract_circle_names, extract_author_names,
+    extract_circle_names, extract_author_names, normalize_entity_key,
     acquire_lock, release_lock,
 )
 
@@ -168,15 +168,47 @@ def _get_thumbnail_url(image_url: str) -> str:
     return image_url
 
 # === WordPress投稿 ===
+# タグ種別印の判定用定数（v21.7.2）
+_REVIEWER_TAG_NAMES = {"紫苑", "茉莉花", "葵", "桃香", "蓮"}
+_SITE_TAG_NAMES = {"DLsite", "DLsite（がるまに）", "DMM", "らぶカル", "FANZA", "DMM.com", "Lovecal"}
+_SYSTEM_TAG_NAMES = {"売れ筋作品", "セール中", "期間限定セール", "best-seller", "sale"}
+
+
+def _infer_tag_type(name, entity_type_map=None):
+    """タグ名から nv_tag_type を推定する。entity_type_map があれば優先。"""
+    if entity_type_map and name in entity_type_map:
+        return entity_type_map[name]
+    if name in _SITE_TAG_NAMES:
+        return "site"
+    if name in _REVIEWER_TAG_NAMES:
+        return "reviewer"
+    if name in _SYSTEM_TAG_NAMES:
+        return "system"
+    if name.endswith(("専売", "独占", "限定")):
+        return "exclusive"
+    return "ai"
+
+
 def get_or_create_term(name, taxonomy):
+    """タームを検索または作成してIDを返す。
+    v21.7.2: タグ(post_tag)は normalize_entity_key でも照合し、
+    「RHplus」↔「Rhplus」「青長 花芽」↔「青長花芽」のような表記ゆれを既存タグへ合流させる。
+    """
     auth = (WP_USER, WP_APP_PASSWORD)
     try:
         import html as _html
         r = requests.get(f"{WP_SITE_URL}/wp-json/wp/v2/{taxonomy}", auth=auth, params={"search": name}, timeout=15)
         hits = r.json()
+        want_raw = _html.unescape(name)
+        want_key = normalize_entity_key(want_raw) if taxonomy == "tags" else ""
         for hit in hits:
             # v21.6.2: WPはターム名の「&」を「&amp;」で保存するため、エンティティを解いて比較
-            if _html.unescape(hit.get("name", "")) == _html.unescape(name): return hit["id"]
+            hit_raw = _html.unescape(hit.get("name", ""))
+            if hit_raw == want_raw:
+                return hit["id"]
+            # v21.7.2: 名寄せキー一致でも既存タグへ合流（表示名は既存側を維持）
+            if want_key and normalize_entity_key(hit_raw) == want_key:
+                return hit["id"]
         r2 = requests.post(f"{WP_SITE_URL}/wp-json/wp/v2/{taxonomy}", auth=auth, json={"name": name}, timeout=15)
         j = r2.json()
         term_id = j.get("id")
@@ -192,7 +224,7 @@ def get_or_create_term(name, taxonomy):
 def set_tag_type(term_id, tag_type):
     """タグ(post_tag)に種別印 nv_tag_type を付与する (v21.7.0)。
     functions.php の noindex/sitemap 閾値分岐・ナビ振り分けが参照する。
-    声優/サークル/作者を index閾値10 で扱うために使用。失敗しても投稿は継続。
+    失敗しても投稿は継続。
     """
     if not term_id or not tag_type:
         return False
@@ -280,20 +312,22 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     # 声優(CV)/サークル/作者タグの付与 (v21.6.0 / v21.7.0)
     # ※ランキング・まとめは後段の特例処理でリストが再構築されるため自然に除外される
     # 順序: サイト → AI(+専売) → 声優 → サークル → 作者 → 担当者
+    # v21.7.2: レビュアー名・サイト名と衝突する人物/団体名は種別印がぶれるので除外
+    _entity_guard = _REVIEWER_TAG_NAMES | _SITE_TAG_NAMES
     entity_type_map = {}  # name -> nv_tag_type（種別印付与用）
     if cast_names:
         for t in cast_names:
-            if t and t not in tag_names:
+            if t and t not in _entity_guard and t not in tag_names:
                 tag_names.append(t)
                 entity_type_map.setdefault(t, "cast")
     if circle_names:
         for t in circle_names:
-            if t and t not in tag_names:
+            if t and t not in _entity_guard and t not in tag_names:
                 tag_names.append(t)
                 entity_type_map.setdefault(t, "circle")
     if author_names:
         for t in author_names:
-            if t and t not in tag_names:
+            if t and t not in _entity_guard and t not in tag_names:
                 tag_names.append(t)
                 entity_type_map.setdefault(t, "author")
 
@@ -330,16 +364,15 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     tag_names = [t for t in tag_names if t not in exclude_list]
 
     # WordPress側にカテゴリやタグを問い合わせてID化
-    # v21.7.0: 声優/サークル/作者タグには種別印(nv_tag_type)を付与（index閾値10・ナビ振り分け用）
+    # v21.7.0/v21.7.2: 全タグに種別印(nv_tag_type)を付与（index閾値・ナビ振り分け用）
+    # 声優/サークル/作者は entity_type_map 優先、他は _infer_tag_type で推定
     tag_ids = []
     for name in tag_names:
         tid = get_or_create_term(name, "tags")
         if not tid:
             continue
         tag_ids.append(tid)
-        _etype = entity_type_map.get(name)
-        if _etype:
-            set_tag_type(tid, _etype)
+        set_tag_type(tid, _infer_tag_type(name, entity_type_map))
 
     post_data = {
         "title": title, "content": content, "excerpt": excerpt,
@@ -1150,6 +1183,11 @@ def _execute_posting_flow(row, cursor, conn):
     # v21.7.0: サークル/作者タグ用（author_detail の サークル: / 著者: のみ、出版社・レーベルは除外）
     circle_names_for_tags = extract_circle_names(auth_det)
     author_names_for_tags = extract_author_names(auth_det)
+    # v21.7.2: レビュアー名・サイト名と衝突する人物/団体名は除外（種別印ぶれ防止）
+    _entity_guard = _REVIEWER_TAG_NAMES | _SITE_TAG_NAMES
+    cast_names_for_tags = [t for t in cast_names_for_tags if t not in _entity_guard]
+    circle_names_for_tags = [t for t in circle_names_for_tags if t not in _entity_guard]
+    author_names_for_tags = [t for t in author_names_for_tags if t not in _entity_guard]
 
     spec_html = build_specs_html(row["release_date"], auth_det, cast_inf, ser_name, pg_count, fallback_author=row["author"], site_label=site_label, is_voice=is_voice)
     if spec_html:
