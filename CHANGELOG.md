@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## v21.6.2 — タグ説明の最新作動的差し込み＆「&」タグ付与漏れ修正 (2026-07-21)
+
+### ✨ feat(functions.php): タグmeta descriptionへ最新作タイトルを動的挿入
+- v21.6.1の自動テンプレを拡張。表示時にそのタグの最新公開記事タイトルを取得し「最新作『◯◯』ほか、」を差し込む。新規投稿のたびに説明文が自動で鮮度更新される（cron不要・実在タイトルのみで捏造ゼロ・各ページがユニーク文面になる）。
+- タイトルの【】接頭辞（専売バナー等）は除去、22文字超は省略。
+
+### 🔧 fix(auto_post): `get_or_create_term` の「&」入りタグ付与漏れ
+- WPはターム名の `&` を `&amp;` でDB保存するため、REST検索の名前比較が不一致 → POST作成が `term_exists` (400) → 旧実装は `.get("id")`=None を返し**タグが無言で付与されない**バグがあった（例: CV「カケル&しょう」）。
+- 修正: ①比較時に `html.unescape` で両辺のエンティティを解いて照合、②`term_exists` エラー時は `data.term_id` から既存IDを回収。新規タグの重複作成は従来どおりWPのslug衝突で防がれる。`nexus_rewrite` はimport経由で自動適用。
+
+---
+
+## v21.6.1 — タグページmeta descriptionの自動テンプレ補完 (2026-07-21)
+
+### ✨ feat(functions.php): 説明未設定タグのCocoon既定文を自動置換
+- Cocoonの `get_tag_meta_description` フィルター（meta/og:description共通経路）で、既定文「「◯◯」の記事一覧です。」のときだけ `『◯◯』に関連するBL・TL作品を◯点掲載中。…` テンプレへ差し替え。
+- **手動設定（`the_tag_meta_description`）・term description があるタグは一切上書きしない**（ジャンルタグ38件の手書き説明は維持）。JSON-LDの説明文も同関数に単一ソース化。
+- 声優タグへのAI説明生成は**不採用**と決定（無名声優は情報がなく、経歴捏造リスク（FACT_GUARD違反）の方が大きい。声優名は指名検索で元々強く、説明文は順位要因でないため）。
+
+---
+
 ## v21.6.0 — 声優(CV)のWPタグ自動付与＆cast_info一元化 (2026-07-21)
 
 ### ✨ feat(core/fetcher/auto_post/rewrite): 声優名をWPタグ化してSEO・回遊導線を作る

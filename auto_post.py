@@ -170,12 +170,20 @@ def _get_thumbnail_url(image_url: str) -> str:
 def get_or_create_term(name, taxonomy):
     auth = (WP_USER, WP_APP_PASSWORD)
     try:
+        import html as _html
         r = requests.get(f"{WP_SITE_URL}/wp-json/wp/v2/{taxonomy}", auth=auth, params={"search": name}, timeout=15)
         hits = r.json()
         for hit in hits:
-            if hit.get("name") == name: return hit["id"]
+            # v21.6.2: WPはターム名の「&」を「&amp;」で保存するため、エンティティを解いて比較
+            if _html.unescape(hit.get("name", "")) == _html.unescape(name): return hit["id"]
         r2 = requests.post(f"{WP_SITE_URL}/wp-json/wp/v2/{taxonomy}", auth=auth, json={"name": name}, timeout=15)
-        return r2.json().get("id")
+        j = r2.json()
+        term_id = j.get("id")
+        # v21.6.2: 検索一致をすり抜けて term_exists になった場合、エラーから既存IDを回収する
+        # （旧実装はここでNoneを返し、&入りタグ等が無言で付与されないバグがあった）
+        if not term_id and j.get("code") == "term_exists":
+            term_id = (j.get("data") or {}).get("term_id")
+        return term_id
     except Exception:
         return None
 
