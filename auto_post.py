@@ -489,98 +489,104 @@ def _run_main_logic():
     tried_details = []
     error_count = 0  # ★ 連続失敗カウンター
 
-    # v21.7.3: 専売品が在庫内に存在するかチェックし、存在する場合は専売品を最優先でラウンドロビン選択
+    # v21.7.4: 専売品が在庫内に存在するかチェック
     check_conn = db_connect(DB_FILE_UNIFIED)
     has_exclusive_pending = check_conn.execute(
         "SELECT COUNT(*) FROM novelove_posts WHERE status='pending' AND is_exclusive=1"
     ).fetchone()[0] > 0
     check_conn.close()
 
-    for i in range(len(FETCH_TARGETS)):
-        # ★ 5分タイムアウトチェック（緊急停止ではなくスキップ＆リトライ）
-        if time.time() - start_time > 300:
-            logger.warning("⏰ 今回の投稿をスキップしました（5分タイムアウト）。次回のcronで自動リトライします。")
-            notify_discord(
-                "⏰ **投稿処理がタイムアウトしました**\n"
-                "今回の投稿はスキップされましたが、次回のcron（30分後）で自動リトライします。\n"
-                "※ 連続して発生する場合はサーバーのネットワーク状態を確認してください。",
-                username="⏰ タイムアウト通知"
-            )
+    # 1段階目（has_exclusive_pending が True の場合は専売品のみ優先、False の場合は通常通り）
+    # 2段階目（専売品試行で1件も成功しなかった場合の通常品フォールバック試行）
+    exclusive_passes = [True, False] if has_exclusive_pending else [False]
+
+    for is_exclusive_pass in exclusive_passes:
+        if posted or is_emergency_stop():
             break
 
-        target_info = FETCH_TARGETS[(g_idx_base + i) % len(FETCH_TARGETS)]
-        # v18.0.0: source_dbでサイトグループを絞り込み（サイト間の混在防止）
-        source_db_val = target_info.get("source_db") or get_source_db(target_info.get("site", "Lovecal"))
-        genre = target_info["genre"]
-        conn = db_connect(DB_FILE_UNIFIED)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        # v11.4.7: SELECT * を廃止し、カラム名を明示的に指定 (v13.2.3: original_tags, is_exclusive 追加)
-        # v15.7.0: ORDER BY に desc_score DESC を追加し、品質スコアの高い記事を優先投稿する
-        # v18.0.0: AND source_db=? を追加し、サイトグループ内でのみ選択する
-        # v21.7.3: 専売品が存在する場合は is_exclusive=1 のみを対象にラウンドロビン検索
-        if has_exclusive_pending:
-            rows = c.execute(
-                "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive, author_detail, cast_info, series_name, page_count FROM novelove_posts WHERE status='pending' AND is_exclusive=1 AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
-                (genre, source_db_val)
-            ).fetchall()
-        else:
-            rows = c.execute(
-                "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive, author_detail, cast_info, series_name, page_count FROM novelove_posts WHERE status='pending' AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
-                (genre, source_db_val)
-            ).fetchall()
-        
-        category_success = False
-        if rows:
-            for row in rows:
-                # ★ 5分タイムアウトチェック（ループ内でも実施）
-                if time.time() - start_time > 300:
-                    break
-                
-                pid = row['product_id']
-                try:
-                    # ★ 全体をtry-exceptで囲む（想定外の例外も捕捉）
-                    success, reason = _execute_posting_flow(row, c, conn)
-                except Exception as e:
-                    logger.error(f"  [想定外エラー] {e}")
-                    try:
-                        c.execute("UPDATE novelove_posts SET status='excluded', last_error='unexpected_error' WHERE product_id=?", (pid,))
-                        conn.commit()
-                    except Exception:
-                        pass
-                    success = False
-                    reason = "unexpected_error"
+        if is_exclusive_pass:
+            logger.info("★ [専売割込み] 専売在庫を優先ラウンドロビン巡回します。")
 
-                label = ERROR_LABELS.get(reason, reason) if reason else "成功"
-                tried_details.append(f"・{row['title'][:30]}... ({target_info['label']}) ➔ {label}")
-                if success:
-                    posted = True
-                    category_success = True
-                    error_count = 0  # 成功したらリセット
-                    break  # 投稿成功したので、このカテゴリのループを抜ける
-                else:
-                    # 正常な選別処理（品質フィルタ）の結果はサーキットブレーカー対象外
-                    NORMAL_FILTER_REASONS = ("low_score", "duplicate_fuzzy", "excluded_foreign", "image_missing", "no_desc_or_image", "thin_score3", "excluded_by_pre_filter")
-                    is_normal_filter = any(reason and reason.startswith(r) for r in NORMAL_FILTER_REASONS)
-                    if is_normal_filter:
-                        logger.info(f"  [フィルタ除外] {reason} — サーキットブレーカー対象外。次の保留作品を試します。")
-                    else:
-                        error_count += 1
-                    # ★ 3回連続「異常系」失敗でサーキットブレーカー発動
-                    if error_count >= 3:
-                        trigger_emergency_stop(f"投稿が3回連続失敗しました（最後の理由: {reason}）")
+        for i in range(len(FETCH_TARGETS)):
+            # ★ 5分タイムアウトチェック（緊急停止ではなくスキップ＆リトライ）
+            if time.time() - start_time > 300:
+                logger.warning("⏰ 今回の投稿をスキップしました（5分タイムアウト）。次回のcronで自動リトライします。")
+                notify_discord(
+                    "⏰ **投稿処理がタイムアウトしました**\n"
+                    "今回の投稿はスキップされましたが、次回のcron（30分後）で自動リトライします。\n"
+                    "※ 連続して発生する場合はサーバーのネットワーク状態を確認してください。",
+                    username="⏰ タイムアウト通知"
+                )
+                break
+
+            target_info = FETCH_TARGETS[(g_idx_base + i) % len(FETCH_TARGETS)]
+            source_db_val = target_info.get("source_db") or get_source_db(target_info.get("site", "Lovecal"))
+            genre = target_info["genre"]
+            conn = db_connect(DB_FILE_UNIFIED)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # v21.7.4: is_exclusive_pass に応じて SQL 条件を分岐
+            if is_exclusive_pass:
+                rows = c.execute(
+                    "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive, author_detail, cast_info, series_name, page_count FROM novelove_posts WHERE status='pending' AND is_exclusive=1 AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
+                    (genre, source_db_val)
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive, author_detail, cast_info, series_name, page_count FROM novelove_posts WHERE status='pending' AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
+                    (genre, source_db_val)
+                ).fetchall()
+            
+            category_success = False
+            if rows:
+                for row in rows:
+                    if time.time() - start_time > 300:
                         break
-        else:
-            logger.info(f"  -> {target_info['label']} にpendingなし。次へ...")
-        conn.close()
-        
-        # 緊急停止発動時は全体のカテゴリ巡回ループも抜ける
-        if is_emergency_stop():
-            break
-        if posted:
-            save_genre_index(g_idx_base + i + 1)
-            logger.info(f"✅ {target_info['label']} にて投稿成功。")
-            break
+                    
+                    pid = row['product_id']
+                    try:
+                        success, reason = _execute_posting_flow(row, c, conn)
+                    except Exception as e:
+                        logger.error(f"  [想定外エラー] {e}")
+                        try:
+                            c.execute("UPDATE novelove_posts SET status='excluded', last_error='unexpected_error' WHERE product_id=?", (pid,))
+                            conn.commit()
+                        except Exception:
+                            pass
+                        success = False
+                        reason = "unexpected_error"
+
+                    label = ERROR_LABELS.get(reason, reason) if reason else "成功"
+                    tried_details.append(f"・{row['title'][:30]}... ({target_info['label']}) ➔ {label}")
+                    if success:
+                        posted = True
+                        category_success = True
+                        error_count = 0
+                        break
+                    else:
+                        NORMAL_FILTER_REASONS = ("low_score", "duplicate_fuzzy", "excluded_foreign", "image_missing", "no_desc_or_image", "thin_score3", "excluded_by_pre_filter")
+                        is_normal_filter = any(reason and reason.startswith(r) for r in NORMAL_FILTER_REASONS)
+                        if is_normal_filter:
+                            logger.info(f"  [フィルタ除外] {reason} — サーキットブレーカー対象外。次の保留作品を試します。")
+                        else:
+                            error_count += 1
+                        if error_count >= 3:
+                            trigger_emergency_stop(f"投稿が3回連続失敗しました（最後の理由: {reason}）")
+                            break
+            else:
+                logger.info(f"  -> {target_info['label']} にpendingなし。次へ...")
+            conn.close()
+            
+            if is_emergency_stop():
+                break
+            if posted:
+                save_genre_index(g_idx_base + i + 1)
+                logger.info(f"✅ {target_info['label']} にて投稿成功。")
+                break
+
+        if is_exclusive_pass and not posted and not is_emergency_stop():
+            logger.warning("⚠️ 専売作品の候補が全件除外/失敗したため、通常作品の巡回へフォールバックします。")
     if not posted:
         # 在庫統計レポート
         # v18.0.0: 統合DB1本から在庫カウント
