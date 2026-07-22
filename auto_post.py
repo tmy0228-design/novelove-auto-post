@@ -74,10 +74,7 @@ from novelove_core import (
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
     DLSITE_AFFILIATE_ID,
     WP_PHP_PATH, WP_CLI_PATH, WP_DOC_ROOT,
-    normalize_title, super_normalize_title, title_core_for_fuzzy,
-    parse_title_parts, author_token_set, base_digit_suffix_conflict,
-    parse_cast_names, extract_cast_from_author_detail,
-    extract_circle_names, extract_author_names, normalize_entity_key,
+    normalize_title, super_normalize_title,
     acquire_lock, release_lock,
 )
 
@@ -168,85 +165,23 @@ def _get_thumbnail_url(image_url: str) -> str:
     return image_url
 
 # === WordPress投稿 ===
-# タグ種別印の判定用定数（v21.7.2）
-_REVIEWER_TAG_NAMES = {"紫苑", "茉莉花", "葵", "桃香", "蓮"}
-_SITE_TAG_NAMES = {"DLsite", "DLsite（がるまに）", "DMM", "らぶカル", "FANZA", "DMM.com", "Lovecal"}
-_SYSTEM_TAG_NAMES = {"売れ筋作品", "セール中", "期間限定セール", "best-seller", "sale"}
-
-
-def _infer_tag_type(name, entity_type_map=None):
-    """タグ名から nv_tag_type を推定する。entity_type_map があれば優先。"""
-    if entity_type_map and name in entity_type_map:
-        return entity_type_map[name]
-    if name in _SITE_TAG_NAMES:
-        return "site"
-    if name in _REVIEWER_TAG_NAMES:
-        return "reviewer"
-    if name in _SYSTEM_TAG_NAMES:
-        return "system"
-    if name.endswith(("専売", "独占", "限定")):
-        return "exclusive"
-    return "ai"
-
-
 def get_or_create_term(name, taxonomy):
-    """タームを検索または作成してIDを返す。
-    v21.7.2: タグ(post_tag)は normalize_entity_key でも照合し、
-    「RHplus」↔「Rhplus」「青長 花芽」↔「青長花芽」のような表記ゆれを既存タグへ合流させる。
-    """
     auth = (WP_USER, WP_APP_PASSWORD)
     try:
-        import html as _html
         r = requests.get(f"{WP_SITE_URL}/wp-json/wp/v2/{taxonomy}", auth=auth, params={"search": name}, timeout=15)
         hits = r.json()
-        want_raw = _html.unescape(name)
-        want_key = normalize_entity_key(want_raw) if taxonomy == "tags" else ""
         for hit in hits:
-            # v21.6.2: WPはターム名の「&」を「&amp;」で保存するため、エンティティを解いて比較
-            hit_raw = _html.unescape(hit.get("name", ""))
-            if hit_raw == want_raw:
-                return hit["id"]
-            # v21.7.2: 名寄せキー一致でも既存タグへ合流（表示名は既存側を維持）
-            if want_key and normalize_entity_key(hit_raw) == want_key:
-                return hit["id"]
+            if hit.get("name") == name: return hit["id"]
         r2 = requests.post(f"{WP_SITE_URL}/wp-json/wp/v2/{taxonomy}", auth=auth, json={"name": name}, timeout=15)
-        j = r2.json()
-        term_id = j.get("id")
-        # v21.6.2: 検索一致をすり抜けて term_exists になった場合、エラーから既存IDを回収する
-        # （旧実装はここでNoneを返し、&入りタグ等が無言で付与されないバグがあった）
-        if not term_id and j.get("code") == "term_exists":
-            term_id = (j.get("data") or {}).get("term_id")
-        return term_id
+        return r2.json().get("id")
     except Exception:
         return None
 
-
-def set_tag_type(term_id, tag_type):
-    """タグ(post_tag)に種別印 nv_tag_type を付与する (v21.7.0)。
-    functions.php の noindex/sitemap 閾値分岐・ナビ振り分けが参照する。
-    失敗しても投稿は継続。
-    """
-    if not term_id or not tag_type:
-        return False
-    try:
-        requests.post(
-            f"{WP_SITE_URL}/wp-json/wp/v2/tags/{term_id}",
-            auth=(WP_USER, WP_APP_PASSWORD),
-            json={"meta": {"nv_tag_type": tag_type}}, timeout=15,
-        )
-        return True
-    except Exception:
-        return False
-
-def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None, overwrite=False, cast_names=None, circle_names=None, author_names=None):
+def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None):
     """
     WordPress REST API で投稿。FIFUプラグイン経由で外部リンクをアイキャッチに設定。
     image_url: 記事本文に埋め込む大きい画像URL
     thumb_url: FIFUアイキャッチに設定する軽量サムネURL（省略時はimage_urlをそのまま使用）
-    overwrite: True の場合、同一 slug の既存投稿があればそれを上書き更新する（v21.5.0: 固定スラグ・ランキング記事用）。
-    cast_names: 声優(CV)名のリスト（v21.6.0: parse_cast_names() 済みの正規化名を渡すこと）。通常記事のみタグ化される。
-    circle_names: サークル名リスト（v21.7.0: extract_circle_names() 済み）。通常記事のみタグ化。
-    author_names: 作者名リスト（v21.7.0: extract_author_names() 済み）。通常記事のみタグ化。
     """
     auth = (WP_USER, WP_APP_PASSWORD)
     # FIFUには軽量サムネを使用（A+C方式）
@@ -309,28 +244,6 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         for t in ai_tags:
             if t and t not in tag_names: tag_names.append(t)
 
-    # 声優(CV)/サークル/作者タグの付与 (v21.6.0 / v21.7.0)
-    # ※ランキング・まとめは後段の特例処理でリストが再構築されるため自然に除外される
-    # 順序: サイト → AI(+専売) → 声優 → サークル → 作者 → 担当者
-    # v21.7.2: レビュアー名・サイト名と衝突する人物/団体名は種別印がぶれるので除外
-    _entity_guard = _REVIEWER_TAG_NAMES | _SITE_TAG_NAMES
-    entity_type_map = {}  # name -> nv_tag_type（種別印付与用）
-    if cast_names:
-        for t in cast_names:
-            if t and t not in _entity_guard and t not in tag_names:
-                tag_names.append(t)
-                entity_type_map.setdefault(t, "cast")
-    if circle_names:
-        for t in circle_names:
-            if t and t not in _entity_guard and t not in tag_names:
-                tag_names.append(t)
-                entity_type_map.setdefault(t, "circle")
-    if author_names:
-        for t in author_names:
-            if t and t not in _entity_guard and t not in tag_names:
-                tag_names.append(t)
-                entity_type_map.setdefault(t, "author")
-
     # 担当者タグの付与
     if reviewer and reviewer not in tag_names:
         tag_names.append(reviewer)
@@ -364,53 +277,15 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     tag_names = [t for t in tag_names if t not in exclude_list]
 
     # WordPress側にカテゴリやタグを問い合わせてID化
-    # v21.7.0/v21.7.2: 全タグに種別印(nv_tag_type)を付与（index閾値・ナビ振り分け用）
-    # 声優/サークル/作者は entity_type_map 優先、他は _infer_tag_type で推定
-    tag_ids = []
-    for name in tag_names:
-        tid = get_or_create_term(name, "tags")
-        if not tid:
-            continue
-        tag_ids.append(tid)
-        set_tag_type(tid, _infer_tag_type(name, entity_type_map))
+    tag_ids = [t for t in [get_or_create_term(name, "tags") for name in tag_names] if t]
 
     post_data = {
         "title": title, "content": content, "excerpt": excerpt,
         "status": "publish", "slug": slug,
         "categories": categories, "tags": tag_ids, "meta": meta,
     }
-
-    # v21.5.0: overwrite=True かつ同一slugの既存投稿があれば、新規作成ではなく上書き更新する。
-    # （固定スラグ運用のランキング記事で、毎週スラグに -2 が付く重複を防止する）
-    # v21.5.1: status を配列で渡すと WP REST が空配列を返すケースがあるため、
-    # 認証付きで status=any を使い、見つからなければ status 省略（公開のみ）で再試行する。
-    endpoint = f"{WP_SITE_URL}/wp-json/wp/v2/posts"
-    if overwrite and slug:
-        try:
-            existing_id = None
-            for status_param in ("any", None):
-                params = {"slug": slug, "per_page": 1, "_fields": "id,slug,status"}
-                if status_param is not None:
-                    params["status"] = status_param
-                existing = requests.get(endpoint, auth=auth, params=params, timeout=20)
-                if existing.status_code != 200:
-                    continue
-                arr = existing.json()
-                if isinstance(arr, list) and arr and arr[0].get("id"):
-                    existing_id = arr[0]["id"]
-                    break
-            if existing_id:
-                endpoint = f"{WP_SITE_URL}/wp-json/wp/v2/posts/{existing_id}"
-                # 「今週のピックアップ」の鮮度を出すため公開日を現在時刻へ更新する
-                post_data["date"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-                logger.info(f"  [WP] 既存スラグ '{slug}' を上書き更新します (ID={existing_id})")
-            else:
-                logger.warning(f"  [WP] 既存スラグ '{slug}' が見つからないため新規作成します")
-        except Exception as e:
-            logger.warning(f"  [WP] 既存スラグ確認に失敗（新規作成にフォールバック）: {e}")
-
     try:
-        r = requests.post(endpoint, auth=auth, json=post_data, timeout=40)
+        r = requests.post(f"{WP_SITE_URL}/wp-json/wp/v2/posts", auth=auth, json=post_data, timeout=40)
     except Exception as e:
         logger.error(f"WordPress投稿接続エラー: {e}")
         return None, None
@@ -491,10 +366,7 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 def _get_dynamic_cooldown() -> int:
     """
     v21.2.6: DBの投稿待ち在庫(pending)数に応じてクールダウン時間を動的に決定する。
-    v21.5.9: アクティブの閾値を14分→10分に修正。
-      cron*/15 かつ投稿完了が起動数分後だと、14分では次cron（経過≈12〜14分）で
-      弾かれ実効30分になっていた。10分なら毎回のcronで投稿でき実効15分＝意図どおり。
-    - 在庫30件以上 -> 10分 (実効15分間隔 / 日最大96件: アクティブモード)
+    - 在庫30件以上 -> 14分 (実効15分間隔 / 日最大96件: アクティブモード)
     - 在庫10～29件 -> 25分 (実効30分間隔 / 日最大48件: 標準モード)
     - 在庫9件以下  -> 55分 (実効60分間隔 / 日最大24件: セーブモード)
     エラー発生時はデフォルトの25分を返す。
@@ -511,7 +383,7 @@ def _get_dynamic_cooldown() -> int:
         return 25  # フォールバック
 
     if count >= 30:
-        cooldown = 10   # アクティブ: cron*/15 で毎回投稿（14分だと次cronで弾かれ実効30分になる）
+        cooldown = 14   # アクティブモード: cronの度に毎回投稿
     elif count >= 10:
         cooldown = 25   # 標準モード: 現状維持
     else:
@@ -617,6 +489,13 @@ def _run_main_logic():
     tried_details = []
     error_count = 0  # ★ 連続失敗カウンター
 
+    # v21.7.3: 専売品が在庫内に存在するかチェックし、存在する場合は専売品を最優先でラウンドロビン選択
+    check_conn = db_connect(DB_FILE_UNIFIED)
+    has_exclusive_pending = check_conn.execute(
+        "SELECT COUNT(*) FROM novelove_posts WHERE status='pending' AND is_exclusive=1"
+    ).fetchone()[0] > 0
+    check_conn.close()
+
     for i in range(len(FETCH_TARGETS)):
         # ★ 5分タイムアウトチェック（緊急停止ではなくスキップ＆リトライ）
         if time.time() - start_time > 300:
@@ -639,10 +518,17 @@ def _run_main_logic():
         # v11.4.7: SELECT * を廃止し、カラム名を明示的に指定 (v13.2.3: original_tags, is_exclusive 追加)
         # v15.7.0: ORDER BY に desc_score DESC を追加し、品質スコアの高い記事を優先投稿する
         # v18.0.0: AND source_db=? を追加し、サイトグループ内でのみ選択する
-        rows = c.execute(
-            "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive, author_detail, cast_info, series_name, page_count FROM novelove_posts WHERE status='pending' AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
-            (genre, source_db_val)
-        ).fetchall()
+        # v21.7.3: 専売品が存在する場合は is_exclusive=1 のみを対象にラウンドロビン検索
+        if has_exclusive_pending:
+            rows = c.execute(
+                "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive, author_detail, cast_info, series_name, page_count FROM novelove_posts WHERE status='pending' AND is_exclusive=1 AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
+                (genre, source_db_val)
+            ).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT product_id, title, author, genre, site, status, description, affiliate_url, image_url, product_url, release_date, post_type, desc_score, ai_tags, reviewer, original_tags, is_exclusive, author_detail, cast_info, series_name, page_count FROM novelove_posts WHERE status='pending' AND genre=? AND source_db=? ORDER BY desc_score DESC, inserted_at DESC",
+                (genre, source_db_val)
+            ).fetchall()
         
         category_success = False
         if rows:
@@ -775,104 +661,55 @@ def extract_tail_number(title_str):
             
     return None
 
-# === [v12.2.0 / v21.5.13] クロスDB重複排除（タイトル分解 + 作者 + あらすじ）===
-def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90,
-                          author=None, author_detail=None):
-    """
-    全DBを横断し、同一作品の published 記事があるか判定する。
-    - 表記ゆれ正規化＋本体/話数/売り方分解
-    - タテヨミ等パッケージ × 個別話数は別SKU
-    - 単話 × 話数は同一話候補
-    - 作者トークン一致で補強（話数判別には使わない）
-    """
-    parts_new = parse_title_parts(new_title)
-    if not parts_new["base"]:
+# === [v12.2.0] クロスDB重複排除（Fuzzy Matching）===
+def is_cross_db_duplicate(new_title, new_desc, current_pid, threshold=0.90):
+    """全DBを横断し、スッピンタイトルの類似度が閾値以上の published 記事があるか判定する。"""
+    norm_new_clean = super_normalize_title(new_title)
+    if not norm_new_clean:
         return False, "", 0.0
-
-    clean_prefix = parts_new["base"][:5] or parts_new["base"][:2]
+    
+    # 記号・スペースを排除した純粋なスッピンタイトルの先頭5文字を部分一致のキーにする
+    clean_prefix = norm_new_clean[:5]
+    if not clean_prefix:
+        clean_prefix = norm_new_clean[:2]  # フォールバック
     if not clean_prefix:
         return False, "", 0.0
+        
     query_pattern = f"%{clean_prefix}%"
-    authors_new = author_token_set(author, author_detail)
-
+    norm_new = normalize_title(new_title)
+    new_tail_num = extract_tail_number(new_title)
+    
+    # v18.0.0: 統合DB1本で全サイト横断検索（検索漏れがなくなり改善）
     try:
         c2 = db_connect(DB_FILE_UNIFIED)
         c2.row_factory = sqlite3.Row
+        # SQL側で正規化タイトルに対する部分一致で高速絞り込み（LIMIT制限なし）
         rows = c2.execute(
-            "SELECT product_id, title, description, author, author_detail "
-            "FROM novelove_posts WHERE status='published' AND product_id!=? "
-            "AND super_normalize_title(title) LIKE ?",
-            (current_pid, query_pattern),
+            "SELECT product_id, title, description FROM novelove_posts WHERE status='published' AND product_id!=? AND super_normalize_title(title) LIKE ?",
+            (current_pid, query_pattern)
         ).fetchall()
         c2.close()
-
         for r in rows:
-            parts_old = parse_title_parts(r["title"])
-            if not parts_old["base"]:
+            norm_existing = normalize_title(r['title'])
+            if not norm_existing:
                 continue
-
-            if (
-                parts_new["episode"] is not None
-                and parts_old["episode"] is not None
-                and parts_new["episode"] != parts_old["episode"]
-            ):
-                logger.info(
-                    f"  [重複回避(話数違い)] 新規:{parts_new['episode']} 既存:{parts_old['episode']} "
-                    f"({r['title'][:20]})"
-                )
+                
+            # 話数・巻数（末尾数字）の異なる作品を重複から除外（救済）
+            existing_tail_num = extract_tail_number(r['title'])
+            if new_tail_num is not None and existing_tail_num is not None and new_tail_num != existing_tail_num:
+                logger.info(f"  [重複回避(話数違い)] 新規末尾: {new_tail_num}, 既存末尾: {existing_tail_num} のため別作品と判定します (既存: {r['title'][:20]})")
                 continue
-
-            if (parts_new["is_package"] and parts_old["episode"] is not None) or (
-                parts_old["is_package"] and parts_new["episode"] is not None
-            ):
-                logger.info(
-                    f"  [重複回避(版違い)] パッケージ×話数のため別SKU ({r['title'][:20]})"
-                )
-                continue
-
-            if base_digit_suffix_conflict(parts_new["base"], parts_old["base"]):
-                continue
-
-            ratio = difflib.SequenceMatcher(
-                None, parts_new["base"], parts_old["base"]
-            ).ratio()
-            if ratio < threshold:
-                continue
-
-            existing_desc = r["description"]
-            desc_ratio = None
-            if new_desc and existing_desc:
-                desc_ratio = difflib.SequenceMatcher(
-                    None, str(new_desc), str(existing_desc)
-                ).ratio()
-                if desc_ratio < 0.30:
-                    logger.info(
-                        f"  [重複回避(あらすじ)] タイトル{ratio:.0%}だがあらすじ{desc_ratio:.0%} "
-                        f"({r['title'][:20]})"
-                    )
-                    continue
-
-            authors_old = author_token_set(r["author"], r["author_detail"])
-            author_overlap = bool(authors_new & authors_old) if (authors_new and authors_old) else None
-
-            ep_mismatch = (parts_new["episode"] is None) != (parts_old["episode"] is None)
-            single_bridge = parts_new["is_single_sale"] or parts_old["is_single_sale"]
-            if ep_mismatch and not single_bridge:
-                desc_ok = desc_ratio is not None and desc_ratio >= 0.70
-                if not (author_overlap or desc_ok):
-                    logger.info(
-                        f"  [重複回避(片側話数・根拠不足)] ({r['title'][:20]})"
-                    )
-                    continue
-
-            if author_overlap is False:
-                if not (desc_ratio is not None and desc_ratio >= 0.70):
-                    logger.info(
-                        f"  [重複回避(作者不一致)] ({r['title'][:20]})"
-                    )
-                    continue
-
-            return True, r["title"], ratio
+                
+            ratio = difflib.SequenceMatcher(None, norm_new, norm_existing).ratio()
+            if ratio >= threshold:
+                # あらすじ（description）の類似度セーフガード
+                existing_desc = r['description']
+                if new_desc and existing_desc:
+                    desc_ratio = difflib.SequenceMatcher(None, str(new_desc), str(existing_desc)).ratio()
+                    if desc_ratio < 0.30:
+                        logger.info(f"  [重複回避(救済)] タイトル類似度 {ratio:.0%} ({r['title'][:20]}) ですが、あらすじ類似度 {desc_ratio:.0%} のため別作品と判定します")
+                        continue
+                return True, r['title'], ratio
     except Exception as e:
         logger.warning(f"  [重複チェック] DB読み込みエラー: {e}")
     return False, "", 0.0
@@ -1065,14 +902,8 @@ def _execute_posting_flow(row, cursor, conn):
         "is_exclusive":  row["is_exclusive"] if "is_exclusive" in row.keys() else 0,
     }
 
-    # v12.2.0 / v21.5.13: 統合DB・タイトル分解ベースの重複チェック
-    is_dup, dup_title, dup_ratio = is_cross_db_duplicate(
-        title,
-        desc_str,
-        pid,
-        author=row["author"] or "",
-        author_detail=row["author_detail"] if "author_detail" in row.keys() else "",
-    )
+    # v12.2.0: 統合DB・Fuzzy Matching重複チェック (旧24hガードレールを完全置換)
+    is_dup, dup_title, dup_ratio = is_cross_db_duplicate(title, desc_str, pid)
     if is_dup:
         logger.warning(f"  [重複ブロック] スッピンタイトル '{normalize_title(title)}' は '{normalize_title(dup_title)}' と類似度 {dup_ratio:.0%} のためスキップ (元: {dup_title[:40]})")
         cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='duplicate_fuzzy' WHERE product_id=?", (pid,))
@@ -1175,20 +1006,6 @@ def _execute_posting_flow(row, cursor, conn):
     
     genre_str = row_dict.get("genre", "") or ""
     is_voice = "voice" in str(genre_str).lower()
-
-    # v21.6.0: 声優(CV)タグ用の正規化名リスト（cast_info優先、空ならauthor_detailの声優欄から回収）
-    cast_names_for_tags = parse_cast_names(cast_inf)
-    if not cast_names_for_tags:
-        cast_names_for_tags = extract_cast_from_author_detail(auth_det)
-    # v21.7.0: サークル/作者タグ用（author_detail の サークル: / 著者: のみ、出版社・レーベルは除外）
-    circle_names_for_tags = extract_circle_names(auth_det)
-    author_names_for_tags = extract_author_names(auth_det)
-    # v21.7.2: レビュアー名・サイト名と衝突する人物/団体名は除外（種別印ぶれ防止）
-    _entity_guard = _REVIEWER_TAG_NAMES | _SITE_TAG_NAMES
-    cast_names_for_tags = [t for t in cast_names_for_tags if t not in _entity_guard]
-    circle_names_for_tags = [t for t in circle_names_for_tags if t not in _entity_guard]
-    author_names_for_tags = [t for t in author_names_for_tags if t not in _entity_guard]
-
     spec_html = build_specs_html(row["release_date"], auth_det, cast_inf, ser_name, pg_count, fallback_author=row["author"], site_label=site_label, is_voice=is_voice)
     if spec_html:
         # 二重挿入防止ガードレール
@@ -1218,8 +1035,7 @@ def _execute_posting_flow(row, cursor, conn):
         wp_title, content, row["genre"], img_url,
         excerpt=excerpt, seo_title=seo_title, slug=pid, is_r18=is_r18,
         site_label=site_label, ai_tags=final_ai_tags, reviewer=rev_name,
-        thumb_url=thumb_url, cast_names=cast_names_for_tags,
-        circle_names=circle_names_for_tags, author_names=author_names_for_tags
+        thumb_url=thumb_url
     )
     
     if link:
@@ -1232,16 +1048,6 @@ def _execute_posting_flow(row, cursor, conn):
         if _site_name_for_wp:
             _wp_tags_parts.append(_site_name_for_wp)
         for _t in final_ai_tags:
-            if _t and _t not in _wp_tags_parts:
-                _wp_tags_parts.append(_t)
-        # v21.6.0/v21.7.0: 声優→サークル→作者（post_to_wordpress と同一順序で挿入）
-        for _t in cast_names_for_tags:
-            if _t and _t not in _wp_tags_parts:
-                _wp_tags_parts.append(_t)
-        for _t in circle_names_for_tags:
-            if _t and _t not in _wp_tags_parts:
-                _wp_tags_parts.append(_t)
-        for _t in author_names_for_tags:
             if _t and _t not in _wp_tags_parts:
                 _wp_tags_parts.append(_t)
         if rev_name and rev_name not in _wp_tags_parts:
@@ -1319,7 +1125,6 @@ def _execute_posting_flow(row, cursor, conn):
                     wp_tags_str=wp_tags_str,
                     image_url=img_url,
                     is_r18=is_r18,
-                    exclude_extra=(cast_names_for_tags + circle_names_for_tags + author_names_for_tags),
                 )
             except Exception as _bsky_err:
                 logger.error(f"🚨 Bluesky呼び出しで予期せぬエラー（続行）: {_bsky_err}")
@@ -1378,11 +1183,8 @@ def main():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Novelove Auto Posting Tool")
     parser.add_argument("--ranking", action="store_true", help="Run the ranking generation workflow")
-    parser.add_argument("--ranking-force-all", action="store_true", help="Generate/overwrite all 6 fixed-slug ranking articles regardless of weekday (v21.5.0 one-time seeding)")
     args = parser.parse_args()
-    if args.ranking_force_all:
-        process_ranking_articles(force_all=True)
-    elif args.ranking:
+    if args.ranking:
         process_ranking_articles()
     else:
         main()
