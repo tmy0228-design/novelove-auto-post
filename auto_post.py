@@ -59,7 +59,7 @@ import argparse
 # --- Discord通知機能 ---
 # --- ライター性格設定・執筆ルール（novelove_soul.py に分離管理）---
 from novelove_soul import REVIEWERS
-from novelove_bluesky import post_to_bluesky
+from novelove_bluesky import post_to_bluesky, classify_is_doujin_market
 
 from novelove_core import (
     logger, ERROR_LABELS, notify_discord,
@@ -171,7 +171,11 @@ def _get_thumbnail_url(image_url: str) -> str:
 # タグ種別印の判定用定数（v21.7.2）
 _REVIEWER_TAG_NAMES = {"紫苑", "茉莉花", "葵", "桃香", "蓮"}
 _SITE_TAG_NAMES = {"DLsite", "DLsite（がるまに）", "DMM", "らぶカル", "FANZA", "DMM.com", "Lovecal"}
-_SYSTEM_TAG_NAMES = {"売れ筋作品", "セール中", "期間限定セール", "best-seller", "sale"}
+_SYSTEM_TAG_NAMES = {
+    "売れ筋作品", "セール中", "期間限定セール", "best-seller", "sale",
+    "同人", "商業", "R-18", "全年齢",
+}
+_MARKET_TAG_NAMES = ("同人", "商業")
 
 
 def _infer_tag_type(name, entity_type_map=None):
@@ -238,7 +242,7 @@ def set_tag_type(term_id, tag_type):
     except Exception:
         return False
 
-def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None, overwrite=False, cast_names=None, circle_names=None, author_names=None):
+def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None, overwrite=False, cast_names=None, circle_names=None, author_names=None, market_tag=None):
     """
     WordPress REST API で投稿。FIFUプラグイン経由で外部リンクをアイキャッチに設定。
     image_url: 記事本文に埋め込む大きい画像URL
@@ -305,13 +309,17 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         site_name = normalized_labels.get(site_label, site_label)
         if site_name and site_name not in tag_names: tag_names.append(site_name)
 
+    # 出処タグ（v21.7.12）: サイト直後。ランキング・まとめは後段でリスト再構築され自然除外
+    if market_tag in _MARKET_TAG_NAMES and market_tag not in tag_names:
+        tag_names.append(market_tag)
+
     if ai_tags:
         for t in ai_tags:
             if t and t not in tag_names: tag_names.append(t)
 
     # 声優(CV)/サークル/作者タグの付与 (v21.6.0 / v21.7.0)
     # ※ランキング・まとめは後段の特例処理でリストが再構築されるため自然に除外される
-    # 順序: サイト → AI(+専売) → 声優 → サークル → 作者 → 担当者
+    # 順序: サイト → 同人/商業 → AI(+専売) → 声優 → サークル → 作者 → 担当者
     # v21.7.2: レビュアー名・サイト名と衝突する人物/団体名は種別印がぶれるので除外
     _entity_guard = _REVIEWER_TAG_NAMES | _SITE_TAG_NAMES
     entity_type_map = {}  # name -> nv_tag_type（種別印付与用）
@@ -1173,23 +1181,38 @@ def _execute_posting_flow(row, cursor, conn):
     )
     conn.commit()
 
+    # v21.7.12: 同人/商業出処タグ（通常記事のみ。ランキング・まとめは post_to_wordpress 側で除外）
+    _market_tag = (
+        "同人" if classify_is_doujin_market(
+            genre=row["genre"],
+            site=site_raw,
+            source_db=get_source_db(site_label),
+            product_url=(row["product_url"] if "product_url" in row.keys() else "") or "",
+            affiliate_url=(row["affiliate_url"] if "affiliate_url" in row.keys() else "") or "",
+            author_detail=auth_det,
+        ) else "商業"
+    )
+
     link, wp_post_id = post_to_wordpress(
         wp_title, content, row["genre"], img_url,
         excerpt=excerpt, seo_title=seo_title, slug=pid, is_r18=is_r18,
         site_label=site_label, ai_tags=final_ai_tags, reviewer=rev_name,
         thumb_url=thumb_url, cast_names=cast_names_for_tags,
-        circle_names=circle_names_for_tags, author_names=author_names_for_tags
+        circle_names=circle_names_for_tags, author_names=author_names_for_tags,
+        market_tag=_market_tag,
     )
     
     if link:
         ai_tags_str = ",".join(final_ai_tags)
         # v12.8.0: wp_tags（WPへ実際に送信した完成品タグ一覧）を構築してDBへ書き戻す
-        # ※ post_to_wordpress() 内のタグ構築ロジック(L746-778)と完全一致させること
+        # ※ post_to_wordpress() 内のタグ構築ロジックと完全一致させること
         _normalized_labels = {"DMM.com": "DMM", "DLsite": "DLsite（がるまに）", "Lovecal": "らぶカル"}
         _site_name_for_wp = _normalized_labels.get(site_label, site_label)
         _wp_tags_parts = []
         if _site_name_for_wp:
             _wp_tags_parts.append(_site_name_for_wp)
+        if _market_tag in _MARKET_TAG_NAMES and _market_tag not in _wp_tags_parts:
+            _wp_tags_parts.append(_market_tag)
         for _t in final_ai_tags:
             if _t and _t not in _wp_tags_parts:
                 _wp_tags_parts.append(_t)
@@ -1290,7 +1313,10 @@ def _execute_posting_flow(row, cursor, conn):
                         wp_tags_str=wp_tags_str,
                         image_url=img_url,
                         is_r18=is_r18,
-                        exclude_extra=(cast_names_for_tags + circle_names_for_tags + author_names_for_tags),
+                        exclude_extra=(
+                            cast_names_for_tags + circle_names_for_tags + author_names_for_tags
+                            + list(_MARKET_TAG_NAMES)
+                        ),
                         site=site_raw,
                         source_db=get_source_db(site_label),
                         product_url=(row["product_url"] if "product_url" in row.keys() else "") or "",

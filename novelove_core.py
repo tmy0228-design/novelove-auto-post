@@ -265,7 +265,7 @@ def generate_affiliate_url(site: str, product_url: str, **kwargs) -> str:
         product_url: 商品ページURL（FANZA/DMM）または空文字（DLsite）
         **kwargs:
             pid   (str): 商品ID（DLsite必須）
-            floor (str): フロア名（DLsite必須: "bl", "girls", "bl-pro"等）
+            floor (str): フロア名（DLsite必須: "bl", "girls", "bl-pro", "garumani" 等）
     Returns:
         str: アフィリエイトURL（生成失敗時はproduct_urlをそのまま返す）
     """

@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## v21.7.12 — 同人/商業出処タグ＋DLsiteがるまに全年齢商業ボイス取得 (2026-07-24)
+
+### ✨ feat(tags): 出処タグ `同人` / `商業` を投稿・リライト・遡及で付与
+- 判定は `classify_is_doujin_market()` を単一ソースに使用。
+- タグ順: **サイト → 同人/商業 → AI(+専売) → 声優 → サークル → 作者 → 担当者**。
+- `nv_tag_type=system`。気分プール除外（`functions.php` の `$system_tags` に追加）。
+- ランキング・まとめ記事には付けない。Bluesky本文にも出さない。
+- タグページSEOは自動テンプレ任せにせず、管理画面で説明文を個別設定（手動優先仕様）。
+
+### ✨ feat(fetcher): DLsiteがるまに（全年齢商業）ボイス BL/TL を取得対象に追加
+- `floor=garumani` + `work_type=SOU` + `is_bl`/`is_tl`。詳細ページでボーイズラブ／乙女向けを再確認。
+- 商品は BJ、R-18バッジなし（全年齢）。アフィは `dlaf.jp/garumani/...`。
+- 分類上は商業（`garumani` を商業フロアに追加）。
+
 ## v21.7.11 — Bluesky同人/商業判定の決定的修正＋CHANGELOG/SPEC履歴復元 (2026-07-24)
 
 ### 🐛 fix(bluesky): 「100%判定」と称していた同人/商業ロジックの実害修正

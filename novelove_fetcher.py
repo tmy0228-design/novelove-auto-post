@@ -98,6 +98,10 @@ FETCH_TARGETS = [
     {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "novel_bl",  "label": "DLsite一般_BL小説",   "keyword": None, "enabled": True},
     # 28. DLsite一般_TL小説（全年齢 / DLsite一般 / 小説）
     {"site": "DLsite",  "service": None,     "floor": "home",           "genre": "novel_tl",  "label": "DLsite一般_TL小説",   "keyword": None, "enabled": True},
+    # 29. DLsiteがるまに_BLボイス（全年齢商業 / がるまに / ボイス）
+    {"site": "DLsite",  "service": None,     "floor": "garumani",       "genre": "voice_bl",  "label": "DLsiteがるまに_BLボイス", "keyword": None, "enabled": True},
+    # 30. DLsiteがるまに_TLボイス（全年齢商業 / がるまに / ボイス）
+    {"site": "DLsite",  "service": None,     "floor": "garumani",       "genre": "voice_tl",  "label": "DLsiteがるまに_TLボイス", "keyword": None, "enabled": True},
 ]
 
 
@@ -680,6 +684,10 @@ def _fetch_dlsite_items(target):
         else:
             type_q = "work_type_category[0]/comic"
         url = f"https://www.dlsite.com/home/fsr/=/language/jp/{sex}{type_q}/order/release_d/"
+    elif floor == "garumani":
+        # 全年齢商業ボイス。一覧は is_bl/is_tl で分離し、詳細で再確認する。
+        bltl = "is_bl/1/" if is_bl else "is_tl/1/"
+        url = f"https://www.dlsite.com/garumani/fsr/=/language/jp/work_type[0]/SOU/{bltl}order/release_d/"
     else:
         url = f"https://www.dlsite.com/{floor}/fsr/=/language/jp/work_type[0]/{work_type}/order/release_d/"
     items = []
@@ -723,7 +731,8 @@ def _fetch_dlsite_items(target):
                     logger.info(f"  [DLsite] 詳細ページ取得失敗のためスキップ: {title_text[:30]}")
                     continue
                 dsoup = BeautifulSoup(dr.text, "html.parser")
-                dr_wg_links = [a.get("href", "") for a in dsoup.select(".work_genre a")]
+                # garumani は SOU が #work_outline 側に出ることがあるため両方見る
+                dr_wg_links = [a.get("href", "") for a in dsoup.select(".work_genre a, #work_outline a")]
                 if is_voice:
                     # v19.0.0: ボイスターゲットはSOUバッジで判定
                     valid_badge = any("/work_type/SOU" in link for link in dr_wg_links)
@@ -736,19 +745,19 @@ def _fetch_dlsite_items(target):
                     logger.info(f"  [DLsite] 期待する形式バッジなしのためスキップ: {title_text[:30]}")
                     continue
 
-                # v21.5.7: home のみ BL/TL を詳細ラベルで再判定（一覧の sex_category が効かないため）
-                if floor == "home":
+                # v21.5.7 / v21.7.12: home・garumani は一覧のBL/TLが不安定なため詳細ラベルで再判定
+                if floor in ("home", "garumani"):
                     sex_blob = " ".join(
                         a.get_text(strip=True)
                         for a in dsoup.select("#work_outline a, .work_genre a")
                     )
                     if is_bl:
                         if "ボーイズラブ" not in sex_blob and "ゲイ" not in sex_blob:
-                            logger.info(f"  [DLsite] home BL対象外（ボーイズラブ/ゲイなし）: {title_text[:30]}")
+                            logger.info(f"  [DLsite] {floor} BL対象外（ボーイズラブ/ゲイなし）: {title_text[:30]}")
                             continue
                     else:
                         if "乙女向け" not in sex_blob or "ボーイズラブ" in sex_blob:
-                            logger.info(f"  [DLsite] home TL対象外（乙女向け以外）: {title_text[:30]}")
+                            logger.info(f"  [DLsite] {floor} TL対象外（乙女向け以外）: {title_text[:30]}")
                             continue
 
                 og_img = dsoup.select_one('meta[property="og:image"]')

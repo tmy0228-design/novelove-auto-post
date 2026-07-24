@@ -40,7 +40,7 @@ from datetime import datetime
 from novelove_core import (
     logger,
     DB_FILE_UNIFIED,
-    db_connect, notify_discord, generate_affiliate_url,
+    db_connect, notify_discord, generate_affiliate_url, get_source_db,
     WP_SITE_URL, SCRIPT_DIR,
     WP_USER, WP_APP_PASSWORD, SSH_PASS,
     parse_cast_names, extract_cast_from_author_detail,
@@ -51,6 +51,7 @@ from auto_post import (
     get_or_create_term, set_tag_type, _infer_tag_type,
     _REVIEWER_TAG_NAMES, _SITE_TAG_NAMES, _evaluate_article_potential,
 )
+from novelove_bluesky import classify_is_doujin_market
 # 執筆エンジン本体は novelove_writer.py から
 from novelove_writer import generate_article
 from novelove_core import ArticleResult  # v13.10.0: generate_article 戻り値
@@ -256,13 +257,12 @@ def _wp_get_protected_tag_ids(current_tag_ids):
     return protected
 
 
-def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected_ids, is_exclusive=False, cast_names=None, circle_names=None, author_names=None):
+def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected_ids, is_exclusive=False, cast_names=None, circle_names=None, author_names=None, market_tag=None):
     """
     新しいタグ名リストを構築し、WP上のタグID（なければ作成）に変換する。
     post_to_wordpress() と同一ルール・同一順序で構築。
     保護タグ（セール/売れ筋）は最後にマージして返す。
-    順序: サイト → AI → 専売 → 声優 → サークル → 作者 → ライター
-      （v21.7.0: 専売の位置を post_to_wordpress に合わせて cast より前へ統一）
+    順序: サイト → 同人/商業 → AI → 専売 → 声優 → サークル → 作者 → ライター
     cast_names/circle_names/author_names: リライトで各タグが剥がれないよう必ず渡すこと。
 
     戻り値: list[int] （最終的にWPへ送信するタグIDリスト）
@@ -275,6 +275,10 @@ def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected
     site_name = NORMALIZED_LABELS.get(site_label, site_label)
     if site_name and site_name not in tag_names:
         tag_names.append(site_name)
+
+    # 出処タグ（v21.7.12）
+    if market_tag in ("同人", "商業") and market_tag not in tag_names:
+        tag_names.append(market_tag)
 
     # AI 生成タグ
     for t in (ai_tags or []):
@@ -442,7 +446,7 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
 def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
                               site_label, is_ranking, ai_score, article_pattern=None,
                               cast_names=None, circle_names=None, author_names=None,
-                              is_exclusive=False):
+                              is_exclusive=False, market_tag=None):
     """
     リライト成功後に DB を更新する。
     - ai_tags, wp_tags, reviewer を最新値で上書き
@@ -452,11 +456,13 @@ def _db_update_after_rewrite(db_path, product_id, rev_name, ai_tags_list,
     - status, published_at は変更しない
     """
     # wp_tags の文字列を構築（_build_new_tag_ids と同一ルール・同一順序）
-    # 順序: サイト → AI → 専売 → 声優 → サークル → 作者 → ライター
+    # 順序: サイト → 同人/商業 → AI → 専売 → 声優 → サークル → 作者 → ライター
     site_name = NORMALIZED_LABELS.get(site_label, site_label)
     wp_tags_parts = []
     if site_name:
         wp_tags_parts.append(site_name)
+    if market_tag in ("同人", "商業") and market_tag not in wp_tags_parts:
+        wp_tags_parts.append(market_tag)
     for t in ai_tags_list:
         if t and t not in wp_tags_parts:
             wp_tags_parts.append(t)
@@ -717,6 +723,20 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     circle_names_for_tags = [t for t in circle_names_for_tags if t not in _entity_guard]
     author_names_for_tags = [t for t in author_names_for_tags if t not in _entity_guard]
 
+    _market_tag = None
+    if not is_ranking:
+        _site_raw = row["site"] if "site" in _row_keys else site_label
+        _market_tag = (
+            "同人" if classify_is_doujin_market(
+                genre=row["genre"] if "genre" in _row_keys else "",
+                site=_site_raw,
+                source_db=get_source_db(site_label),
+                product_url=(row["product_url"] if "product_url" in _row_keys else "") or "",
+                affiliate_url=(row["affiliate_url"] if "affiliate_url" in _row_keys else "") or "",
+                author_detail=_auth_det_raw or "",
+            ) else "商業"
+        )
+
     new_tag_ids = _build_new_tag_ids(
         ai_tags=ai_tags_from_ai,
         site_label=site_label,
@@ -727,6 +747,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         cast_names=cast_names_for_tags,
         circle_names=circle_names_for_tags,
         author_names=author_names_for_tags,
+        market_tag=_market_tag,
     )
     if not _wp_update_tags(wp_post_id, new_tag_ids):
         logger.warning("  ⚠️ タグ更新に失敗しました（記事本文は更新済み）")
@@ -745,6 +766,7 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         circle_names=circle_names_for_tags,
         author_names=author_names_for_tags,
         is_exclusive=is_exclusive,
+        market_tag=_market_tag,
     )
 
     # Discord 通知

@@ -34,7 +34,8 @@ from novelove_core import logger, DEEPSEEK_API_KEY, get_source_db
 from novelove_soul import REVIEWERS, first_person_prompt_line
 
 # DLsiteフロア: 商業は先に判定（"bl-pro" が "bl" を含むため）
-_DLSITE_COMMERCIAL_FLOORS = frozenset({"bl-pro", "girls-pro"})
+# garumani = 全年齢商業（がるまに）。home/bl/girls = 同人。
+_DLSITE_COMMERCIAL_FLOORS = frozenset({"bl-pro", "girls-pro", "garumani"})
 _DLSITE_DOUJIN_FLOORS = frozenset({"bl", "girls", "home"})
 
 
