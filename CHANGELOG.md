@@ -8,6 +8,7 @@
 - `nv_tag_type=system`。気分プール除外（`functions.php` の `$system_tags` に追加）。
 - ランキング・まとめ記事には付けない。Bluesky本文にも出さない。
 - タグページSEOは自動テンプレ任せにせず、管理画面で説明文を個別設定（手動優先仕様）。
+- サイドバーに **「同人／商業で探す」** セクションを追加（配信サイトの直後。PC/スマホ共通トグル検索）。
 
 ### ✨ feat(fetcher): DLsiteがるまに（全年齢商業）ボイス BL/TL を取得対象に追加
 - `floor=garumani` + `work_type=SOU` + `is_bl`/`is_tl`。詳細ページでボーイズラブ／乙女向けを再確認。
