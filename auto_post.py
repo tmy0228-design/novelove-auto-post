@@ -1291,6 +1291,11 @@ def _execute_posting_flow(row, cursor, conn):
                         image_url=img_url,
                         is_r18=is_r18,
                         exclude_extra=(cast_names_for_tags + circle_names_for_tags + author_names_for_tags),
+                        site=site_raw,
+                        source_db=get_source_db(site_label),
+                        product_url=(row["product_url"] if "product_url" in row.keys() else "") or "",
+                        affiliate_url=(row["affiliate_url"] if "affiliate_url" in row.keys() else "") or "",
+                        author_detail=auth_det,
                     )
                     if post_success:
                         _now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
