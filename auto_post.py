@@ -383,7 +383,7 @@ def _get_dynamic_cooldown() -> int:
         return 25  # フォールバック
 
     if count >= 30:
-        cooldown = 14   # アクティブモード: cronの度に毎回投稿
+        cooldown = 9    # v21.7.5: アクティブモード (在庫30件以上で15分毎に確実に投稿できるようクールダウンを9分に緩和)
     elif count >= 10:
         cooldown = 25   # 標準モード: 現状維持
     else:
