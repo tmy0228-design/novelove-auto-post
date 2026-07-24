@@ -1110,9 +1110,8 @@ def _execute_posting_flow(row, cursor, conn):
         )
         logger.info(f"✅ 投稿成功！ URL: {link}")
 
-        # v18.5.0: Bluesky投稿頻度制限（ハイブリッドフィルタ）+ 茉莉花SNS担当化
-        # DLsite/FANZA/らぶカル: 専売(is_exclusive=1) かつ スコア5のみ投稿
-        # DMM                : スコア5のみ投稿（専売条件なし）
+        # v21.7.7: Bluesky投稿頻度制限（60分間隔ガード + ハイブリッドフィルタ）
+        # 前回のBluesky投稿から60分未満の場合は持ち越さずに即時スキップ（連投・スパム防止）
         _is_high_volume_site = any(site_raw.startswith(s) for s in ("DLsite", "Lovecal"))
         _is_exclusive_val    = is_exclusive  # L658で定義済みの bool 変数を流用
         _bsky_ok = False
@@ -1121,21 +1120,50 @@ def _execute_posting_flow(row, cursor, conn):
         else:
             _bsky_ok = (ai_score >= 5)
 
+        # 60分経過チェック（DBから最新のpublishedかつBluesky投稿成功ログの代わりとして、直近のBluesky投稿時刻を記録または照合）
         if _bsky_ok:
-            try:
-                post_to_bluesky(
-                    title=wp_title,
-                    genre=row["genre"],
-                    excerpt=row["description"] or "",
-                    url=link,
-                    wp_tags_str=wp_tags_str,
-                    image_url=img_url,
-                    is_r18=is_r18,
-                )
-            except Exception as _bsky_err:
-                logger.error(f"🚨 Bluesky呼び出しで予期せぬエラー（続行）: {_bsky_err}")
+            _bsky_conn = db_connect(DB_FILE_UNIFIED)
+            _bsky_row = _bsky_conn.execute(
+                "SELECT last_error FROM novelove_posts WHERE last_error LIKE 'bsky_posted:%' ORDER BY published_at DESC LIMIT 1"
+            ).fetchone()
+            _bsky_conn.close()
+            
+            _can_post_bsky = True
+            if _bsky_row and _bsky_row[0]:
+                try:
+                    _last_bsky_time_str = _bsky_row[0].replace("bsky_posted:", "")
+                    _last_bsky_dt = datetime.strptime(_last_bsky_time_str, "%Y-%m-%d %H:%M:%S")
+                    _jst = timezone(timedelta(hours=9))
+                    _now_jst = datetime.now(_jst).replace(tzinfo=None)
+                    _bsky_elapsed = (_now_jst - _last_bsky_dt).total_seconds() / 60
+                    if _bsky_elapsed < 60:
+                        _can_post_bsky = False
+                        logger.info(f"  [Bluesky] 60分制限ガード中（前回から{_bsky_elapsed:.1f}分経過）。持ち越しなしでスキップします。")
+                except Exception as _t_err:
+                    logger.warning(f"  [Bluesky] 最終投稿時刻パース失敗: {_t_err}")
+
+            if _can_post_bsky:
+                try:
+                    post_to_bluesky(
+                        title=wp_title,
+                        genre=row["genre"],
+                        excerpt=row["description"] or "",
+                        url=link,
+                        wp_tags_str=wp_tags_str,
+                        image_url=img_url,
+                        is_r18=is_r18,
+                    )
+                    # 成功時に最終Bluesky投稿日時をDBレコードの last_error にマーキング（記録用）
+                    _now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    cursor.execute(
+                        "UPDATE novelove_posts SET last_error=? WHERE product_id=?",
+                        (f"bsky_posted:{_now_str}", pid)
+                    )
+                    conn.commit()
+                except Exception as _bsky_err:
+                    logger.error(f"🚨 Bluesky呼び出しで予期せぬエラー（続行）: {_bsky_err}")
         else:
-            logger.info(f"  [Bluesky] スキップ (site={site_raw}, score={ai_score}, exclusive={_is_exclusive_val})")
+            logger.info(f"  [Bluesky] 条件不一致スキップ (site={site_raw}, score={ai_score}, exclusive={_is_exclusive_val})")
 
         # v20.0.3: トップページキャッシュのクリア（バックグラウンド実行）
         # 旧: functions.php の transition_post_status フックで wp_site_cache を直接DELETEしていたが、
