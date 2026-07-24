@@ -187,9 +187,23 @@ def post_to_bluesky(
         # --- 茉莉花の紹介コメント生成 ---
         marika_comment = _generate_marika_comment(title, excerpt, g_label)
 
-        # --- タグ処理 ---
+        # --- タグ処理 (100%精度の同人/商業判別ロジック v21.7.8) ---
         tags = _parse_tags(wp_tags_str or "", exclude_extra=exclude_extra)
-        tail_tags = tags[:3]
+        
+        # 同人/商業の厳密判別
+        is_doujin_market = False
+        if "lovecal" in str(url).lower() or "らぶカル" in str(wp_tags_str or ""):
+            is_doujin_market = True
+        elif "doujin" in g_lower or "voice" in g_lower:
+            is_doujin_market = True
+        elif "dlsite" in str(url).lower() and ("サークル" in str(wp_tags_str or "") or "doujin" in g_lower):
+            is_doujin_market = True
+
+        market_tag = f"{g_label[:2]}同人" if is_doujin_market else f"商業{g_label[:2]}"
+        
+        # タグ重複防止
+        tail_tags = [t for t in tags if t not in (market_tag, "同人", "商業", "商業BL", "商業TL", "BL同人", "TL同人")][:2]
+        tail_tags.insert(0, market_tag)
 
         # --- あらすじの動的トリミング（茉莉花コメント優先） ---
         # 固定部分の文字数を計算し、残りをあらすじに割り当てる
