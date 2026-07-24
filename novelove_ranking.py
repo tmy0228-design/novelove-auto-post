@@ -22,8 +22,8 @@ from novelove_core import (
     WP_SITE_URL, RANK_LOCK_FILE, MAIN_LOCK_FILE,
     is_emergency_stop,
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
-    DLSITE_AFFILIATE_ID,
     generate_affiliate_url,
+    resolve_dlsite_affiliate_floor,
     acquire_lock, release_lock,
 )
 
@@ -317,16 +317,15 @@ def _fetch_dlsite_ranking_items_from_url(url, is_bl, limit, skip_titles=None):
                 except Exception as e:
                     logger.warning(f"  [DLsite詳細取得失敗] {title[:20]}: {e}")
                     continue
-                aff_id = DLSITE_AFFILIATE_ID
                 pid = link.rstrip("/").split("/")[-1].replace(".html", "")
-                
-                # アフィURLの全年齢判定 (v20.0.1)
-                if is_r18_badge:
-                    floor = "bl" if is_bl else "girls"
-                else:
-                    floor = "home"
-                    
-                aff_url = f"https://dlaf.jp/{floor}/dlaf/=/t/n/link/work/aid/{aff_id}/id/{pid}.html"
+                # v21.7.12: URLのフロアを優先（badge→home 固定だとがるまに等が壊れる）
+                floor = resolve_dlsite_affiliate_floor(
+                    site_raw=("DLsite:r18=1" if is_r18_badge else "DLsite:r18=0"),
+                    genre=("voice_bl" if is_bl else "voice_tl"),
+                    product_url=link,
+                    pid=pid,
+                )
+                aff_url = generate_affiliate_url("DLsite", "", pid=pid, floor=floor)
                 items.append({"title": title, "url": aff_url, "image_url": img_src, "description": desc, "content_id": pid, "media_type": media_type})
                 if len(items) >= limit: break
     except Exception as e:

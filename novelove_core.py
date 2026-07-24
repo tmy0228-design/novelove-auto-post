@@ -256,6 +256,40 @@ def get_affiliate_button_html(url, label="作品の詳細を見る"):
 
 # === アフィリエイトURL生成（一元管理）===
 # ASP側の仕様変更はここ一箇所を修正するだけで全サイトに反映される。
+
+def resolve_dlsite_affiliate_floor(site_raw="", genre="", product_url="", affiliate_url="", pid=""):
+    """
+    DLsiteのアフィ用フロアを product_url / affiliate_url / pid から決定する。
+    v21.7.12: r18=0 を一律 home にすると garumani（全年齢商業）が壊れるため、URL優先。
+    URL欠落時は pid 接頭辞で補完（BJ=商業 / RJ=同人）。
+    """
+    import re as _re
+    blob = f"{product_url or ''} {affiliate_url or ''}".lower()
+    # 商業フロアを先に（bl-pro が bl を含むため）。相対パス /garumani/ も拾う。
+    for fl in ("bl-pro", "girls-pro", "garumani", "home", "bl", "girls"):
+        if (
+            f"dlsite.com/{fl}/" in blob
+            or f"dlaf.jp/{fl}/" in blob
+            or f"/{fl}/" in blob
+        ):
+            return fl
+    pid_l = str(pid or "").lower()
+    if not pid_l:
+        m = _re.search(r"\b((?:bj|rj|vj)\d+)\b", blob, _re.I)
+        if m:
+            pid_l = m.group(1).lower()
+    is_bl = "bl" in str(genre or "").lower()
+    site_s = site_raw if isinstance(site_raw, str) else ""
+    # URL無しフォールバック: BJ=商業、RJ/その他の全年齢=home、R-18同人=bl/girls
+    if pid_l.startswith("bj"):
+        if "r18=0" in site_s:
+            return "garumani"
+        return "bl-pro" if is_bl else "girls-pro"
+    if "r18=0" in site_s:
+        return "home"
+    return "bl" if is_bl else "girls"
+
+
 def generate_affiliate_url(site: str, product_url: str, **kwargs) -> str:
     """
     サイト別にアフィリエイトURLを生成して返す共通関数。

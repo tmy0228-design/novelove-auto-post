@@ -14,6 +14,12 @@
 - 商品は BJ、R-18バッジなし（全年齢）。アフィは `dlaf.jp/garumani/...`。
 - 分類上は商業（`garumani` を商業フロアに追加）。
 
+### 🐛 fix(affiliate): 投稿/リライト時の DLsite フロア推定を URL 優先に修正
+- 旧: `site` に `r18=0` があれば一律 `home` → **がるまに（全年齢商業）が `dlaf.jp/home/...` になりリンク壊れ**。
+- 新: `resolve_dlsite_affiliate_floor()` で `product_url` / `affiliate_url` から `garumani` / `bl-pro` / `girls-pro` 等を優先判定。取得時の `target.floor` 保存とも整合。
+- フォールバック強化: 相対パス `/{floor}/` 対応、URL欠落時は `BJ→garumani/bl-pro`・`RJ→home/bl`。
+- 併せて: ランキングアフィも同関数へ統一、fetcherの詳細URL絶対化、まとめ属性表示からサイト/同人商業除外、reviveセールにがるまに追加、リライトのまとめ記事に出処タグを付けない。
+
 ## v21.7.11 — Bluesky同人/商業判定の決定的修正＋CHANGELOG/SPEC履歴復元 (2026-07-24)
 
 ### 🐛 fix(bluesky): 「100%判定」と称していた同人/商業ロジックの実害修正

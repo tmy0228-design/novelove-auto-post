@@ -40,7 +40,7 @@ from datetime import datetime
 from novelove_core import (
     logger,
     DB_FILE_UNIFIED,
-    db_connect, notify_discord, generate_affiliate_url, get_source_db,
+    db_connect, notify_discord, generate_affiliate_url, get_source_db, resolve_dlsite_affiliate_floor,
     WP_SITE_URL, SCRIPT_DIR,
     WP_USER, WP_APP_PASSWORD, SSH_PASS,
     parse_cast_names, extract_cast_from_author_detail,
@@ -633,9 +633,15 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
         "product_url":   _product_url_val,
         # 🌟 v14.3.0: affiliate_urlはDBキャッシュではなく、product_urlから毎回再生成
         # 🌟 v14.5.1: DLsite用にpid/floorを常に渡す（非DLsiteでは無視される）
-        "affiliate_url": generate_affiliate_url(site_label, _product_url_val,
-                                                pid=row["product_id"],
-                                                floor="home" if isinstance(site_raw, str) and "r18=0" in site_raw else ("bl" if "bl" in str(genre).lower() else "girls")),
+        "affiliate_url": generate_affiliate_url(
+            site_label, _product_url_val,
+            pid=row["product_id"],
+            floor=resolve_dlsite_affiliate_floor(
+                site_raw, genre, _product_url_val,
+                (row["affiliate_url"] if "affiliate_url" in row.keys() else "") or "",
+                pid=row["product_id"],
+            ),
+        ),
         "image_url":     img_url,
         "release_date":  row["release_date"] or "",
         "ai_tags":       row["ai_tags"] or "",
@@ -723,8 +729,13 @@ def run_rewrite(product_id, reviewer_id=None, mood=None, execute=False):
     circle_names_for_tags = [t for t in circle_names_for_tags if t not in _entity_guard]
     author_names_for_tags = [t for t in author_names_for_tags if t not in _entity_guard]
 
+    # ランキング・まとめは出処タグを付けない（auto_post の特例と揃える）
+    _is_curation = (
+        "curation" in str(product_id).lower()
+        or "curation" in str(row["genre"] if "genre" in _row_keys else "").lower()
+    )
     _market_tag = None
-    if not is_ranking:
+    if not is_ranking and not _is_curation:
         _site_raw = row["site"] if "site" in _row_keys else site_label
         _market_tag = (
             "同人" if classify_is_doujin_market(

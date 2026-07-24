@@ -477,15 +477,16 @@ def fetch_dlsite_sale_product_ids(published_pids):
     DLsiteのセール検索ページ (fsr/=/campaign/1/) をスクレイピングし、
     現在セール中の全 product_id を取得する。
     裏JSON API の discount/campaign フィールドは常にNoneを返すため使用不可。(v14.6.0刷新)
-    ※ girls/bl/girls-pro/bl-pro の4エンドポイントを巡回し、
+    ※ girls/bl/girls-pro/bl-pro/home/garumani を巡回し、
       ページネーションで全件取得する。
     """
     sale_ids = set()
 
-    # 4フロアのセール検索ページ + 2フロアの一般向けセール検索ページ
+    # R-18 4フロア + 一般同人 home + がるまに（全年齢商業）
     # v18.1.2: URL修正 — discount_rate_min/50 + manga はDLsiteのパーサーを壊し割引指定が無視されていた
     #   修正: discount_rates[0]/c8/discount_rates[1]/c9 (30%OFF以上) + comic/gekiga/tateyomi/novel/kanno (ノベラブ全対象種別)
     # v20.0.1: DLsite一般（全年齢）セール検索URLを追記
+    # v21.7.12: がるまに全年齢商業ボイスのセールを追記
     sale_search_urls = [
         "https://www.dlsite.com/girls/fsr/=/language/jp/sex_category[0]/female/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/work_type_category[5]/SOU/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",      # 女性向け同人
         "https://www.dlsite.com/bl/fsr/=/language/jp/sex_category[0]/female/sex_category[1]/gay/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/work_type_category[5]/SOU/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",  # BL同人
@@ -493,6 +494,9 @@ def fetch_dlsite_sale_product_ids(published_pids):
         "https://www.dlsite.com/bl-pro/fsr/=/language/jp/sex_category[0]/female/sex_category[1]/gay/work_type_category[0]/comic/work_type_category[1]/gekiga/work_type_category[2]/tateyomi/work_type_category[3]/novel/work_type_category[4]/kanno/work_type_category[5]/SOU/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",  # BL商業
         "https://www.dlsite.com/home/fsr/=/language/jp/sex_category[0]/female/work_type_category[0]/MNG/work_type_category[1]/novel/work_type_category[2]/SOU/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",      # 女性向け一般同人（全年齢）
         "https://www.dlsite.com/home/fsr/=/language/jp/sex_category[0]/female/sex_category[1]/gay/work_type_category[0]/MNG/work_type_category[1]/novel/work_type_category[2]/SOU/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",  # BL一般同人（全年齢）
+        # v21.7.12: がるまに（全年齢商業）ボイス
+        "https://www.dlsite.com/garumani/fsr/=/language/jp/work_type[0]/SOU/is_tl/1/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",  # がるまに TLボイス
+        "https://www.dlsite.com/garumani/fsr/=/language/jp/work_type[0]/SOU/is_bl/1/order/trend/per_page/100/discount_rates[0]/c8/discount_rates[1]/c9/",  # がるまに BLボイス
     ]
 
     for base_url in sale_search_urls:

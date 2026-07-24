@@ -719,7 +719,11 @@ def _fetch_dlsite_items(target):
             if any(kw in (title_text + category_text) for kw in skip_keywords):
                 logger.info(f"[DLsite] 種別フィルターによりスキップ: {title_text[:40]}")
                 continue
-            detail_url = title_tag.get("href")
+            detail_url = title_tag.get("href") or ""
+            if detail_url.startswith("//"):
+                detail_url = "https:" + detail_url
+            elif detail_url.startswith("/"):
+                detail_url = "https://www.dlsite.com" + detail_url
             pid = detail_url.rstrip("/").split("/")[-1].replace(".html", "")
             if not pid: continue
             image_url = ""

@@ -40,17 +40,17 @@ _DLSITE_DOUJIN_FLOORS = frozenset({"bl", "girls", "home"})
 
 
 def _extract_dlsite_floor(*urls):
-    """product_url / affiliate_url（dlaf.jp/{floor}/…）から DLsite フロアを抽出。"""
+    """product_url / affiliate_url（dlaf.jp/{floor}/…・相対 /{floor}/）から DLsite フロアを抽出。"""
     blob = " ".join(str(u or "") for u in urls).lower()
     if not blob:
         return None
-    for fl in _DLSITE_COMMERCIAL_FLOORS:
-        if fl in blob:
-            return fl
-    m = re.search(r"(?:dlsite\.com|dlaf\.jp)/([a-z0-9\-]+)/", blob)
-    if m:
-        fl = m.group(1)
-        if fl in _DLSITE_COMMERCIAL_FLOORS or fl in _DLSITE_DOUJIN_FLOORS:
+    # 商業を先に（bl-pro が bl を含むため）。相対パスも許容。
+    for fl in ("bl-pro", "girls-pro", "garumani", "home", "bl", "girls"):
+        if (
+            f"dlsite.com/{fl}/" in blob
+            or f"dlaf.jp/{fl}/" in blob
+            or f"/{fl}/" in blob
+        ):
             return fl
     return None
 

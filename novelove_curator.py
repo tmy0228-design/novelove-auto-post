@@ -37,6 +37,27 @@ from novelove_soul import REVIEWERS, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS, AI_T
 from novelove_writer import _call_deepseek_raw
 from novelove_fetcher import mask_input
 
+# まとめ記事の「属性」表示から除外（サイト/出処/システム/担当者/専売）
+_CURATOR_ATTR_SKIP = {
+    "同人", "商業", "R-18", "全年齢",
+    "売れ筋作品", "セール中", "期間限定セール", "best-seller", "sale",
+    "DLsite", "DLsite（がるまに）", "DMM", "らぶカル", "FANZA", "DMM.com", "Lovecal",
+    "紫苑", "茉莉花", "葵", "桃香", "蓮",
+}
+
+
+def _curator_attr_tags(tags):
+    """AI属性タグだけを返す（サイト・同人/商業等が先頭に付いた後でも正しく抜く）。"""
+    out = []
+    for t in tags or []:
+        if not t or t in _CURATOR_ATTR_SKIP:
+            continue
+        if t.endswith(("専売", "独占", "限定")):
+            continue
+        out.append(t)
+    return out
+
+
 # === クールダウン処理 ===
 def get_cooldown_tags(conn, days=90):
     """過去N日間に使用されたタグを取得して除外対象とする"""
@@ -395,7 +416,7 @@ def generate_mini_review(work, tag_name, reviewer):
 【対象作品】
 作品名: {safe_title}
 あらすじ: {safe_desc}
-作品の属性タグ: {','.join(work['tags'])}
+作品の属性タグ: {','.join(_curator_attr_tags(work['tags']))}
 
 【執筆ルール】
 1. 出力は必ず指定の【出力フォーマット】の通りに「[セリフ]」「[見出し]」「[解説]」というマーカーを使って3つのブロックに分けてください。
@@ -506,8 +527,8 @@ def build_comparison_table(works, conn):
         if site_display == "Lovecal":
             site_display = "らぶカル"
             
-        # タグ（上位3つ）
-        display_tags = " ".join([f"#{t}" for t in w['tags'][:3]])
+        # タグ（AI属性のみ上位3つ。サイト・同人/商業は除外）
+        display_tags = " ".join([f"#{t}" for t in _curator_attr_tags(w['tags'])[:3]])
         
         html += '<tr>\n'
         html += f'<td style="{td_style}">{title_link}</td>\n'
@@ -612,8 +633,8 @@ def assemble_article(intro_html, works, reviews_html, table_html, footer_html, d
         link_text = f"▶ 『{w['title']}』の{action_verb}・お得なセール状況をチェック！"
         text_link = f'<p style="text-align:center; font-weight:bold; margin-top:5px; margin-bottom:15px;"><a href="{w["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">{link_text}</a></p>'
         
-        # 属性タグの一覧表示
-        tags_display = " ".join([f"#{t}" for t in w['tags'][:4]])
+        # 属性タグの一覧表示（サイト・同人/商業等は除外）
+        tags_display = " ".join([f"#{t}" for t in _curator_attr_tags(w['tags'])[:4]])
         tags_html = f'<p style="text-align:center; color:#888; font-size:0.9em; margin-bottom:20px;">属性: {tags_display}</p>'
         
         # ボタン

@@ -64,7 +64,7 @@ from novelove_bluesky import post_to_bluesky, classify_is_doujin_market
 from novelove_core import (
     logger, ERROR_LABELS, notify_discord,
     DB_FILE_UNIFIED,
-    get_affiliate_button_html, generate_affiliate_url,
+    get_affiliate_button_html, generate_affiliate_url, resolve_dlsite_affiliate_floor,
     _get_reviewer_for_genre, _genre_label,
     get_db_path, get_source_db, db_connect, init_db, get_genre_index, save_genre_index,
     WP_SITE_URL,
@@ -1028,9 +1028,15 @@ def _execute_posting_flow(row, cursor, conn):
         # 🌟 v14.3.0: affiliate_urlはDBのキャッシュを使わず、product_urlから毎回再生成する
         # （らぶカル等のアフィリエイトドメイン判定バグを根絶する）
         # 🌟 v14.5.1: DLsite用にpid/floorを常に渡す（非DLsiteでは無視される）
-        "affiliate_url": generate_affiliate_url(site_label, _product_url_val,
-                                                pid=pid,
-                                                floor="home" if isinstance(site_raw, str) and "r18=0" in site_raw else ("bl" if "bl" in str(row["genre"]).lower() else "girls")),
+        "affiliate_url": generate_affiliate_url(
+            site_label, _product_url_val,
+            pid=pid,
+            floor=resolve_dlsite_affiliate_floor(
+                site_raw, row["genre"], _product_url_val,
+                (row["affiliate_url"] if "affiliate_url" in row.keys() else "") or "",
+                pid=pid,
+            ),
+        ),
         "image_url":     img_url,
         "thumb_url":     thumb_url,
         "release_date":  row["release_date"],
