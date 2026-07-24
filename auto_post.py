@@ -1100,18 +1100,7 @@ def _execute_posting_flow(row, cursor, conn):
         inventory_list = [f"DMM {c_dmm}", f"らぶカル {c_lovecal}", f"DLsite {c_dl}"]
         inventory_str = " / ".join(inventory_list) + " 件"
 
-        notify_discord(
-            f"✅ **[{site_label}] [{_genre_label(row['genre'])}] 投稿成功！**\n"
-            f"**タイトル**: {wp_title}\n"
-            f"**統計**: 今日 {total_daily}件目 / スコア{ai_score} / パターン{article_pattern} / あらすじ{desc_c_len}字 / 記事{words}字 / ライター: {rev_name}\n"
-            f"**投稿待ち在庫**: {inventory_str}\n"
-            f"**URL**: {link}",
-            username="ノベラブ通知くん"
-        )
-        logger.info(f"✅ 投稿成功！ URL: {link}")
-
-        # v21.7.7: Bluesky投稿頻度制限（60分間隔ガード + ハイブリッドフィルタ）
-        # 前回のBluesky投稿から60分未満の場合は持ち越さずに即時スキップ（連投・スパム防止）
+        # v21.7.9: Bluesky投稿判定 ＆ 明確なステータス生成
         _is_high_volume_site = any(site_raw.startswith(s) for s in ("DLsite", "Lovecal"))
         _is_exclusive_val    = is_exclusive  # L658で定義済みの bool 変数を流用
         _bsky_ok = False
@@ -1120,7 +1109,7 @@ def _execute_posting_flow(row, cursor, conn):
         else:
             _bsky_ok = (ai_score >= 5)
 
-        # 60分経過チェック（DBから最新のpublishedかつBluesky投稿成功ログの代わりとして、直近のBluesky投稿時刻を記録または照合）
+        _bsky_status_str = "⚪ **対象外** (スコア/非専売)"
         if _bsky_ok:
             _bsky_conn = db_connect(DB_FILE_UNIFIED)
             _bsky_row = _bsky_conn.execute(
@@ -1129,6 +1118,7 @@ def _execute_posting_flow(row, cursor, conn):
             _bsky_conn.close()
             
             _can_post_bsky = True
+            _bsky_elapsed = 0
             if _bsky_row and _bsky_row[0]:
                 try:
                     _last_bsky_time_str = _bsky_row[0].replace("bsky_posted:", "")
@@ -1138,13 +1128,14 @@ def _execute_posting_flow(row, cursor, conn):
                     _bsky_elapsed = (_now_jst - _last_bsky_dt).total_seconds() / 60
                     if _bsky_elapsed < 60:
                         _can_post_bsky = False
+                        _bsky_status_str = f"🕒 **60分連投制限スキップ** (前回から{_bsky_elapsed:.1f}分経過)"
                         logger.info(f"  [Bluesky] 60分制限ガード中（前回から{_bsky_elapsed:.1f}分経過）。持ち越しなしでスキップします。")
                 except Exception as _t_err:
                     logger.warning(f"  [Bluesky] 最終投稿時刻パース失敗: {_t_err}")
 
             if _can_post_bsky:
                 try:
-                    post_to_bluesky(
+                    post_success = post_to_bluesky(
                         title=wp_title,
                         genre=row["genre"],
                         excerpt=row["description"] or "",
@@ -1153,17 +1144,32 @@ def _execute_posting_flow(row, cursor, conn):
                         image_url=img_url,
                         is_r18=is_r18,
                     )
-                    # 成功時に最終Bluesky投稿日時をDBレコードの last_error にマーキング（記録用）
-                    _now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    cursor.execute(
-                        "UPDATE novelove_posts SET last_error=? WHERE product_id=?",
-                        (f"bsky_posted:{_now_str}", pid)
-                    )
-                    conn.commit()
+                    if post_success:
+                        _now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        cursor.execute(
+                            "UPDATE novelove_posts SET last_error=? WHERE product_id=?",
+                            (f"bsky_posted:{_now_str}", pid)
+                        )
+                        conn.commit()
+                        _bsky_status_str = "🔵 **投稿完了**"
+                    else:
+                        _bsky_status_str = "⚠️ **送信失敗**"
                 except Exception as _bsky_err:
                     logger.error(f"🚨 Bluesky呼び出しで予期せぬエラー（続行）: {_bsky_err}")
+                    _bsky_status_str = "⚠️ **送信エラー**"
         else:
             logger.info(f"  [Bluesky] 条件不一致スキップ (site={site_raw}, score={ai_score}, exclusive={_is_exclusive_val})")
+
+        notify_discord(
+            f"✅ **[{site_label}] [{_genre_label(row['genre'])}] 投稿成功！**\n"
+            f"**タイトル**: {wp_title}\n"
+            f"**統計**: 今日 {total_daily}件目 / スコア{ai_score} / パターン{article_pattern} / あらすじ{desc_c_len}字 / 記事{words}字 / ライター: {rev_name}\n"
+            f"**投稿待ち在庫**: {inventory_str}\n"
+            f"**Bluesky**: {_bsky_status_str}\n"
+            f"**URL**: {link}",
+            username="ノベラブ通知くん"
+        )
+        logger.info(f"✅ 投稿成功！ URL: {link}")
 
         # v20.0.3: トップページキャッシュのクリア（バックグラウンド実行）
         # 旧: functions.php の transition_post_status フックで wp_site_cache を直接DELETEしていたが、
