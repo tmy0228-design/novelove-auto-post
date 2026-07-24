@@ -74,7 +74,10 @@ from novelove_core import (
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
     DLSITE_AFFILIATE_ID,
     WP_PHP_PATH, WP_CLI_PATH, WP_DOC_ROOT,
-    normalize_title, super_normalize_title,
+    normalize_title, super_normalize_title, title_core_for_fuzzy,
+    parse_title_parts, author_token_set, base_digit_suffix_conflict,
+    parse_cast_names, extract_cast_from_author_detail,
+    extract_circle_names, extract_author_names, normalize_entity_key,
     acquire_lock, release_lock,
 )
 
@@ -165,23 +168,85 @@ def _get_thumbnail_url(image_url: str) -> str:
     return image_url
 
 # === WordPress投稿 ===
+# タグ種別印の判定用定数（v21.7.2）
+_REVIEWER_TAG_NAMES = {"紫苑", "茉莉花", "葵", "桃香", "蓮"}
+_SITE_TAG_NAMES = {"DLsite", "DLsite（がるまに）", "DMM", "らぶカル", "FANZA", "DMM.com", "Lovecal"}
+_SYSTEM_TAG_NAMES = {"売れ筋作品", "セール中", "期間限定セール", "best-seller", "sale"}
+
+
+def _infer_tag_type(name, entity_type_map=None):
+    """タグ名から nv_tag_type を推定する。entity_type_map があれば優先。"""
+    if entity_type_map and name in entity_type_map:
+        return entity_type_map[name]
+    if name in _SITE_TAG_NAMES:
+        return "site"
+    if name in _REVIEWER_TAG_NAMES:
+        return "reviewer"
+    if name in _SYSTEM_TAG_NAMES:
+        return "system"
+    if name.endswith(("専売", "独占", "限定")):
+        return "exclusive"
+    return "ai"
+
+
 def get_or_create_term(name, taxonomy):
+    """タームを検索または作成してIDを返す。
+    v21.7.2: タグ(post_tag)は normalize_entity_key でも照合し、
+    「RHplus」↔「Rhplus」「青長 花芽」↔「青長花芽」のような表記ゆれを既存タグへ合流させる。
+    """
     auth = (WP_USER, WP_APP_PASSWORD)
     try:
+        import html as _html
         r = requests.get(f"{WP_SITE_URL}/wp-json/wp/v2/{taxonomy}", auth=auth, params={"search": name}, timeout=15)
         hits = r.json()
+        want_raw = _html.unescape(name)
+        want_key = normalize_entity_key(want_raw) if taxonomy == "tags" else ""
         for hit in hits:
-            if hit.get("name") == name: return hit["id"]
+            # v21.6.2: WPはターム名の「&」を「&amp;」で保存するため、エンティティを解いて比較
+            hit_raw = _html.unescape(hit.get("name", ""))
+            if hit_raw == want_raw:
+                return hit["id"]
+            # v21.7.2: 名寄せキー一致でも既存タグへ合流（表示名は既存側を維持）
+            if want_key and normalize_entity_key(hit_raw) == want_key:
+                return hit["id"]
         r2 = requests.post(f"{WP_SITE_URL}/wp-json/wp/v2/{taxonomy}", auth=auth, json={"name": name}, timeout=15)
-        return r2.json().get("id")
+        j = r2.json()
+        term_id = j.get("id")
+        # v21.6.2: 検索一致をすり抜けて term_exists になった場合、エラーから既存IDを回収する
+        # （旧実装はここでNoneを返し、&入りタグ等が無言で付与されないバグがあった）
+        if not term_id and j.get("code") == "term_exists":
+            term_id = (j.get("data") or {}).get("term_id")
+        return term_id
     except Exception:
         return None
 
-def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None):
+
+def set_tag_type(term_id, tag_type):
+    """タグ(post_tag)に種別印 nv_tag_type を付与する (v21.7.0)。
+    functions.php の noindex/sitemap 閾値分岐・ナビ振り分けが参照する。
+    失敗しても投稿は継続。
+    """
+    if not term_id or not tag_type:
+        return False
+    try:
+        requests.post(
+            f"{WP_SITE_URL}/wp-json/wp/v2/tags/{term_id}",
+            auth=(WP_USER, WP_APP_PASSWORD),
+            json={"meta": {"nv_tag_type": tag_type}}, timeout=15,
+        )
+        return True
+    except Exception:
+        return False
+
+def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title="", slug="", is_r18=False, site_label=None, ai_tags=None, reviewer=None, thumb_url=None, overwrite=False, cast_names=None, circle_names=None, author_names=None):
     """
     WordPress REST API で投稿。FIFUプラグイン経由で外部リンクをアイキャッチに設定。
     image_url: 記事本文に埋め込む大きい画像URL
     thumb_url: FIFUアイキャッチに設定する軽量サムネURL（省略時はimage_urlをそのまま使用）
+    overwrite: True の場合、同一 slug の既存投稿があればそれを上書き更新する（v21.5.0: 固定スラグ・ランキング記事用）。
+    cast_names: 声優(CV)名のリスト（v21.6.0）。通常記事のみタグ化。
+    circle_names: サークル名リスト（v21.7.0）。通常記事のみタグ化。
+    author_names: 作者名リスト（v21.7.0）。通常記事のみタグ化。
     """
     auth = (WP_USER, WP_APP_PASSWORD)
     # FIFUには軽量サムネを使用（A+C方式）
@@ -244,6 +309,28 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
         for t in ai_tags:
             if t and t not in tag_names: tag_names.append(t)
 
+    # 声優(CV)/サークル/作者タグの付与 (v21.6.0 / v21.7.0)
+    # ※ランキング・まとめは後段の特例処理でリストが再構築されるため自然に除外される
+    # 順序: サイト → AI(+専売) → 声優 → サークル → 作者 → 担当者
+    # v21.7.2: レビュアー名・サイト名と衝突する人物/団体名は種別印がぶれるので除外
+    _entity_guard = _REVIEWER_TAG_NAMES | _SITE_TAG_NAMES
+    entity_type_map = {}  # name -> nv_tag_type（種別印付与用）
+    if cast_names:
+        for t in cast_names:
+            if t and t not in _entity_guard and t not in tag_names:
+                tag_names.append(t)
+                entity_type_map.setdefault(t, "cast")
+    if circle_names:
+        for t in circle_names:
+            if t and t not in _entity_guard and t not in tag_names:
+                tag_names.append(t)
+                entity_type_map.setdefault(t, "circle")
+    if author_names:
+        for t in author_names:
+            if t and t not in _entity_guard and t not in tag_names:
+                tag_names.append(t)
+                entity_type_map.setdefault(t, "author")
+
     # 担当者タグの付与
     if reviewer and reviewer not in tag_names:
         tag_names.append(reviewer)
@@ -277,15 +364,52 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     tag_names = [t for t in tag_names if t not in exclude_list]
 
     # WordPress側にカテゴリやタグを問い合わせてID化
-    tag_ids = [t for t in [get_or_create_term(name, "tags") for name in tag_names] if t]
+    # v21.7.0/v21.7.2: 全タグに種別印(nv_tag_type)を付与
+    tag_ids = []
+    for name in tag_names:
+        tid = get_or_create_term(name, "tags")
+        if not tid:
+            continue
+        tag_ids.append(tid)
+        set_tag_type(tid, _infer_tag_type(name, entity_type_map))
 
     post_data = {
         "title": title, "content": content, "excerpt": excerpt,
         "status": "publish", "slug": slug,
         "categories": categories, "tags": tag_ids, "meta": meta,
     }
+
+    # v21.5.0: overwrite=True かつ同一slugの既存投稿があれば、新規作成ではなく上書き更新する。
+    # （固定スラグ運用のランキング記事で、毎週スラグに -2 が付く重複を防止する）
+    # v21.5.1: status を配列で渡すと WP REST が空配列を返すケースがあるため、
+    # 認証付きで status=any を使い、見つからなければ status 省略（公開のみ）で再試行する。
+    endpoint = f"{WP_SITE_URL}/wp-json/wp/v2/posts"
+    if overwrite and slug:
+        try:
+            existing_id = None
+            for status_param in ("any", None):
+                params = {"slug": slug, "per_page": 1, "_fields": "id,slug,status"}
+                if status_param is not None:
+                    params["status"] = status_param
+                existing = requests.get(endpoint, auth=auth, params=params, timeout=20)
+                if existing.status_code != 200:
+                    continue
+                arr = existing.json()
+                if isinstance(arr, list) and arr and arr[0].get("id"):
+                    existing_id = arr[0]["id"]
+                    break
+            if existing_id:
+                endpoint = f"{WP_SITE_URL}/wp-json/wp/v2/posts/{existing_id}"
+                # 「今週のピックアップ」の鮮度を出すため公開日を現在時刻へ更新する
+                post_data["date"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+                logger.info(f"  [WP] 既存スラグ '{slug}' を上書き更新します (ID={existing_id})")
+            else:
+                logger.warning(f"  [WP] 既存スラグ '{slug}' が見つからないため新規作成します")
+        except Exception as e:
+            logger.warning(f"  [WP] 既存スラグ確認に失敗（新規作成にフォールバック）: {e}")
+
     try:
-        r = requests.post(f"{WP_SITE_URL}/wp-json/wp/v2/posts", auth=auth, json=post_data, timeout=40)
+        r = requests.post(endpoint, auth=auth, json=post_data, timeout=40)
     except Exception as e:
         logger.error(f"WordPress投稿接続エラー: {e}")
         return None, None
@@ -1012,6 +1136,18 @@ def _execute_posting_flow(row, cursor, conn):
     
     genre_str = row_dict.get("genre", "") or ""
     is_voice = "voice" in str(genre_str).lower()
+
+    # v21.6.0/v21.7.0: 声優/サークル/作者タグ用
+    cast_names_for_tags = parse_cast_names(cast_inf)
+    if not cast_names_for_tags:
+        cast_names_for_tags = extract_cast_from_author_detail(auth_det)
+    circle_names_for_tags = extract_circle_names(auth_det)
+    author_names_for_tags = extract_author_names(auth_det)
+    _entity_guard = _REVIEWER_TAG_NAMES | _SITE_TAG_NAMES
+    cast_names_for_tags = [t for t in cast_names_for_tags if t not in _entity_guard]
+    circle_names_for_tags = [t for t in circle_names_for_tags if t not in _entity_guard]
+    author_names_for_tags = [t for t in author_names_for_tags if t not in _entity_guard]
+
     spec_html = build_specs_html(row["release_date"], auth_det, cast_inf, ser_name, pg_count, fallback_author=row["author"], site_label=site_label, is_voice=is_voice)
     if spec_html:
         # 二重挿入防止ガードレール
@@ -1041,7 +1177,8 @@ def _execute_posting_flow(row, cursor, conn):
         wp_title, content, row["genre"], img_url,
         excerpt=excerpt, seo_title=seo_title, slug=pid, is_r18=is_r18,
         site_label=site_label, ai_tags=final_ai_tags, reviewer=rev_name,
-        thumb_url=thumb_url
+        thumb_url=thumb_url, cast_names=cast_names_for_tags,
+        circle_names=circle_names_for_tags, author_names=author_names_for_tags
     )
     
     if link:
@@ -1054,6 +1191,16 @@ def _execute_posting_flow(row, cursor, conn):
         if _site_name_for_wp:
             _wp_tags_parts.append(_site_name_for_wp)
         for _t in final_ai_tags:
+            if _t and _t not in _wp_tags_parts:
+                _wp_tags_parts.append(_t)
+        # v21.6.0/v21.7.0: 声優→サークル→作者（post_to_wordpress と同一順序）
+        for _t in cast_names_for_tags:
+            if _t and _t not in _wp_tags_parts:
+                _wp_tags_parts.append(_t)
+        for _t in circle_names_for_tags:
+            if _t and _t not in _wp_tags_parts:
+                _wp_tags_parts.append(_t)
+        for _t in author_names_for_tags:
             if _t and _t not in _wp_tags_parts:
                 _wp_tags_parts.append(_t)
         if rev_name and rev_name not in _wp_tags_parts:
@@ -1143,6 +1290,7 @@ def _execute_posting_flow(row, cursor, conn):
                         wp_tags_str=wp_tags_str,
                         image_url=img_url,
                         is_r18=is_r18,
+                        exclude_extra=(cast_names_for_tags + circle_names_for_tags + author_names_for_tags),
                     )
                     if post_success:
                         _now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

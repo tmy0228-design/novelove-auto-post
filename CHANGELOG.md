@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## v21.7.10 — タグ実装の巻き戻り復旧＋7/22以降投稿の遡及修正 (2026-07-24)
+
+### 🐛 fix(auto_post): 他更新マージ時に消えた v21.6〜v21.7.2 タグ処理を復元
+- 声優/サークル/作者のWPタグ付与、`set_tag_type`/`nv_tag_type`、`normalize_entity_key` ライブ名寄せ、`&` タグの `html.unescape`/`term_exists` 回収、ランキング `overwrite`、Bluesky `exclude_extra` を現行コード（専売割込み・冷却5分・Bluesky60分ガード・Discord可視化）へ再マージ。
+- **データ修復**: 巻き戻り期間（2026-07-22〜24）の公開記事 **110件** に欠落していた声優/サークル/作者タグを **追加のみ** でWP付与し、DBの `wp_tags` も同期（新規タグ65・エラー0・残欠落0）。
+
 ## v21.7.9 — Discord投稿成功通知へのBluesky連携ステータス可視化 (2026-07-24)
 
 ### 🚀 feat(auto_post): Discord通知にBlueskyの処理結果（3パターン）を追加
