@@ -41,7 +41,7 @@ from novelove_fetcher import mask_input
 _CURATOR_ATTR_SKIP = {
     "同人", "商業", "R-18", "全年齢",
     "売れ筋作品", "セール中", "期間限定セール", "best-seller", "sale",
-    "DLsite", "DLsite（がるまに）", "DMM", "らぶカル", "FANZA", "DMM.com", "Lovecal",
+    "DLsite", "DLsite（がるまに）", "DLsite・がるまに", "DMM", "らぶカル", "FANZA", "DMM.com", "Lovecal",
     "紫苑", "茉莉花", "葵", "桃香", "蓮",
 }
 
@@ -485,11 +485,11 @@ def build_comparison_table(works, conn):
     th_style = 'background-color:#ffebf2; color:#d81b60; font-weight:bold; padding:12px; text-align:left; border:1px solid #ffcfdf;'
     td_style = 'padding:12px; border:1px solid #eee; text-align:left;'
     
+    # v21.7.16: 主な属性列は配信ストアと重複しやすいので廃止（3列）
     html = f'<div style="overflow-x:auto;">\n<table style="{table_style}">\n<thead>\n<tr>\n'
     html += f'<th style="{th_style}">作品タイトル</th>\n'
     html += f'<th style="{th_style}">メディア</th>\n'
     html += f'<th style="{th_style}">配信ストア</th>\n'
-    html += f'<th style="{th_style}">主な属性</th>\n'
     html += '</tr>\n</thead>\n<tbody>\n'
     
     for w in works:
@@ -521,20 +521,18 @@ def build_comparison_table(works, conn):
         else:
             title_link = f'<a href="{post_url}" target="_blank" rel="nofollow" style="color:#d81b60; font-weight:bold; text-decoration:none;">{w["title"]}</a>'
         
-        # ストア表示
+        # ストア表示（DLsite / DMM.com / らぶカル。がるまに付き表記は使わない）
         site_raw = w['site']
         site_display = site_raw.split(":")[0] if isinstance(site_raw, str) and ":" in site_raw else str(site_raw)
         if site_display == "Lovecal":
             site_display = "らぶカル"
+        elif site_display in ("DLsite（がるまに）", "DLsite・がるまに"):
+            site_display = "DLsite"
             
-        # タグ（AI属性のみ上位3つ。サイト・同人/商業は除外）
-        display_tags = " ".join([f"#{t}" for t in _curator_attr_tags(w['tags'])[:3]])
-        
         html += '<tr>\n'
         html += f'<td style="{td_style}">{title_link}</td>\n'
         html += f'<td style="{td_style}">{media}</td>\n'
         html += f'<td style="{td_style}">{site_display}</td>\n'
-        html += f'<td style="{td_style}">{display_tags}</td>\n'
         html += '</tr>\n'
         
     html += '</tbody>\n</table>\n</div>\n'
@@ -605,7 +603,10 @@ def assemble_article(intro_html, works, reviews_html, table_html, footer_html, d
         
         site_raw = w['site']
         site_display = site_raw.split(":")[0] if isinstance(site_raw, str) and ":" in site_raw else str(site_raw)
-        if site_display == "Lovecal": site_display = "らぶカル"
+        if site_display == "Lovecal":
+            site_display = "らぶカル"
+        elif site_display in ("DLsite（がるまに）", "DLsite・がるまに"):
+            site_display = "DLsite"
         
         format_name = "漫画"
         if is_voice: format_name = "ボイス"
@@ -633,9 +634,15 @@ def assemble_article(intro_html, works, reviews_html, table_html, footer_html, d
         link_text = f"▶ 『{w['title']}』の{action_verb}・お得なセール状況をチェック！"
         text_link = f'<p style="text-align:center; font-weight:bold; margin-top:5px; margin-bottom:15px;"><a href="{w["affiliate_url"]}" target="_blank" rel="nofollow" style="text-decoration:none; color:#d81b60;">{link_text}</a></p>'
         
-        # 属性タグの一覧表示（サイト・同人/商業等は除外）
-        tags_display = " ".join([f"#{t}" for t in _curator_attr_tags(w['tags'])[:4]])
-        tags_html = f'<p style="text-align:center; color:#888; font-size:0.9em; margin-bottom:20px;">属性: {tags_display}</p>'
+        # 属性タグ（AI属性のみ。サイト・同人/商業・専売・担当者は除外。0件なら行自体を出さない）
+        _attr = _curator_attr_tags(w['tags'])[:4]
+        tags_html = ""
+        if _attr:
+            tags_display = " ".join([f"#{t}" for t in _attr])
+            tags_html = (
+                f'<p style="text-align:center; color:#888; font-size:0.9em; margin-bottom:20px;">'
+                f"属性: {tags_display}</p>\n"
+            )
         
         # ボタン
         btn_label = "無料で試し聴きする" if is_voice else "無料で試し読みする"
@@ -647,7 +654,7 @@ def assemble_article(intro_html, works, reviews_html, table_html, footer_html, d
         content += img_html + "\n"
         content += release_html + "\n"
         content += text_link + "\n"
-        content += tags_html + "\n"
+        content += tags_html
         content += "<!-- REVIEW START -->\n" + reviews_html[i] + "\n<!-- REVIEW END -->\n\n"
         # 内部リンク（個別レビュー記事への誘導）
         if w.get('wp_post_url'):
