@@ -263,6 +263,7 @@ def _build_new_tag_ids(ai_tags, site_label, reviewer_name, is_ranking, protected
     post_to_wordpress() と同一ルール・同一順序で構築。
     保護タグ（セール/売れ筋）は最後にマージして返す。
     順序: サイト → 同人/商業 → AI → 専売 → 声優 → サークル → 作者 → ライター
+    ※WPの R-18/全年齢 タグは付与しない（v21.7.14凍結）
     cast_names/circle_names/author_names: リライトで各タグが剥がれないよう必ず渡すこと。
 
     戻り値: list[int] （最終的にWPへ送信するタグIDリスト）

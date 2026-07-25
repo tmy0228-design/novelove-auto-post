@@ -35,6 +35,7 @@ from novelove_core import (
     generate_affiliate_url,
     DEEPSEEK_API_KEY,
     parse_cast_names, extract_cast_from_author_detail,
+    parse_dlsite_age_from_soup, classify_is_r18,
 )
 
 # スクレイピング構造変化の検知閾値（連続N回で緊急停止）
@@ -139,21 +140,13 @@ THIN_CONTENT_KEYWORDS = ["分冊版", "単話", "単話版", "【マイクロ】
 # === フィルタリング ヘルパー ===
 
 def _is_r18_item(item, site=None):
-    # 1. サイト・ブランドごとの絶対判定ルール
-    if site == "DMM.com":
-        return False  # DMM(一般)は100%全年齢
-    if site in ("FANZA", "Lovecal"):
-        return True   # FANZA/らぶカルは年齢確認ありの成人サイトのため100%R-18
-
-
-    # 2. DLsiteのHTMLバッジ判定（_fetch_dlsite_itemsで取得したもの）
-    if site == "DLsite":
-        if "is_r18_badge" in item:
-            return item["is_r18_badge"]
-        return True # 万が一取得できなかった場合は安全のためR-18扱い
-
-    # 3. フォールバック（原則ここには来ないが安全側に倒す）
-    return True
+    """v21.7.13: novelove_core.classify_is_r18 に統一（年齢指定優先、icon_ADL禁止）。"""
+    return classify_is_r18(
+        site=site or "",
+        product_url=(item or {}).get("URL", "") or "",
+        age_hint=(item or {}).get("dlsite_age_hint"),
+        pid=(item or {}).get("content_id", "") or "",
+    )
 
 def _extract_author(item):
     # 1. 直下フィールドの探索
@@ -727,7 +720,7 @@ def _fetch_dlsite_items(target):
             pid = detail_url.rstrip("/").split("/")[-1].replace(".html", "")
             if not pid: continue
             image_url = ""
-            is_r18_badge = False
+            dlsite_age_hint = None
             dr_wg_links = []
             try:
                 dr = _fetch_with_retry(detail_url, headers=headers, timeout=10, label="DLsite詳細(形式判定)")
@@ -767,8 +760,8 @@ def _fetch_dlsite_items(target):
                 og_img = dsoup.select_one('meta[property="og:image"]')
                 if og_img: image_url = og_img.get("content", "")
 
-                # v18.4.0: DLsiteのR-18バッジ(icon_ADL)の有無を取得して判定フラグとして保持
-                is_r18_badge = bool(dsoup.select_one(".icon_ADL"))
+                # v21.7.13: 年齢指定欄を正とする（icon_ADL単独は廃止）
+                dlsite_age_hint = parse_dlsite_age_from_soup(dsoup)
 
                 # v11.3.1: 審査前に「薄い作品（単話・分冊版）」を除外ｗ
                 if any(kw in title_text for kw in THIN_CONTENT_KEYWORDS):
@@ -805,7 +798,7 @@ def _fetch_dlsite_items(target):
                 "article": [{"name": work.select_one(".maker_name").text.strip()}] if work.select_one(".maker_name") else [],
                 "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "dr_wg_links": dr_wg_links,
-                "is_r18_badge": is_r18_badge
+                "dlsite_age_hint": dlsite_age_hint,
             })
             time.sleep(1)
     except Exception as e:

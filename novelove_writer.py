@@ -16,6 +16,7 @@ from novelove_core import (
     get_affiliate_button_html,
     _get_reviewer_for_genre, _genre_label,
     DEEPSEEK_API_KEY, OPENROUTER_API_KEY,
+    classify_is_r18,
 )
 
 from novelove_fetcher import (
@@ -779,18 +780,14 @@ def generate_article(target, override_reviewer_id=None, override_mood=None):
                 content + button_html + credit_html
             )
             word_count = len(content)
-            # v18.4.0: サイトブランドベースのR-18判定（_is_r18_itemと同一ルール）
-            # DB保存済みの古い":r18=0/1"文字列に依存せず、サイト名から確実に判定する
-            _site_str = str(target.get("site", ""))
-            _site_brand = _site_str.split(":")[0] if ":" in _site_str else _site_str
-            if _site_brand == "DMM.com":
-                is_r18_val = False  # DMM(一般)は100%全年齢
-            elif _site_brand in ("FANZA", "Lovecal"):
-                is_r18_val = True   # FANZA/らぶカルは100%R-18
-            elif _site_brand == "DLsite":
-                is_r18_val = ":r18=1" in _site_str  # DLsiteはDB保存値を参照
-            else:
-                is_r18_val = True   # 不明サイトは安全側に倒す
+            # v21.7.14: Bluesky pornラベル用。WP年齢タグは付与しない。
+            # classify_is_r18: 確かな全年齢のみ False、迷いは True（安全側）
+            is_r18_val = classify_is_r18(
+                site=str(target.get("site", "")),
+                product_url=str(target.get("product_url") or target.get("URL") or ""),
+                affiliate_url=str(target.get("affiliate_url") or ""),
+                pid=str(target.get("product_id") or target.get("content_id") or ""),
+            )
             # 戻り値: (wp_title, full_content, excerpt, seo_title, is_r18, status, model, level, time, words, reviewer, tags, score)
             # ※将来拡張時は NamedTuple 化を検討すること（13要素タプルは保守性リスク）
             return ArticleResult(

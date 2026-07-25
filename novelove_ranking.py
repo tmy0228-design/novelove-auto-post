@@ -24,6 +24,7 @@ from novelove_core import (
     DMM_API_ID, DMM_AFFILIATE_API_ID, DMM_AFFILIATE_LINK_ID,
     generate_affiliate_url,
     resolve_dlsite_affiliate_floor,
+    parse_dlsite_age_from_soup, classify_is_r18,
     acquire_lock, release_lock,
 )
 
@@ -290,7 +291,7 @@ def _fetch_dlsite_ranking_items_from_url(url, is_bl, limit, skip_titles=None):
                 if _is_noise_content(title, ""): continue
                 if title in skip_titles: continue
                 img_src = ""; desc = ""
-                is_r18_badge = False
+                dlsite_age_hint = None
                 media_type = "comic"
                 try:
                     dr = requests.get(link, headers=headers, timeout=10)
@@ -312,15 +313,21 @@ def _fetch_dlsite_ranking_items_from_url(url, is_bl, limit, skip_titles=None):
                         if desc_tag: desc = desc_tag.get('content', '')
                         if _is_noise_content(title, desc): continue
                         
-                        # R-18バッジ判定でアフィURLのfloorを決定 (v20.0.1)
-                        is_r18_badge = bool(dsoup.select_one(".icon_ADL"))
+                        # v21.7.13: 年齢指定欄を正とする（icon_ADL単独は廃止）
+                        dlsite_age_hint = parse_dlsite_age_from_soup(dsoup)
                 except Exception as e:
                     logger.warning(f"  [DLsite詳細取得失敗] {title[:20]}: {e}")
                     continue
                 pid = link.rstrip("/").split("/")[-1].replace(".html", "")
-                # v21.7.12: URLのフロアを優先（badge→home 固定だとがるまに等が壊れる）
+                # v21.7.12/13: URLフロア優先。年齢は classify（アフィfloor決定用の site_raw にも反映）
+                _is_r18 = classify_is_r18(
+                    site="DLsite",
+                    product_url=link,
+                    age_hint=dlsite_age_hint,
+                    pid=pid,
+                )
                 floor = resolve_dlsite_affiliate_floor(
-                    site_raw=("DLsite:r18=1" if is_r18_badge else "DLsite:r18=0"),
+                    site_raw=("DLsite:r18=1" if _is_r18 else "DLsite:r18=0"),
                     genre=("voice_bl" if is_bl else "voice_tl"),
                     product_url=link,
                     pid=pid,

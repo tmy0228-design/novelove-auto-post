@@ -320,8 +320,9 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
     # 声優(CV)/サークル/作者タグの付与 (v21.6.0 / v21.7.0)
     # ※ランキング・まとめは後段の特例処理でリストが再構築されるため自然に除外される
     # 順序: サイト → 同人/商業 → AI(+専売) → 声優 → サークル → 作者 → 担当者
+    # ※WPの R-18/全年齢 タグは付与しない（v21.7.14凍結。年齢はBluesky pornラベルのみ）
     # v21.7.2: レビュアー名・サイト名と衝突する人物/団体名は種別印がぶれるので除外
-    _entity_guard = _REVIEWER_TAG_NAMES | _SITE_TAG_NAMES
+    _entity_guard = _REVIEWER_TAG_NAMES | _SITE_TAG_NAMES | set(_MARKET_TAG_NAMES) | {"R-18", "全年齢"}
     entity_type_map = {}  # name -> nv_tag_type（種別印付与用）
     if cast_names:
         for t in cast_names:
@@ -1198,7 +1199,6 @@ def _execute_posting_flow(row, cursor, conn):
             author_detail=auth_det,
         ) else "商業"
     )
-
     link, wp_post_id = post_to_wordpress(
         wp_title, content, row["genre"], img_url,
         excerpt=excerpt, seo_title=seo_title, slug=pid, is_r18=is_r18,

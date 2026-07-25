@@ -290,6 +290,116 @@ def resolve_dlsite_affiliate_floor(site_raw="", genre="", product_url="", affili
     return "bl" if is_bl else "girls"
 
 
+# === 年齢判定（Bluesky pornラベル用）v21.7.13/14 ===
+# WPの R-18/全年齢 タグは付与しない（見た目まで保証できないため凍結）。
+# 用途は Bluesky の成人セルフラベル粗分けと、DB site の r18= 保存。
+# DLsite: 詳細の「年齢指定」を正。R18→True、全年齢/R-15→False。
+# 年齢欄なし時のみフロアフォールバック（home/garumani=False、成人フロア=True＝安全側）。
+# icon_ADL 単独判定は禁止（誤 r18=0 の主因）。
+
+_AGE_ALL_AGES_FLOORS = frozenset({"home", "garumani"})
+_AGE_ADULT_FLOORS = frozenset({"bl", "girls", "bl-pro", "girls-pro"})
+
+
+def parse_dlsite_age_from_text(age_text):
+    """年齢指定テキスト → 'r18' | 'r15' | 'all' | None"""
+    t = str(age_text or "").strip()
+    if not t:
+        return None
+    if "全年齢" in t:
+        return "all"
+    if re.search(r"R[\-－]?15|Ｒ[\-－]?15", t, re.I):
+        return "r15"
+    if re.search(r"R[\-－]?18|Ｒ[\-－]?18", t, re.I):
+        return "r18"
+    return None
+
+
+def parse_dlsite_age_from_soup(soup):
+    """
+    DLsite詳細HTMLから年齢指定を読む。
+    戻り値: 'r18' | 'r15' | 'all' | None
+    """
+    if soup is None:
+        return None
+    try:
+        for tr in soup.select("#work_outline tr"):
+            th = tr.select_one("th")
+            td = tr.select_one("td")
+            if th and td and "年齢" in th.get_text():
+                return parse_dlsite_age_from_text(td.get_text(" ", strip=True))
+    except Exception:
+        pass
+    return None
+
+
+def dlsite_age_hint_to_r18(age_hint):
+    """age_hint ('r18'|'r15'|'all'|None) → True/False/None（未定）"""
+    if age_hint == "r18":
+        return True
+    if age_hint in ("all", "r15"):
+        return False
+    return None
+
+
+def classify_is_r18(
+    *,
+    site="",
+    product_url="",
+    affiliate_url="",
+    age_hint=None,
+    pid="",
+):
+    """
+    Bluesky成人ラベル用の粗い二値。True=pornラベル付与。
+    優先: サイトブランド → DLsite age_hint → site内 r18= → URLフロア → 安全側True。
+    確かな全年齢だけ False（機会損失低減）。迷い・商用BJ年齢欄なしは True。
+    ※まとめ/ランキング用の site=Novelove は False。
+    """
+    site_raw = str(site or "")
+    site_key = site_raw.split(":")[0].strip() if site_raw else ""
+
+    if site_key in ("DMM.com", "DMM"):
+        return False
+    if site_key in ("FANZA", "Lovecal"):
+        return True
+    if site_key == "Novelove":
+        return False
+
+    is_dlsite = (
+        site_key == "DLsite"
+        or "DLsite" in site_raw
+        or "dlsite.com" in f"{product_url} {affiliate_url}".lower()
+        or "dlaf.jp" in f"{product_url} {affiliate_url}".lower()
+    )
+
+    if is_dlsite or age_hint is not None:
+        hinted = dlsite_age_hint_to_r18(age_hint)
+        if hinted is not None:
+            return hinted
+        if "r18=0" in site_raw:
+            return False
+        if "r18=1" in site_raw:
+            return True
+        floor = resolve_dlsite_affiliate_floor(
+            site_raw=site_raw,
+            product_url=product_url or "",
+            affiliate_url=affiliate_url or "",
+            pid=pid or "",
+        )
+        if floor in _AGE_ALL_AGES_FLOORS:
+            return False
+        if floor in _AGE_ADULT_FLOORS:
+            return True
+        return True
+
+    if "r18=0" in site_raw:
+        return False
+    if "r18=1" in site_raw:
+        return True
+    return True
+
+
 def generate_affiliate_url(site: str, product_url: str, **kwargs) -> str:
     """
     サイト別にアフィリエイトURLを生成して返す共通関数。

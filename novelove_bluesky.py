@@ -9,7 +9,8 @@ novelove_bluesky.py — Novelove Bluesky自動投稿モジュール
   - SNS担当: 茉莉花（まりか）が中の人として投稿
   - DeepSeekで茉莉花らしい一言コメントを生成（失敗時は定型フォールバック）
   - 文中に1つタグをinline埋め込み（.tag()）、残りは末尾に配置
-  - 成人向けコンテンツラベルの自動付与（is_r18=True時）
+  - 成人向けコンテンツラベルの自動付与（is_r18=True時に porn セルフラベル）
+    ※WPの R-18/全年齢 タグとは別。classify_is_r18 で粗い二値（確かな全年齢のみラベル省略）
   - 返信完全ブロック（Threadgate）
   - セッションキャッシュ（毎回ログインしない）
   - 日本語フラグ（langs: ['ja']）の付与
@@ -298,7 +299,10 @@ def post_to_bluesky(
         )
 
         # タグ重複防止
-        tail_tags = [t for t in tags if t not in (market_tag, "同人", "商業", "商業BL", "商業TL", "BL同人", "TL同人")][:2]
+        tail_tags = [t for t in tags if t not in (
+            market_tag, "同人", "商業", "商業BL", "商業TL", "BL同人", "TL同人",
+            "R-18", "全年齢",
+        )][:2]
         tail_tags.insert(0, market_tag)
 
         # --- あらすじの動的トリミング（茉莉花コメント優先） ---
