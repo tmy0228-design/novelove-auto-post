@@ -69,11 +69,12 @@ EXCLUDE_TAG_NAMES = {
     "商業BL", "同人BL", "商業TL", "同人TL",
     "商業BL小説", "商業TL小説",
 }
-# サイト名の正規化マップ（post_to_wordpress と同一。v21.7.2で DLsite→がるまに表記に統一）
+# サイト名の正規化マップ（post_to_wordpress と同一。v21.7.17で中黒表記に統一）
 NORMALIZED_LABELS = {
     "DMM.com": "DMM",
     "FANZA":   "FANZA",
-    "DLsite":  "DLsite（がるまに）",
+    "DLsite":  "DLsite・がるまに",
+    "DLsite（がるまに）": "DLsite・がるまに",
     "Lovecal": "らぶカル",
 }
 
