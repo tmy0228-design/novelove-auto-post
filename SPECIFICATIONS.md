@@ -81,7 +81,7 @@ Noveloveは、主要配信プラットフォーム（FANZA / DMM / DLsite / Love
 
 - **APIフォールバック (v17.7.1)**: DeepSeek直接APIが不通の場合、**OpenRouter経由の `deepseek/deepseek-v4-flash`** に自動フォールバックします。メインと同一モデルを経由するため、フォールバック時も品質低下なし。初回フォールバック発動時にDiscord通知を送信。
 - **max_tokens設定 (v17.8.11)**: 執筆時の `max_tokens=16000`。DeepSeek V4 Flashの実際の最大出力は **384,000 トークン**（課金は実際生成分のみ）。この設定は張り切れを防ぐ安全装置として機能し、実際の内容が充分終わればそこで自然に停止する。
-- **thinking OFF (v21.7.20)**: 審査に加え **通常執筆も `thinking: disabled`**。推論トークンの出力課金を抑え、ペルソナは `novelove_soul` の声DNAで担保する。
+- **thinking OFF (v21.7.20 / v21.7.21)**: 審査に加え **通常執筆も thinking 無効**。DeepSeek直は `thinking: disabled`、OpenRouterフォールバックは `reasoning.effort=none`。推論トークンの出力課金を抑え、ペルソナは `novelove_soul` の声DNAで担保する。
 
 ### 3-1. ライター（キャラクター設定）— ペルソナ駆動型 (v21.7.20 声DNA)
 以下の5名が、ジャンルごとに異なる視点で作品を解説します。公開 about／各プロフィールが世界観の正本で、`novelove_soul.py` には執筆用の短い声DNA（決めゼリフ・話し方・好き嫌い・他キャラとの差）を載せる。長い日常エピソードはサイト側に置く。

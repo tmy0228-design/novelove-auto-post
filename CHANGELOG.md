@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## v21.7.21 — OpenRouterフォールバックでも thinking OFF (2026-08-05)
+
+### 💰 fix(writer): フォールバック経路の推論課金漏れを塞ぐ
+- `_call_deepseek_raw` の OpenRouter payload に `reasoning: {effort: "none"}` を付与（`thinking_disabled=True` 時）。
+- DeepSeek直接APIは従来どおり `thinking: {type: disabled}`。審査・執筆の両方でフォールバック時もOFF。
+
 ## v21.7.20 — ペルソナ声DNA再編＋執筆thinking OFF (2026-08-05)
 
 ### 🎭 refactor(soul): about／プロフィール準拠の短い声DNAへ

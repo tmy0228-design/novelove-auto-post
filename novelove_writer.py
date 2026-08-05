@@ -459,6 +459,9 @@ def _call_deepseek_raw(messages, max_tokens=200, temperature=0.3, model_id=None,
         "temperature": temperature,
         "stream": False,
     }
+    # v21.7.21: OpenRouter側も thinking OFF（DeepSeek直と同様。effort none）
+    if thinking_disabled:
+        fb_payload["reasoning"] = {"effort": "none"}
     try:
         r2 = requests.post(OPENROUTER_API_URL, headers=fb_headers, json=fb_payload, timeout=120)
         if r2.status_code == 429:
