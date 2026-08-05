@@ -15,9 +15,11 @@ import re
 import random
 import sqlite3
 import logging
+import subprocess
 from logging.handlers import RotatingFileHandler
 import requests
 import datetime
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 from novelove_soul import REVIEWERS
@@ -80,6 +82,13 @@ SSH_PASS              = os.environ.get("SSH_PASS", "")
 WP_PHP_PATH = os.environ.get("WP_PHP_PATH", "/opt/kusanagi/php/bin/php")
 WP_CLI_PATH = os.environ.get("WP_CLI_PATH", "/opt/kusanagi/bin/wp")
 WP_DOC_ROOT = os.environ.get("WP_DOC_ROOT", "/home/kusanagi/myblog/DocumentRoot")
+KUSANAGI_PROFILE = os.environ.get("KUSANAGI_PROFILE", "myblog")
+# nginx fcache 実体（KUSANAGI 9 / nginx129）。存在するものだけ使う。
+FCACHE_DIRS = (
+    "/var/opt/kusanagi/cache/nginx129/wordpress",
+    "/var/opt/kusanagi/cache/nginx/wordpress",
+    "/var/cache/nginx/wordpress",
+)
 
 # === 共通ヘッダー・UA ===
 HEADERS = {"User-Agent": "Mozilla/5.0"}
@@ -138,6 +147,155 @@ def release_lock(lock_path):
             os.remove(lock_path)
     except Exception as e:
         logger.error(f"🚨 ロック解除失敗 ({lock_path}): {e}")
+
+
+# === KUSANAGI キャッシュ（fcache 主戦・パス限定パージ） ===
+def _cache_urls_from_paths(paths):
+    """パスやURLのリストを https://host/... 形式の正規URL集合にする。"""
+    base = (WP_SITE_URL or "https://novelove.jp").rstrip("/")
+    urls = set()
+    for raw in paths or []:
+        if not raw:
+            continue
+        s = str(raw).strip()
+        if s.startswith("http://") or s.startswith("https://"):
+            p = urlparse(s)
+            path = p.path or "/"
+            if not path.endswith("/"):
+                # 記事URLは末尾スラッシュ付きでキャッシュされることが多い
+                path = path + "/"
+            urls.add(f"{base}{path}" if path != "/" else f"{base}/")
+            # 渡された絶対URLもそのまま候補に
+            urls.add(s if s.endswith("/") or path == "/" else s + "/")
+            continue
+        path = s if s.startswith("/") else "/" + s
+        if path != "/" and not path.endswith("/"):
+            path = path + "/"
+        urls.add(f"{base}{path}" if path != "/" else f"{base}/")
+    return urls
+
+
+def _purge_fcache_exact_urls(urls) -> int:
+    """
+    nginx fcache ファイルを KEY 行の完全一致で削除する。
+    `kusanagi fcache clear --path /` は部分一致で全消しになるため使わない。
+    """
+    if not urls:
+        return 0
+    deleted = 0
+    for root in FCACHE_DIRS:
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _, filenames in os.walk(root):
+            for name in filenames:
+                fp = os.path.join(dirpath, name)
+                try:
+                    with open(fp, "rb") as fh:
+                        head = fh.read(1024).decode("utf-8", "replace")
+                except OSError:
+                    continue
+                key_line = ""
+                for line in head.splitlines():
+                    if "KEY:" in line:
+                        key_line = line.strip()
+                        break
+                if not key_line:
+                    continue
+                for url in urls:
+                    if key_line.endswith(url):
+                        try:
+                            os.unlink(fp)
+                            deleted += 1
+                        except OSError:
+                            pass
+                        break
+    return deleted
+
+
+def _purge_bcache_home_only() -> None:
+    """
+    bcache が残っている環境向け。homepage のみ
+    device_url が ...jp|/ で終わる行を消す（末尾アンカー付き）。
+    """
+    try:
+        subprocess.run(
+            [
+                "kusanagi", "bcache", "clear", KUSANAGI_PROFILE,
+                "--path", r"novelove\.jp\|/$",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=120,
+            check=False,
+        )
+    except Exception as e:
+        logger.warning(f"  [Cache] bcache ホーム限定クリア失敗（続行）: {e}")
+
+
+def purge_kusanagi_cache(paths=None, full=False, background=True):
+    """
+    KUSANAGI キャッシュをパージする。
+
+    - 通常投稿: paths=['/', 投稿URL] のように限定（既存記事キャッシュは残す）
+    - full=True: サイト全体（ダッシュボード手動・revive 等）
+    - background=True: 非同期実行（投稿フローを待たせない）
+    """
+    if background:
+        import sys as _sys
+        path_arg = ",".join(paths or ["/"])
+        code = (
+            "from novelove_core import purge_kusanagi_cache; "
+            f"purge_kusanagi_cache(paths={paths!r}, full={full!r}, background=False)"
+        )
+        try:
+            subprocess.Popen(
+                [_sys.executable, "-c", code],
+                cwd=SCRIPT_DIR,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            if full:
+                logger.info("  [Cache] KUSANAGI 全キャッシュクリアをバックグラウンドで実行")
+            else:
+                logger.info(f"  [Cache] 限定パージをバックグラウンドで実行: {path_arg}")
+        except Exception as e:
+            logger.warning(f"  [Cache] バックグラウンド起動失敗、同期実行に切替: {e}")
+            purge_kusanagi_cache(paths=paths, full=full, background=False)
+        return
+
+    try:
+        if full:
+            # bcache は原則 off 運用。残っていれば一緒に全クリア。
+            subprocess.run(
+                f"kusanagi bcache clear {KUSANAGI_PROFILE}; "
+                f"kusanagi fcache clear {KUSANAGI_PROFILE}",
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=300,
+                check=False,
+            )
+            logger.info("  [Cache] KUSANAGI bcache/fcache 全クリア完了")
+            return
+
+        urls = _cache_urls_from_paths(paths or ["/"])
+        deleted = _purge_fcache_exact_urls(urls)
+        # bcache がまだ on の場合の保険（homepage を含むときだけ）
+        if any(u.rstrip("/").endswith("novelove.jp") or u.endswith("novelove.jp/") for u in urls):
+            _purge_bcache_home_only()
+        logger.info(f"  [Cache] fcache 限定削除 {deleted} 件 / targets={sorted(urls)}")
+    except Exception as e:
+        logger.warning(f"  [Cache] パージ失敗（続行）: {e}")
+
+
+def purge_front_cache_after_post(post_url=None, background=True):
+    """投稿成功後用: トップ + 当該記事のみ。"""
+    paths = ["/"]
+    if post_url:
+        paths.append(post_url)
+    purge_kusanagi_cache(paths=paths, full=False, background=background)
+
 
 # === 緊急停止（サーキットブレーカー） ===
 def is_emergency_stop():

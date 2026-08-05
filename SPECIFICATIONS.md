@@ -408,11 +408,13 @@ FIFU（Featured Image from URL）プラグインが1枚目のカード画像に�
 > [!WARNING]
 > このパッチは安定動作中のため一切変更しないこと（SPECIFICATIONS.md §7 禁忌事項参照）。
 
-### 8-4. 投稿公開時のbcache自動パージの廃止と移行 (v20.0.3)
-従来の `transition_post_status` フックによる `wp_site_cache` テーブルの削除は、インデックス未設定によるフルスキャンで100秒超のDBロックを引き起こし、「NO IMAGE」バグの原因となっていたため廃止しました。
-- **移行後の仕様**:
-  - `functions.php` から該当フックを完全削除。
-  - WordPressの投稿成功後、`auto_post.py` 側で非同期（`subprocess.Popen`）に `kusanagi bcache clear` および `kusanagi fcache clear` をバックグラウンド実行する方式に変更。これにより、DBをロックせずに安全かつ確実にキャッシュクリアを行います。
+### 8-4. 投稿公開時のキャッシュパージ (v20.0.3 → v21.7.18)
+
+- **背景（v20.0.3）**: `transition_post_status` で `wp_site_cache` を直接 DELETE すると、インデックス未設定のフルスキャンで DB ロック（NO IMAGE の原因）になるため、投稿成功後の非同期 `kusanagi clear` に移行した。
+- **v21.7.18**: サイト全体の `bcache/fcache clear` は SEO（GSCクロール統計）を悪化させるため廃止。
+  - 本命は **fcache（nginx）**。bcache（DBの `wp_site_cache`）は off 運用を推奨。
+  - 投稿・まとめ・リライト後は `purge_front_cache_after_post` で **トップ `/` と当該記事URLのみ** を KEY 完全一致削除。
+  - 日次 `nexus_revive` とダッシュボード手動クリアのみ全クリアを残す。
 
 ### 8-5. アーカイブタイトルの複数タグ対応
 `single_term_title` / `get_the_archive_title` / `get_archive_chapter_title` フィルターにより、`/tag/slug1+slug2/` 形式の複合タグ検索時に、アーカイブページのタイトルとパンくずリストに全タグ名が正しく表示されるようにする。

@@ -38,6 +38,7 @@ from novelove_core import (
     WP_USER, WP_APP_PASSWORD,
     DMM_API_ID, DMM_AFFILIATE_API_ID,
     WP_CLI_PATH, WP_DOC_ROOT,
+    purge_kusanagi_cache,
 )
 from novelove_fetcher import scrape_description
 
@@ -964,12 +965,11 @@ def run_nexus():
             else:
                 logger.warning(f"  ⚠️ 記事一括更新失敗: {pid}")
 
-    # --- キャッシュクリア処理（追加） ---
+    # --- キャッシュクリア処理（セール等は複数記事に跨るため全日2回の全fcacheクリアは許容） ---
     if stats["sale_added"] > 0 or stats["sale_removed"] > 0 or stats["rank_added"] > 0 or stats["rank_removed"] > 0:
         logger.info("  [WP] タグの更新があったため、KUSANAGIキャッシュをクリアします...")
         try:
-            import subprocess
-            subprocess.run("kusanagi bcache clear myblog && kusanagi fcache clear myblog", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            purge_kusanagi_cache(full=True, background=False)
             logger.info("  [WP] キャッシュクリア完了")
         except Exception as e:
             logger.warning(f"  [WP] キャッシュクリア失敗: {e}")

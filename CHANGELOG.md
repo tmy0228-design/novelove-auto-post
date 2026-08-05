@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v21.7.18 — キャッシュ運用を fcache 主戦＋限定パージへ (2026-08-05)
+
+### 🚀 perf(cache): 投稿時の全サイト clear を廃止し、トップ／当該記事のみ消す
+- `novelove_core.purge_kusanagi_cache` / `purge_front_cache_after_post` を新設。
+- nginx fcache は KEY 完全一致で削除（`kusanagi fcache clear --path /` は部分一致で全消しになるため不使用）。
+- `auto_post` / `novelove_curator` / `nexus_rewrite` は **トップ＋当該URL** のみパージ。
+- `nexus_revive`（日2回）とダッシュボード手動ボタンは従来どおり全クリア可。
+- 本番は **bcache off**＋`wp_site_cache` 掃除を併用（fcache を本命にする）。GSCクロール応答改善が目的。
+
 ## v21.7.17 — サイトタグ表記を `DLsite・がるまに` に統一 (2026-07-25)
 
 ### 🏷️ chore: DLsiteサイトタグの表示名変更（slug維持）

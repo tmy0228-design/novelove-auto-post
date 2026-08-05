@@ -417,11 +417,16 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
             cmd_ex = f"cd {doc_root} && wp post meta update {wp_post_id} the_page_meta_description '{safe_excerpt}' --allow-root"
             ssh.exec_command(cmd_ex)
             
-        # === 最重要: 更新フックの発火とキャッシュの完全消去 ===
-        # これを実行することで RankMath(Google等) へのPing通知が走る
-        # さらに、再執筆内容が即座に反映されるよう本番サーバーのキャッシュを全クリアする
+        # === 更新フック発火 + トップ/当該記事の限定キャッシュパージ ===
+        # wp cache flush は画像キャッシュ破損リスクがあるため使わない（SPECIFICATIONS）
         cmd_update = f"cd {doc_root} && wp post update {wp_post_id} --post_modified=\"$(date '+%Y-%m-%d %H:%M:%S')\" --allow-root"
-        cmd_cache_clear = f"cd {doc_root} && wp cache flush --allow-root && kusanagi bcache clear myblog && kusanagi fcache clear myblog"
+        cmd_cache_clear = (
+            f"SLUG=$(cd {doc_root} && wp post get {wp_post_id} --field=post_name --allow-root | tr -d '\\r'); "
+            f"cd /home/kusanagi/scripts && "
+            f"SLUG=\"$SLUG\" /opt/kusanagi/bin/python3 -c "
+            f"'from novelove_core import purge_front_cache_after_post; import os; "
+            f"purge_front_cache_after_post(\"/\" + os.environ.get(\"SLUG\", \"\") + \"/\", background=False)'"
+        )
         
         # 連続実行 (アップデートが失敗してもキャッシュクリアは確実に行うため ; で連結)
         stdin, stdout, stderr = ssh.exec_command(f"{cmd_update}; {cmd_cache_clear}")
@@ -431,7 +436,7 @@ def _wp_cli_update_meta(wp_post_id, seo_title, excerpt):
         ssh.close()
         
         if exit_status == 0:
-            logger.info("  [SSH] WP-CLI メタ更新＋キャッシュクリア＋Ping通知 成功！")
+            logger.info("  [SSH] WP-CLI メタ更新＋限定キャッシュクリア＋Ping通知 成功！")
             return True
         else:
             logger.warning(f"  [SSH] WP-CLI アップデートコマンド失敗: {stderr.read().decode('utf-8')}")

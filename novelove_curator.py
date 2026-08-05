@@ -32,6 +32,7 @@ from novelove_core import (
     get_affiliate_button_html, notify_discord,
     is_emergency_stop, MAIN_LOCK_FILE, RANK_LOCK_FILE,
     acquire_lock, release_lock,
+    purge_front_cache_after_post,
 )
 from novelove_soul import REVIEWERS, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS, AI_TAG_WHITELIST, first_person_prompt_line
 from novelove_writer import _call_deepseek_raw
@@ -1012,13 +1013,9 @@ def _run_curator_logic(args):
                     username="🚨 警告通知"
                 )
 
-            # 修正1: キャッシュクリア（auto_post.py と同一処理）
+            # v21.7.18: トップ＋当該まとめ記事のみ限定パージ
             try:
-                subprocess.Popen(
-                    "kusanagi bcache clear myblog && kusanagi fcache clear myblog",
-                    shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                )
-                logger.info("  [Cache] KUSANAGI bcache/fcache クリアをバックグラウンドで実行")
+                purge_front_cache_after_post(link, background=True)
             except Exception as cache_err:
                 logger.warning(f"  [Cache] キャッシュクリア失敗（続行）: {cache_err}")
 

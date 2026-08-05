@@ -409,19 +409,24 @@ def _ssh_clear_wp_cache() -> tuple[bool, str]:
         doc_root = os.environ.get("WP_DOC_ROOT", "/home/kusanagi/myblog/DocumentRoot")
         
         cmd_wp = f"cd {doc_root} && wp cache flush --allow-root"
-        cmd_ks = "kusanagi bcache clear myblog && kusanagi fcache clear myblog"
+        cmd_ks = (
+            "cd /home/kusanagi/scripts && "
+            "/opt/kusanagi/bin/python3 -c "
+            "'from novelove_core import purge_kusanagi_cache; "
+            "purge_kusanagi_cache(full=True, background=False)'"
+        )
         
         # WPキャッシュをクリア
         _, stdout1, stderr1 = ssh.exec_command(cmd_wp)
         exit1 = stdout1.channel.recv_exit_status()
         
-        # KUSANAGIキャッシュをクリア
+        # KUSANAGIキャッシュをクリア（手動ボタン＝全消し）
         _, stdout2, _ = ssh.exec_command(cmd_ks)
         exit2 = stdout2.channel.recv_exit_status()
         
         ssh.close()
         
-        if exit1 == 0:
+        if exit1 == 0 or exit2 == 0:
             return True, "✅ サイトのキャッシュ(WP/KUSANAGI)を全消去しました！"
         else:
             return False, f"キャッシュクリア失敗(WP={exit1}, KUSANAGI={exit2})"

@@ -79,6 +79,7 @@ from novelove_core import (
     parse_cast_names, extract_cast_from_author_detail,
     extract_circle_names, extract_author_names, normalize_entity_key,
     acquire_lock, release_lock,
+    purge_front_cache_after_post,
 )
 
 def _recover_posting_orphans():
@@ -1370,16 +1371,9 @@ def _execute_posting_flow(row, cursor, conn):
         )
         logger.info(f"✅ 投稿成功！ URL: {link}")
 
-        # v20.0.3: トップページキャッシュのクリア（バックグラウンド実行）
-        # 旧: functions.php の transition_post_status フックで wp_site_cache を直接DELETEしていたが、
-        #      device_url カラムにインデックスがなくフルスキャンで100秒超のDBロックが発生していたため廃止。
-        # 新: 投稿成功後にkusanagiコマンドでキャッシュをクリアする（WordPress外で実行するためDBロックなし）。
+        # v21.7.18: トップ＋当該記事のみ限定パージ（全サイト clear はSEOクロールを殺すため廃止）
         try:
-            subprocess.Popen(
-                "kusanagi bcache clear myblog && kusanagi fcache clear myblog",
-                shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-            logger.info("  [Cache] KUSANAGI bcache/fcache クリアをバックグラウンドで実行")
+            purge_front_cache_after_post(link, background=True)
         except Exception as cache_err:
             logger.warning(f"  [Cache] キャッシュクリア失敗（続行）: {cache_err}")
 
