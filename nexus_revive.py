@@ -652,6 +652,7 @@ def run_nexus():
     stats = {
         "sale_added": 0, "sale_removed": 0,
         "rank_added": 0, "rank_removed": 0,
+        "content_synced": 0,  # タグ変化なし・バナー/タイトルのみ更新
         "checked": 0,
     }
 
@@ -956,30 +957,38 @@ def run_nexus():
         # 何かしら変更がある場合のみ一括更新APIを叩く
         if wp_payload:
             if update_post_data(wp_post_id, wp_payload):
-                # タイトルや本文の更新があった場合もキャッシュクリアのトリガーにするためのステータス加算
-                if new_title != current_title or new_content != current_content:
-                    stats["sale_added"] += 1  # キャッシュクリアを強制発動するためのダミー加算
                 for stat_key, log_msg in logs:
                     stats[stat_key] += 1
                     logger.info(log_msg)
+                # タグ変化がなくてもバナー/タイトル同期した件数（Discordでは別表示）
+                if not logs and (new_title != current_title or new_content != current_content):
+                    stats["content_synced"] += 1
+                    logger.info(f"  🔄 バナー/タイトル同期のみ: {pid}")
             else:
                 logger.warning(f"  ⚠️ 記事一括更新失敗: {pid}")
 
-    # --- キャッシュクリア処理（セール等は複数記事に跨るため全日2回の全fcacheクリアは許容） ---
-    if stats["sale_added"] > 0 or stats["sale_removed"] > 0 or stats["rank_added"] > 0 or stats["rank_removed"] > 0:
-        logger.info("  [WP] タグの更新があったため、KUSANAGIキャッシュをクリアします...")
+    # --- キャッシュクリア処理（セール等は複数記事に跨るため日2回の全fcacheクリアは許容） ---
+    if (
+        stats["sale_added"] > 0
+        or stats["sale_removed"] > 0
+        or stats["rank_added"] > 0
+        or stats["rank_removed"] > 0
+        or stats["content_synced"] > 0
+    ):
+        logger.info("  [WP] 記事更新があったため、KUSANAGIキャッシュをクリアします...")
         try:
             purge_kusanagi_cache(full=True, background=False)
             logger.info("  [WP] キャッシュクリア完了")
         except Exception as e:
             logger.warning(f"  [WP] キャッシュクリア失敗: {e}")
 
-    # --- Step 4: Discord 日次サマリー ---
+    # --- Step 4: Discord 日次サマリー（タグ件数は実付け外しのみ。ダミー加算しない） ---
     summary = (
         f"📊 **[Nexus日次サマリー]** ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n"
         f"┣ チェック対象: {stats['checked']}件\n"
-        f"┣ 🔥 セール: 新規{stats['sale_added']}件 / 解除{stats['sale_removed']}件\n"
-        f"┣ 🏆 売れ筋: 新規{stats['rank_added']}件 / 解除{stats['rank_removed']}件\n"
+        f"┣ 🔥 セール: 付与{stats['sale_added']}件 / 解除{stats['sale_removed']}件\n"
+        f"┣ 🏆 売れ筋: 付与{stats['rank_added']}件 / 解除{stats['rank_removed']}件\n"
+        f"┣ 🔄 表示同期のみ: {stats['content_synced']}件\n"
     )
     if errors:
         summary += f"┗ ⚠️ 取得エラー: {len(errors)}件（一部サイトの構造変更の可能性）"
