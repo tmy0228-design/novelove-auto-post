@@ -30,7 +30,7 @@
 | `auto_post.py` | 中核エンジン。取得→AI生成→WP投稿まで一気通貫 |
 | `novelove_fetcher.py` | FANZA/DLsiteのスクレイピング・RSS取得 |
 | `novelove_core.py` | DB接続・共通ユーティリティ・設定値。声優/サークル/作者の抽出＆名寄せ（`parse_cast_names`/`extract_circle_names`/`extract_author_names`/`normalize_entity_key`）もここ |
-| `novelove_soul.py` | AIライターキャラ設定・NG表現リスト・FACT_GUARD |
+| `novelove_soul.py` | AIライター声DNA・NG表現・FACT_GUARD（about準拠の短指定） |
 | `novelove_bluesky.py` | Bluesky自動投稿連携（タグフィルタ・セッション管理・R18ラベル・Threadgate）|
 | `nexus_dashboard.py` | Streamlit管理ダッシュボード |
 | `nexus_rewrite.py` | 既存記事のAIリライトエンジン |

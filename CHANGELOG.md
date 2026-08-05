@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## v21.7.20 — ペルソナ声DNA再編＋執筆thinking OFF (2026-08-05)
+
+### 🎭 refactor(soul): about／プロフィール準拠の短い声DNAへ
+- `novelove_soul.py` の各ライターを経歴長文から、決めゼリフ・話し方・好き嫌い・他キャラとの差に圧縮。
+- `manga_focus` / `novel_focus` / `voice_focus` をあらすじ期待ベースに調整（読了前提の指示を削減）。
+- 桃香 greeting の「読んだんだけど」を除去。キャッチフレーズをサイト本命ゼリフに揃え。
+- `NG_PHRASES` はテンプレ破壊系のみ強禁止（必見／見逃せません／気になる方は等は外す）。
+
+### 💰 perf(writer): 通常執筆の DeepSeek thinking を OFF
+- `call_deepseek` → `_call_deepseek_raw(..., thinking_disabled=True)`。
+- 審査は従来どおり OFF。推論トークンの出力課金を抑え、声DNAでペルソナを維持する方針。
+
 ## v21.7.19 — Nexus日次サマリーの件数を実タグ付け外しに修正 (2026-08-05)
 
 ### 🐛 fix(revive): Discord「セール新規195件」系のダミー加算を廃止
