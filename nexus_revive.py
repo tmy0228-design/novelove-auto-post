@@ -655,6 +655,8 @@ def run_nexus():
         "content_synced": 0,  # タグ変化なし・バナー/タイトルのみ更新
         "checked": 0,
     }
+    # 実更新した記事だけ fcache を消す（日2回の全消しをやめて Googlebot の冷キャッシュを減らす）
+    changed_purge_paths = set()
 
     # (A) タグを付けるべき記事: セール/ランキングに乗っていて、かつ自社DBにある記事
     pids_needing_sale_tag = all_sale_ids & set(published_pids.keys())
@@ -964,23 +966,27 @@ def run_nexus():
                 if not logs and (new_title != current_title or new_content != current_content):
                     stats["content_synced"] += 1
                     logger.info(f"  🔄 バナー/タイトル同期のみ: {pid}")
+                # スラッグは product_id 小文字（公開URLと一致）
+                changed_purge_paths.add(f"/{str(pid).lower().strip()}/")
             else:
                 logger.warning(f"  ⚠️ 記事一括更新失敗: {pid}")
 
-    # --- キャッシュクリア処理（セール等は複数記事に跨るため日2回の全fcacheクリアは許容） ---
-    if (
-        stats["sale_added"] > 0
-        or stats["sale_removed"] > 0
-        or stats["rank_added"] > 0
-        or stats["rank_removed"] > 0
-        or stats["content_synced"] > 0
-    ):
-        logger.info("  [WP] 記事更新があったため、KUSANAGIキャッシュをクリアします...")
+    # --- キャッシュ: 更新した記事＋関連タグ一覧＋ホームのみ（全fcacheクリアしない） ---
+    if changed_purge_paths:
+        paths = ["/"] + sorted(changed_purge_paths)
+        if stats["sale_added"] or stats["sale_removed"]:
+            paths.append(f"/tag/{SALE_TAG_SLUG}/")
+        if stats["rank_added"] or stats["rank_removed"]:
+            paths.append(f"/tag/{BESTSELLER_TAG_SLUG}/")
+        logger.info(
+            f"  [WP] 更新 {len(changed_purge_paths)} 件のため限定キャッシュパージ "
+            f"({len(paths)} URL) ..."
+        )
         try:
-            purge_kusanagi_cache(full=True, background=False)
-            logger.info("  [WP] キャッシュクリア完了")
+            purge_kusanagi_cache(paths=paths, full=False, background=False)
+            logger.info("  [WP] 限定キャッシュパージ完了")
         except Exception as e:
-            logger.warning(f"  [WP] キャッシュクリア失敗: {e}")
+            logger.warning(f"  [WP] 限定キャッシュパージ失敗: {e}")
 
     # --- Step 4: Discord 日次サマリー（タグ件数は実付け外しのみ。ダミー加算しない） ---
     summary = (

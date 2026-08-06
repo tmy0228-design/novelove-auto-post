@@ -1,6 +1,13 @@
 # CHANGELOG
 
+## v21.7.26 — revive の日2回全fcacheクリアを廃止 (2026-08-07)
+
+### ⚡ perf(cache): タグ着脱した記事だけ限定パージ
+- `nexus_revive` が 8:15/20:15 に `purge_kusanagi_cache(full=True)` していたため、低アクセス記事の Googlebot がほぼ毎回冷キャッシュになっていた。
+- 実更新に成功した product URL ＋ ホーム ＋ `/tag/sale/` `/tag/best-seller/`（該当時）のみ削除。
+
 ## v21.7.25 — BL始め方ハブを店選び構成に刷新 (2026-08-06)
+
 
 ### ✨ feat(hub): `/bl-hajimekata/` をガイド型に作り直し
 - ジャンル定義は書かず「どこで始めるか」が本丸。吹き出しは冒頭＋ゲスト程度。
