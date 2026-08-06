@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## v21.7.23 — 人気枠（novelove_popular_ids）の日次同期を修復 (2026-08-06)
+
+### 🐛 fix(gsc): cron で `wp` / `php` が見つからず人気10件が約6週間凍結していた問題
+- `sync_popular_to_wp` が PATH 上の `wp` を呼んでおり、cron（`PATH=/usr/bin:/bin`）で毎日失敗（6/25〜）。
+- `WP_PHP_PATH` + `WP_CLI_PATH` + `WP_DOC_ROOT` で起動（`auto_post` / 本番 wp-cron と同じ）。wp 単体だと shebang の `env php` も落ちる。
+
 ## v21.7.22 — ボイス記事の紙媒体表現「ページ」を禁止例に追加 (2026-08-06)
 
 ### 🔧 fix(writer): voice_rules の媒体ズレ穴埋め

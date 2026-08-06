@@ -36,6 +36,9 @@ else:
 from novelove_core import (
     logger,
     DB_FILE_UNIFIED,
+    WP_PHP_PATH,
+    WP_CLI_PATH,
+    WP_DOC_ROOT,
     db_connect, notify_discord,
 )
 
@@ -486,17 +489,28 @@ def sync_popular_to_wp():
             return
 
         ids_json = json.dumps(selected_ids)
-        wp_path = "/home/kusanagi/myblog/DocumentRoot"
-        
-        # WP-CLIでWordPressのオプションを更新
+        # cron は PATH が狭い。wp の shebang が `env php` なので
+        # auto_post / wp-cron と同じく php 絶対パスで WP-CLI を起動する。
         result = subprocess.run(
-            ["wp", "option", "update", "novelove_popular_ids", ids_json, f"--path={wp_path}", "--allow-root"],
-            capture_output=True, text=True, timeout=30
+            [
+                WP_PHP_PATH,
+                WP_CLI_PATH,
+                "option",
+                "update",
+                "novelove_popular_ids",
+                ids_json,
+                f"--path={WP_DOC_ROOT}",
+                "--allow-root",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode == 0:
             logger.info(f"  [Popular] WordPress同期完了: {len(selected_ids)}件のwp_post_idを保存 {selected_ids}")
         else:
-            logger.error(f"  [Popular] WordPress同期失敗: {result.stderr}")
+            err = (result.stderr or result.stdout or "").strip()
+            logger.error(f"  [Popular] WordPress同期失敗: {err}")
 
     except Exception as e:
         logger.error(f"  [Popular] 同期エラー: {e}")
