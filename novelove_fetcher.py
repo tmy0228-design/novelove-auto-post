@@ -33,7 +33,6 @@ from novelove_core import (
     trigger_emergency_stop, notify_discord,
     DMM_API_ID, DMM_AFFILIATE_API_ID,
     generate_affiliate_url,
-    DEEPSEEK_API_KEY,
     parse_cast_names, extract_cast_from_author_detail,
     parse_dlsite_age_from_soup, classify_is_r18,
 )
@@ -168,95 +167,6 @@ def _extract_author(item):
             if isinstance(val, dict): return val.get("name", "")
             if isinstance(val, str) and val.strip(): return val.strip()
     return ""
-
-def _run_emergency_ai_extraction(product_url, site_type="DMM.com"):
-    """
-    【緊急AI自己修復機能】
-    プログラムによるあらすじ抽出が完全に空振った場合（サイトの構造変更時等）に呼び出され、
-    該当ページのHTMLから大枠のテキストを切り取ってAIに投げ、あらすじ本文と新クラス名を予測・修復させる。
-    成功した場合はDiscordに通知を送り、プログラム側のクラス名更新を促す。
-    """
-    try:
-        api_key = DEEPSEEK_API_KEY
-        if not api_key:
-            logger.warning("  [AI緊急修復] DEEPSEEK_API_KEY が未設定のためスキップ")
-            return ""
-
-        # 本番と同じセッション・ヘッダーでアクセス（ボット対策回避）
-        session = _make_dmm_session()
-        r = _fetch_with_retry(product_url, session=session,
-                              headers={"User-Agent": "Mozilla/5.0", "Referer": "https://book.dmm.co.jp/"},
-                              timeout=20, label="Emergency_AI")
-        if not r or r.status_code != 200:
-            return ""
-
-        r.encoding = r.apparent_encoding
-        soup = BeautifulSoup(r.text, 'html.parser')
-
-        for trash in soup(['script', 'style', 'header', 'footer', 'nav', 'aside', 'svg', 'img']):
-            trash.decompose()
-
-        body = soup.find('body')
-        if not body:
-            return ""
-
-        # コスト削減のため最大8000文字にクリップ
-        html_segment = str(body)[:8000]
-
-        prompt = (
-            "以下のHTMLはアダルトコンテンツ販売ページの一部ですが、あらすじ（商品説明）プログラムの抽出に失敗しました。\n"
-            "この中から、作品のあらすじ本文を抽出し、さらにそれに最も近いCSSクラス名やID名を推測してください。\n"
-            "準備中などのダミーテキストの場合は空文字にしてください。\n\n"
-            "【出力形式（厳密なJSON）】\n"
-            '{"description": "あらすじ本文（HTMLタグを含まない純粋なテキスト）", '
-            '"guessed_class": "推測されるクラス名（例: .summary__txt など）"}\n\n'
-            f"対象HTML:\n{html_segment}"
-        )
-        messages = [{"role": "user", "content": prompt}]
-        # v17.5.0: DeepSeek V4 直接API
-        api_url = "https://api.deepseek.com/chat/completions"
-        api_headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {"model": "deepseek-chat", "messages": messages, "max_tokens": 500, "temperature": 0.1}
-
-        # 最大3回リトライ
-        for attempt in range(1, 4):
-            try:
-                res = requests.post(api_url, headers=api_headers, json=payload, timeout=40)
-                if res.status_code == 200:
-                    break
-                logger.warning(f"  [AI緊急修復] API応答エラー (attempt {attempt}/3): status={res.status_code}")
-                time.sleep(2 ** attempt)
-            except Exception as e:
-                logger.warning(f"  [AI緊急修復] API通信エラー (attempt {attempt}/3): {e}")
-                time.sleep(2 ** attempt)
-        else:
-            return ""
-
-        content = res.json()["choices"][0]["message"]["content"]
-        data = json.loads(content)
-
-        desc = data.get("description", "").strip()
-        gc = data.get("guessed_class", "")
-
-        if len(desc) < 50:
-            return ""
-
-        # Discord通知を送る
-        notify_discord(
-            f"⚠️ **[{site_type}] サイト構造変更を検知・AIが自己修復しました！**\n"
-            f"URL: {product_url}\n"
-            f"💡 推測される新しいクラス場所: `{gc}`\n"
-            f"（プログラムの抽出機能にこのクラスを追加してください）",
-            username="🚨 自己修復システム"
-        )
-        logger.info(f"  [AI緊急修復] 成功: {len(desc)}文字取得, 推測クラス={gc}")
-        return desc
-    except Exception as e:
-        logger.warning(f"  [AI緊急修復] エラー: {e}")
-        return ""
 
 def _is_noise_content(title, desc=""):
     ng_words = [
@@ -415,11 +325,115 @@ def _check_image_ok(image_url):
 
 # === スクレイピング ===
 
+# =====================================================================
+# あらすじ取得の共通ルール（執筆・審査・更新検知で共用）
+# - 文字コード: Content-Type → UTF-8（apparent_encoding は使わない）
+# - 基本は商品ページの本文HTMLのみ（OGP / AI緊急抽出は使わない）
+# - DMM商業ブックはページ構造上、あらすじが JSON-LD にしか無いためそれを本文相当として採用
+# - 本文HTMLが取れたら JSON-LD で上書きしない
+# - 文字化け・省略メタだけの短文は不採用
+# =====================================================================
+
+def _is_mojibake(text: str) -> bool:
+    """日本語ストア説明として明らかに壊れている文字列を検知する。"""
+    if not text:
+        return False
+    sample = text[:4000]
+    if sample.count("\ufffd") >= 3:
+        return True
+    # UTF-8を別エンコーディングで読んだ典型パターン
+    weird_hits = 0
+    for marker in ("Ã", "Â·", "ã‚", "ã", "ï¼", "гғ", "гҒ", "„Ā", "Ð", "Å"):
+        weird_hits += sample.count(marker)
+    if weird_hits >= 5:
+        return True
+    if len(sample) >= 100:
+        jp = len(re.findall(r"[\u3040-\u30ff\u4e00-\u9fff]", sample))
+        latin_ext = len(re.findall(r"[\u00c0-\u024f]", sample))
+        if latin_ext >= 40 and jp < latin_ext:
+            return True
+        if weird_hits >= 2 and jp / len(sample) < 0.05:
+            return True
+    return False
+
+
+def _response_text(resp) -> str:
+    """
+    レスポンス本文を確実にデコードする。
+    DMM/DLsite/らぶカルは実質UTF-8。apparent_encoding 推測は文字化けの元なので使わない。
+    """
+    if resp is None:
+        return ""
+    raw = resp.content or b""
+    if not raw:
+        return ""
+
+    candidates = []
+    ctype = (resp.headers.get("Content-Type") or "").lower()
+    m = re.search(r"charset\s*=\s*([^\s;]+)", ctype, re.I)
+    if m:
+        enc = m.group(1).strip("\"'").lower().replace("utf8", "utf-8")
+        if enc in ("utf-8", "shift_jis", "shift-jis", "sjis", "cp932", "euc-jp", "euc_jp"):
+            if enc in ("shift-jis", "sjis"):
+                enc = "cp932"
+            elif enc == "euc_jp":
+                enc = "euc-jp"
+            candidates.append(enc)
+    candidates.append("utf-8")
+
+    for enc in candidates:
+        try:
+            text = raw.decode(enc, errors="strict")
+        except Exception:
+            continue
+        if not _is_mojibake(text[:3000]):
+            return text
+
+    return raw.decode("utf-8", errors="replace")
+
+
+def _usable_desc(text: str, min_len: int = 80) -> str:
+    """本文として採用可能なあらすじだけを返す。不適なら空文字。"""
+    t = re.sub(r"\s+", " ", (text or "")).strip()
+    if len(t) < min_len:
+        return ""
+    if _is_mojibake(t):
+        return ""
+    # 省略メタだけ拾ったケース
+    if len(t) < 150 and t.rstrip().endswith(("…", "...", "･･･", "。。。")):
+        return ""
+    return t
+
+
+def is_usable_description(text: str) -> bool:
+    """更新検知・執筆前チェック用。"""
+    return bool(_usable_desc(text, 80))
+
+
+def is_suspicious_desc_change(old: str, new: str) -> bool:
+    """
+    あらすじ更新として採用すべきでない変化（取得失敗・箱違い）を弾く。
+    True = 怪しいのでDB更新しない。
+    """
+    o = re.sub(r"\s+", " ", (old or "")).strip()
+    n = re.sub(r"\s+", " ", (new or "")).strip()
+    if not n or _is_mojibake(n):
+        return True
+    if not o:
+        return False
+    # 十分長かった本文が急に半分以下 → 別ボックス／短いメタに落ちた可能性
+    if len(o) >= 200 and len(n) < len(o) * 0.4:
+        return True
+    if len(o) >= 120 and len(n) < 60:
+        return True
+    return False
+
+
 def scrape_dlsite_description(url):
     try:
         r = _fetch_with_retry(url, headers=HEADERS, timeout=15, label="DLsite詳細")
         if r is None or r.status_code != 200: return "", "", False, "", "", "", 0
-        text = r.text
+        text = _response_text(r)
         soup_pre = BeautifulSoup(text, 'html.parser')
         wg_links = [a.get("href", "") for a in soup_pre.select(".work_genre a")]
         has_mng = any("/work_type/MNG" in link for link in wg_links)
@@ -514,29 +528,30 @@ def scrape_dlsite_description(url):
         tags_str = ','.join(attr_tags[:10])  # 最大10個
         for trash in soup.select('.work_outline, .work_parts_area.outline, .work_parts_area.chobit, .work_edition'):
             trash.decompose()
+
+        # 本文HTMLのみ（OGP / AIフォールバックは使わない）
+        body_desc = ""
         container = soup.select_one('.work_parts_container')
         if container:
             t = container.get_text(separator="\n", strip=True)
             if "作品内容" in t:
                 t = t.split("作品内容")[-1]
-            if len(t) > 100: return t.strip(), tags_str, is_exclusive, author_detail, cast_info, series_name, page_count
-        for h3 in soup.find_all(['h3', 'div'], string=re.compile(r'作品内容')):
-            next_div = h3.find_next_sibling('div')
-            if next_div:
-                t = next_div.get_text(separator="\n", strip=True)
-                if len(t) > 50: return t.strip(), tags_str, is_exclusive, author_detail, cast_info, series_name, page_count
-        meta_desc = soup.select_one('meta[property="og:description"]')
-        if meta_desc and meta_desc.get('content'):
-            return meta_desc.get('content').strip(), tags_str, is_exclusive, author_detail, cast_info, series_name, page_count
-        # 最終フォールバック（完全0文字ならAI起動）
-        ai_desc = _run_emergency_ai_extraction(url, site_type="DLsite")
-        if ai_desc:
-            return ai_desc, tags_str, is_exclusive, author_detail, cast_info, series_name, page_count
+            body_desc = t.strip()
+        if not body_desc:
+            for h3 in soup.find_all(['h3', 'div'], string=re.compile(r'作品内容')):
+                next_div = h3.find_next_sibling('div')
+                if next_div:
+                    body_desc = next_div.get_text(separator="\n", strip=True)
+                    if body_desc:
+                        break
+
+        best = _usable_desc(body_desc, 80)
+        if best:
+            return best, tags_str, is_exclusive, author_detail, cast_info, series_name, page_count
         return "", tags_str, is_exclusive, author_detail, cast_info, series_name, page_count
     except Exception as e:
         logger.error(f"DLsiteスクレイピングエラー: {e}")
         return "", "", False, "", "", "", 0
-
 
 def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
     if not product_url: return "", ""
@@ -545,7 +560,6 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
         return desc, _auth_det
 
     session = _make_dmm_session()
-    _any_desc_found = False
     author_detail_extra = ""
     try:
         r = session.get(
@@ -553,8 +567,7 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
             headers={"User-Agent": "Mozilla/5.0", "Referer": "https://book.dmm.co.jp/"},
             timeout=20
         )
-        r.encoding = r.apparent_encoding
-        text = r.text
+        text = _response_text(r)
 
         soup = BeautifulSoup(text, "html.parser")
         is_comic = False
@@ -605,7 +618,20 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
         if extra_authors:
             author_detail_extra = ",".join(extra_authors)
 
-        # JSON-LD
+        # 本文HTMLを優先。DMM商業はHTML本文が空で JSON-LD にしかあらすじが無いページがある。
+        html_desc = ""
+        for selector in [".summary__txt", ".mg-b20", ".common-description", ".product-description__text"]:
+            el = soup.select_one(selector)
+            if el:
+                t = el.get_text(separator="\n", strip=True)
+                if len(t) > len(html_desc):
+                    html_desc = t
+
+        best_desc = _usable_desc(html_desc, 80)
+        if best_desc:
+            return best_desc, author_detail_extra
+
+        # DMM商業ブック等: 可視本文セレクタが無い場合のみ JSON-LD を本文相当として使う
         ld_desc = ""
         for ld_match in re.finditer(r'<script type="application/ld\+json">(.*?)</script>', text, re.DOTALL):
             try:
@@ -617,35 +643,14 @@ def scrape_description(product_url, site="DMM.com", genre="", is_ranking=False):
                             ld_desc = item["description"]
             except Exception:
                 pass
-
-        # HTML
-        html_desc = ""
-        for selector in [".summary__txt", ".mg-b20", ".common-description", ".product-description__text"]:
-            el = soup.select_one(selector)
-            if el:
-                t = el.get_text(separator="\n", strip=True)
-                if len(t) > len(html_desc):
-                    html_desc = t
-
-        best_desc = ld_desc if len(ld_desc) > len(html_desc) else html_desc
-        _any_desc_found = bool(ld_desc) or bool(html_desc)
-
-        if len(best_desc) < 150 and best_desc.rstrip().endswith(("…", "...")):
-            logger.warning(f"  [省略検知] 取得テキストが省略文のみ({len(best_desc)}文字): {product_url}")
-            best_desc = ""
-
-        if len(best_desc) > 50:
-            return best_desc.strip(), author_detail_extra
-
-        ai_desc = _run_emergency_ai_extraction(product_url, site_type="DMM.com")
-        if ai_desc:
-            return ai_desc, author_detail_extra
+        best_ld = _usable_desc(ld_desc, 80)
+        if best_ld:
+            return best_ld, author_detail_extra
 
     except Exception as e:
         logger.warning(f"スクレイピング失敗 ({product_url}): {e}")
-    
-    final_desc = "__DESC_TOO_SHORT__" if _any_desc_found else ""
-    return final_desc, author_detail_extra
+
+    return "", author_detail_extra
 
 
 # === 新着取得（API/スクレイピング） ===

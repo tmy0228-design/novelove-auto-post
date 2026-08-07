@@ -40,7 +40,7 @@ from novelove_core import (
     WP_CLI_PATH, WP_DOC_ROOT,
     purge_kusanagi_cache,
 )
-from novelove_fetcher import scrape_description
+from novelove_fetcher import scrape_description, is_usable_description, is_suspicious_desc_change
 
 # === 定数 ===
 SALE_TAG_NAME     = "期間限定セール"
@@ -1057,11 +1057,20 @@ def run_desc_check():
             errors.append(f"{pid}: {e}")
             continue
 
-        # 取得失敗・除外判定は無視
-        if not new_desc or new_desc in ("__EXCLUDED_TYPE__",):
+        # 取得失敗・除外・本文不足は無視（旧値を維持）
+        if not new_desc or new_desc in ("__EXCLUDED_TYPE__", "__DESC_TOO_SHORT__"):
+            continue
+        if not is_usable_description(new_desc):
             continue
 
         checked_count += 1
+
+        if is_suspicious_desc_change(old_desc, new_desc):
+            logger.info(
+                f"  [DESC] 怪しい変化のためスキップ ({pid}) "
+                f"旧:{len(old_desc)}文字 → 新:{len(new_desc)}文字"
+            )
+            continue
 
         # difflib で内容の変化を検知（空白・改行を正規化してノイズをカット）
         _old_norm = re.sub(r'\s+', ' ', old_desc).strip()
