@@ -352,7 +352,7 @@ DMM公式APIの `campaign` フィールドは、**同人（doujin）フロア専
 | ランキング取得 | ItemList (`sort=rank`) | `nexus_revive.py` |
 | セール取得（同人） | ItemList (`campaign` フィールド) | `nexus_revive.py` |
 | セール取得（商業） | Webスクレイピング | `nexus_revive.py` |
-| あらすじ取得 | Webスクレイピング（JSON-LD / HTMLクラス） | `novelove_fetcher.py` |
+| あらすじ取得 | Webスクレイピング（本文HTML優先／商業ブックのみJSON-LD） | `novelove_fetcher.py` |
 | 専売判定 | ItemList (`iteminfo.genre` 内の "専売" タグ) | `novelove_fetcher.py` |
 | ジャンルタグ取得 | ItemList (`iteminfo.genre`) | `novelove_fetcher.py` |
 
