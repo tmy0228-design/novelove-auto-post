@@ -4,6 +4,7 @@
 
 - **`novelove_fetcher.py`**: 文字コードは Content-Type → UTF-8（`apparent_encoding` 廃止）＋文字化け拒否。OGP / AI緊急抽出は廃止。本文HTMLを優先し、取れた本文をJSON-LDで上書きしない。DMM商業ブックはページ構造上あらすじがJSON-LDにしか無いため、本文HTMLが空のときだけJSON-LDを本文相当として採用。
 - **`nexus_revive.py` / `run_desc_check`**: 本文として使えない取得・極端な長短反転は更新扱いにせず旧あらすじを維持。
+- **ドキュメント**: `SPECIFICATIONS.md` 第2章のあらすじ取得記述を v21.7.30 仕様に更新。`CLAUDE.md` の文字コード注記を `_response_text()` 前提に修正。
 
 ## v21.7.29 — 執筆プロンプト: 事実密度・タグ枠埋め禁止を明示 (2026-08-07)
 

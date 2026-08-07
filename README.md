@@ -23,7 +23,7 @@ BL・TL の女性向け作品（漫画・小説・同人）を全自動で紹介
 | `novelove_ranking.py` | ランキング記事生成。週次ランキングの取得・記事生成・投稿 |
 | `novelove_soul.py` | AIライター5名のキャラクター設定・関係性マトリクス・執筆ルール |
 | `novelove_core.py` | DB接続・Discord通知・アフィリエイトボタン・ArticleResult型等の共通インフラ |
-| `novelove_fetcher.py` | 各サイトのスクレイピング・フィルタリング・外部APIリトライ等の取得ロジック |
+| `novelove_fetcher.py` | 各サイトのスクレイピング・フィルタリング・外部APIリトライ等の取得ロジック（あらすじは本文HTML優先／DMM商業のみJSON-LD） |
 | `nexus_revive.py` | 【Nexus】セール・売れ筋ランキングタグの自動付与＆剥奪 |
 | `nexus_dashboard.py`| 【Nexus】データベース閲覧、あらすじ更新検知、DB状況可視化GUI |
 | `nexus_rewrite.py` | 【Nexus】個別記事の手動リライトエンジン（ダッシュボード等から起動） |
