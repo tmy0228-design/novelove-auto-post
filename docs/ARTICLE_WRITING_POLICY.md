@@ -3,7 +3,7 @@
 ステータス: **プロンプト実装済み（v21.7.29）** — HTML骨格は不変  
 日付: 2026-08-07
 
-関連: `novelove_writer.py` の `build_prompt` / `_evaluate_article_potential`。サンプル画像は `docs/SAMPLE_IMAGE_PLAN.md`。
+関連: `novelove_writer.py` の `build_prompt` / `_evaluate_article_potential`。正式仕様の正本はルートの `SPECIFICATIONS.md`。
 
 ---
 
