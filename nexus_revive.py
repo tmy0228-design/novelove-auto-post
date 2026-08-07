@@ -652,10 +652,9 @@ def run_nexus():
     stats = {
         "sale_added": 0, "sale_removed": 0,
         "rank_added": 0, "rank_removed": 0,
-        "content_synced": 0,  # タグ変化なし・バナー/タイトルのみ更新
         "checked": 0,
     }
-    # 実更新した記事だけ fcache を消す（日2回の全消しをやめて Googlebot の冷キャッシュを減らす）
+    # タグ付け外しで実更新した記事だけ fcache を消す
     changed_purge_paths = set()
 
     # (A) タグを付けるべき記事: セール/ランキングに乗っていて、かつ自社DBにある記事
@@ -668,8 +667,14 @@ def run_nexus():
     pids_losing_sale_tag = pids_with_sale_tag - pids_needing_sale_tag
     pids_losing_rank_tag = pids_with_rank_tag - pids_needing_rank_tag
 
-    # 処理対象だけに絞り込み（WP APIコール数を最小化）
-    all_targets = pids_needing_sale_tag | pids_needing_rank_tag | pids_losing_sale_tag | pids_losing_rank_tag
+    # 処理対象: タグが実際に付く／剥がれる記事だけ
+    # （以前はセール/売れ筋候補全体を回して帯を毎回同期していたが、差分が出てキャッシュが消えるため廃止）
+    pids_gaining_sale = pids_needing_sale_tag - pids_with_sale_tag
+    pids_gaining_rank = pids_needing_rank_tag - pids_with_rank_tag
+    all_targets = (
+        pids_gaining_sale | pids_losing_sale_tag
+        | pids_gaining_rank | pids_losing_rank_tag
+    )
     logger.info(f"  [最適化] WP API対象: {len(all_targets)}件 (全{len(published_pids)}件中)")
 
     SALE_BANNER_HTML = (
@@ -827,6 +832,11 @@ def run_nexus():
         else:
             is_rank = bestseller_tag_id in original_tags
 
+        # タグが変わらない記事は帯・タイトルを触らない（毎回復元で差分が出てキャッシュが消えるのを防ぐ）。
+        # 帯のずれ直しはタグ付け外しのタイミングで一緒に直す。
+        if new_tags == original_tags:
+            continue
+
         # --- タイトル先頭のクリーンアップ & 再構築 ---
         clean_title = current_title
         while True:
@@ -948,28 +958,21 @@ def run_nexus():
         elif bestseller_tag_id in original_tags and bestseller_tag_id not in new_tags:
             logs.append(("rank_removed", f"  📉 売れ筋タグ剥奪・テキスト元戻し: {pid}"))
 
-        # 一括更新用のペイロード作成
-        if new_tags != original_tags:
-            wp_payload["tags"] = list(new_tags)
+        # 一括更新用のペイロード作成（タグ変化時のみここまで来る）
+        wp_payload["tags"] = list(new_tags)
         if new_title != current_title:
             wp_payload["title"] = new_title
         if new_content != current_content:
             wp_payload["content"] = new_content
 
-        # 何かしら変更がある場合のみ一括更新APIを叩く
-        if wp_payload:
-            if update_post_data(wp_post_id, wp_payload):
-                for stat_key, log_msg in logs:
-                    stats[stat_key] += 1
-                    logger.info(log_msg)
-                # タグ変化がなくてもバナー/タイトル同期した件数（Discordでは別表示）
-                if not logs and (new_title != current_title or new_content != current_content):
-                    stats["content_synced"] += 1
-                    logger.info(f"  🔄 バナー/タイトル同期のみ: {pid}")
-                # スラッグは product_id 小文字（公開URLと一致）
-                changed_purge_paths.add(f"/{str(pid).lower().strip()}/")
-            else:
-                logger.warning(f"  ⚠️ 記事一括更新失敗: {pid}")
+        if update_post_data(wp_post_id, wp_payload):
+            for stat_key, log_msg in logs:
+                stats[stat_key] += 1
+                logger.info(log_msg)
+            # スラッグは product_id 小文字（公開URLと一致）
+            changed_purge_paths.add(f"/{str(pid).lower().strip()}/")
+        else:
+            logger.warning(f"  ⚠️ 記事一括更新失敗: {pid}")
 
     # --- キャッシュ: 更新した記事＋関連タグ一覧＋ホームのみ（全fcacheクリアしない） ---
     if changed_purge_paths:
@@ -994,7 +997,6 @@ def run_nexus():
         f"┣ チェック対象: {stats['checked']}件\n"
         f"┣ 🔥 セール: 付与{stats['sale_added']}件 / 解除{stats['sale_removed']}件\n"
         f"┣ 🏆 売れ筋: 付与{stats['rank_added']}件 / 解除{stats['rank_removed']}件\n"
-        f"┣ 🔄 表示同期のみ: {stats['content_synced']}件\n"
     )
     if errors:
         summary += f"┗ ⚠️ 取得エラー: {len(errors)}件（一部サイトの構造変更の可能性）"
