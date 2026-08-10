@@ -357,7 +357,7 @@ WordPress投稿成功直後に、Blueskyへ同内容の宣伝投稿を自動送�
 
 > [!WARNING]
 > **【絶対にやってはいけない禁忌事項一覧】**
-> - **画像の怠惰読み込み例外処理 (LCP低下の罠)**: Cocoonの最適化設定において、Lazy Loadからの除外クラスに `fifu-featured` を追加してはならない。全画像の一括同期待機が発生し、速度指標（LCP）が壊滅する。（すでに `functions.php` 内の `ob_start` ハックにて先頭画像だけの優先出力設定は実装済みであるため一切触らないこと）。
+> - **画像の怠惰読み込み例外処理 (LCP低下の罠)**: Cocoonの最適化設定において、Lazy Loadからの除外クラスに `fifu-featured` を追加してはならない。全画像の一括同期待機が発生し、速度指標（LCP）が壊滅する。（すでに `functions.php` 内の `ob_start` ハックにて先頭画像だけの優先出力設定は実装済みであるため一切触らないこと）。 EWWW の Lazy Load は **OFF 維持**（v21.7.32）。ONにすると FIFU 外部サムネが `safeDomains` 制限で空白化する。
 > - **KUSANAGI キャッシュコントロール**: サーバーメンテナンス時ならびにAIを通じた仕様変更時には、Webフロントの状態とシステム側で認識がズレるのを防ぐため、必要に応じて `kusanagi bcache off` や `on` を切り替えます。特にスマホ表示等の変更が反映されない場合、Nginxのキャッシュクリアに加え、データベース上のページキャッシュをクリアする `kusanagi bcache clear プロファイル名` の実行および `systemctl restart php-fpm`（OPcacheクリア）が必須となります。
 > - **記事コンテンツ内の絶対URL使用禁止 (v17.8.1の教訓)**: `novelove_writer.py` の `generate_article()` 内で生成される `content` 変数には、URLサニタイザー（`re.sub(r'https?://...', '', content)`）が適用される。アイコン画像など固定リソースのパスに絶対URL（`https://novelove.jp/...`）を使用すると、サニタイザーが `src=""` に書き換え画像が消滅する。**必ず相対パスを使用すること**。
 > - **旧データベースへの回帰禁止 (v18.1.3)**: v18.0.0でのDB統合後、十分な稼働実績が確認されたため、切り戻し用の旧DB群（`novelove.db`等）は完全に削除されました。今後は `novelove_unified.db` のみを正とします。絶対に過去のDB構造を復活させるようなコード変更を行わないこと。
@@ -440,7 +440,7 @@ Cocoonのモバイルスライドメニュー内で、サブメニューがタ�
 `is_noindex_page` フィルター（priority=10）に追加。タグページ（`is_tag()`）かつ `$term->count < nv_tag_index_threshold($term_id)` の場合にフィルターを `true` に上書きすることで、CocoonのSEO処理（`wp_robots_tag_custom`）が自動的に `<meta name="robots" content="noindex,follow">` を出力する。
 
 - **しきい値（v21.7.0で種別分岐）**: `nv_tag_index_threshold()` が種別印 `nv_tag_type` を見て判定。**声優/サークル/作者（cast/circle/author）は10件以上、それ以外（AIジャンル等）は従来どおり5件以上**でindex解禁。無限に増える人物/団体タグは強いページだけをindexさせ、薄いページの量産を防ぐ。
-- **単一ソース**: noindex判定・sitemap除外（`wp_sitemaps_taxonomies_entry`）・タグJSON-LD出力の3経路すべてが `nv_tag_index_threshold()` を参照する。
+- **単一ソース**: noindex判定・sitemap除外・タグJSON-LD出力は `nv_tag_index_threshold()` を参照。sitemap除外は **`wp_sitemaps_taxonomies_pre_url_list` / `pre_max_num_pages`** で index対象だけを出力する（v21.7.33）。`wp_sitemaps_taxonomies_entry` で `array()` を返す方式は空の `<url/>` を残すため禁止。
 - **`$term->count` の意味**: 公開(publish)記事数のみ。ゴミ箱(trash)・下書きは含まれない（実測で確認済み）。
 - **対象外**: タグページ以外のページ（投稿・固定ページ・カテゴリ等）には一切影響なし。
 - **設計の注意**: `wp_head` への直接出力は行わない。Cocoonの `wp_robots` フック経由で出力されるため二重出力なし。
@@ -564,6 +564,18 @@ DMMアフィリエイトAPIの仕様上、らぶカル（`lovecul.dmm.co.jp`）�
 - **並び**: `score` DESC → 同点なら `post_date` ASC → さらに同日なら `ID`
 - **効果の規模**: タイブレーク程度（100→101相当）。速度コストは無視できる。
 - **禁止**: 編集時に FIFU×関連サムネ回避（`post_thumbnail_html` priority 999）を消さないこと（v21.5.5）
+
+### 8-16. お店の選び方ハブ `/hajimekata/` (v21.7.35)
+未登録ユーザー向けの店選び固定ページ（ID: **33566**、スラッグ `hajimekata`）。about／紹介者一覧とは役割を分け、**DMMブックス・らぶカル・DLsite の登録前比較**が本丸。
+
+- **構成**: 比較表 → 各店（箇条書き＋説明文＋登録バナー＋作品例）→ FAQ → ジャンル／ランキング内部リンク。
+- **ショートコード**: 子テーマ `novelove-hub-shortcodes.php`（`[novelove_hub_ad]` / `[novelove_hub_samples]`）。`functions.php` から `require_once`。
+- **媒体の事実**: DMMブックスは漫画・小説中心でボイスなし。らぶカル／DLsiteはボイスあり。曖昧な「3店とも揃う」は書かない。
+- **SEO**: index対象（v21.7.35で noindex 解除）。meta description / SEOタイトルは Cocoon の `the_page_meta_description` / `the_page_seo_title`。
+- **導線**:
+  - フッターメニュー順: **お店の選び方 → お問い合わせ → プライバシーポリシー**（ヘッダーは6項目のまま）。
+  - 通常の作品紹介記事末尾に動的CTA（`the_content`）。ランキング／まとめは除外。執筆時の本文埋め込みは禁止。
+- **旧URL**: `/bl-hajimekata/` は廃止寄り。本命は `/hajimekata/` のみ。
 
 
 ## 📢 第9章：広告設定とアライメント・デザイン統一仕様 (v21.3.15)

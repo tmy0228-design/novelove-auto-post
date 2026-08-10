@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## v21.7.35 — /hajimekata/ 公開導線＋index解禁 (2026-08-11)
+
+### ✨ feat(hub): お店の選び方ページを内部導線つきで運用開始
+- **ページ本体** (`/hajimekata/` ID:33566): 未登録向けに DMMブックス／らぶカル／DLsite の比較表・店別説明・登録バナー・FAQ・ジャンル出口を一本化。ソースは `content/hajimekata/hajimekata.html`。
+- **noindex解除**: `the_page_noindex` / `is_noindex` を削除。robots は `max-image-preview:large`（noindexなし）。
+- **フッターメニュー**: `お店の選び方 | お問い合わせ | プライバシーポリシー`（WPメニューID 9。ヘッダー6項目は触らない）。
+- **紹介記事末尾CTA** (`novelove-hub-shortcodes.php`): `the_content` で動的追加。「まだお店が決まっていない方へ → お店の選び方」。ランキング／まとめカテゴリは除外。執筆本文には埋め込まない。
+
+## v21.7.34 — /hajimekata/ 登録広告を本文に復旧＋構成整理 (2026-08-10)
+
+### ✨ fix(hub): サイドバー常設と同系統の登録バナーを店ブロック直下に表示
+- **原因**: DMM `banner_placement.js` がサイドバーの `novelove_random_dmm` と本文枠で衝突し、本文側が空の `<ins>` のままになっていた。
+- **対応** (`novelove-hub-shortcodes.php` 本番テーマ):
+  - DMM/らぶカルはサイドバーと同じ banner ID（登録70%OFF=`1827`、らぶカル現行キャンペーン）を `wp_footer` から順次注入。
+  - `/hajimekata/` ではサイドバーの `novelove_random_dmm` / `_tv` を無効化（衝突回避）。
+  - DLsiteは従来どおり静的がるまにバナー。
+- **本文**: 店選び→広告→紹介例→FAQ に整理。媒体は短注記、末尾のカテゴリ案内は削除。
+- ソース: `content/hajimekata/hajimekata.html` / `novelove-hub-shortcodes.php`
+
+## v21.7.33 — タグsitemapの空urlエントリを修正 (2026-08-10)
+
+### 🐛 fix(seo): GSC「XMLタグが指定されていません」の原因を除去
+- **原因**: `wp_sitemaps_taxonomies_entry` で閾値未満タグに `return array()` しても WPコアは空の `<url/>` を出力する（locなし）。post_tag-1/2 で約1900件ずつ。
+- **対応**: `wp_sitemaps_taxonomies_pre_url_list` / `pre_max_num_pages` で index対象タグだけを組み立て。空url 0件・tag-2不要化を確認。
+- 本番 `functions.php`（バックアップ `functions.php.bak_sitemap_20260810230951`）。
+
+## v21.7.32 — EWWW Lazy Load をOFF（FIFU外部サムネ復旧） (2026-08-10)
+
+### 🐛 fix(theme): トップ新着のアイキャッチが2件目以降空白になる問題
+- **原因**: EWWW Image Optimizer の Lazy Load が ON かつ `safeDomains` が自ドメインのみ。FIFU の DLsite/DMM 外部サムネが展開されず `display:none` のまま空白に。
+- **対応（本番WP設定）**: `ewww_image_optimizer_lazy_load=0`。Cocoon の Lazy は維持（従来の役割分担どおり。EWWWはWebP側）。
+- fcache/bcache クリア＋php-fpm 再起動済み。ホームでサムネ `src=https` 即表示を確認。
+
 ## v21.7.31 — 通常投稿をスコア5のみに足切り (2026-08-10)
 
 - **`auto_post.py`**: 事前品質審査の足切りを「スコア3以下」から **「スコア4以下」** に変更。深掘り材料があるスコア5のみ執筆・投稿する。除外時は `desc_score` も保存。
