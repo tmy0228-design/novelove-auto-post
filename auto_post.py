@@ -1012,13 +1012,16 @@ def _execute_posting_flow(row, cursor, conn):
     eval_score = _evaluate_article_potential(title, desc_str, original_tags=_orig_tags_for_eval)
     logger.info(f"  -> AI品質スコア: {eval_score}/5点")
     
-    # スコア3以下は破棄 - v15.2: 高品質記事のみ投稿してサイト評価を保護
-    if eval_score <= 3:
+    # スコア4以下は破棄 - v21.7.31: 深掘り材料があるスコア5のみ投稿（コスト・SEO・在庫過多の抑制）
+    if eval_score <= 4:
         logger.warning(f"  -> 内容が不十分（スコア{eval_score}点）のため執筆スキップ")
-        cursor.execute("UPDATE novelove_posts SET status='excluded', last_error='low_score' WHERE product_id=?", (pid,))
+        cursor.execute(
+            "UPDATE novelove_posts SET status='excluded', last_error='low_score', desc_score=? WHERE product_id=?",
+            (eval_score, pid),
+        )
         conn.commit()
         return False, f"low_score: {eval_score}"
-        
+
     logger.info(f"  ✅ スコア基準クリア ({eval_score}点)。執筆を開始します。")
 
     img_url = row["image_url"] or ""
