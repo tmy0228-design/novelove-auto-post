@@ -565,7 +565,7 @@ DMMアフィリエイトAPIの仕様上、らぶカル（`lovecul.dmm.co.jp`）�
 - **効果の規模**: タイブレーク程度（100→101相当）。速度コストは無視できる。
 - **禁止**: 編集時に FIFU×関連サムネ回避（`post_thumbnail_html` priority 999）を消さないこと（v21.5.5）
 
-### 8-16. お店の選び方ハブ `/hajimekata/` (v21.7.39)
+### 8-16. お店の選び方ハブ `/hajimekata/` (v21.7.40)
 未登録ユーザー向けの店選び固定ページ（ID: **33566**、スラッグ `hajimekata`）。about／紹介者一覧とは役割を分け、**DMMブックス・らぶカル・DLsite の登録前比較**が本丸。
 
 - **構成**: 比較表 → 各店（箇条書き＋説明文＋登録バナー＋作品例）→ FAQ → ジャンル／ランキング内部リンク。
@@ -577,6 +577,28 @@ DMMアフィリエイトAPIの仕様上、らぶカル（`lovecul.dmm.co.jp`）�
   - 通常の作品紹介記事末尾に動的CTA（`the_content`）。ランキング／まとめは除外。執筆時の本文埋め込みは禁止。
 - **ソース**: `content/hajimekata/hajimekata.html`（旧 `bl-hajimekata.html` / `tl-hajimekata.html` は廃止）。
 - **旧URL**: `/bl-hajimekata/` は廃止。`/tl-hajimekata/` も廃止（ゴミ箱。本命は `/hajimekata/` のみ）。
+- **下層への接続**: 各店ブロック末尾と FAQ から店別ガイド（8-17）へリンク。ハブ＝比較、ガイド＝深掘りで役割を分ける。
+
+### 8-17. 店別ガイド `/dmmbooks-guide/` `/lovecal-guide/` `/dlsite-guide/` (v21.7.40)
+店名ミドルワード（「らぶカル とは」等）で入ってきた層と、店を決めた層の登録着地ページ。ハブ（8-16）が横比較、ここが縦の深掘り。
+
+| スラッグ | WP ID | 担当 |
+|:--|:--|:--|
+| `/lovecal-guide/` | **34773** | 茉莉花 |
+| `/dlsite-guide/` | **34778** | 葵 |
+| `/dmmbooks-guide/` | **34779** | 桃香 |
+
+- **ソース**: `content/stores/{dmmbooks,lovecal,dlsite}-guide.html`。`.gitignore` の `*.html` 対象なので commit 時は `git add -f`。
+- **構成（3ページ共通）**: 担当者の吹き出し → リード（ハブへ戻る導線）→ 「◯◯とは」→「扱っている作品」→「登録について」→ 登録バナー → 作品例 → ノベラブ内の探し方 → FAQ → 締めの吹き出し → ハブへ戻る。
+- **担当者**: DMMブックス=桃香 / らぶカル=茉莉花 / DLsite=葵（`novelove_soul.py` のペルソナ準拠。口癖のねじ込みはしない）。
+- **CSS・ショートコード**: `novelove-hub-shortcodes.php` の `novelove_hub_is_store_guide_page()` / `novelove_hub_is_hub_page()` で判定。`body_class` に `page-nlv-hub` を付与し、DMMサイドバー広告を抑止。
+- **店の事実（3ページとハブで統一・v21.7.40）**:
+  - **DLsite**: 同人が中心だが**商業BL・TLも扱う**。女性向け売り場が「がるまに」。アカウントは viviON ID。
+  - **らぶカル**: 公式区分は **TL・乙女向け・BL** の同人。DMMアカウント共通。
+  - **DMMブックス**: **幅広いジャンルの総合電子書籍ストア**で、そのなかに商業BL・TLが揃う。ボイスの扱いなし。
+- **SEO**: 当面 **noindex**（直リン確認用）。meta は Cocoon の `the_page_seo_title` / `the_page_meta_description`。本公開時に noindex を外す。
+- **FAQPage構造化データ**: ハブのみ出力（`novelove_hub_faq_jsonld()`）。ガイド側は未出力。
+- **メニュー未設置**: フッター／ヘッダーには入れない。ハブと内部リンクからの到達を主にする。
 
 
 ## 📢 第9章：広告設定とアライメント・デザイン統一仕様 (v21.3.15)

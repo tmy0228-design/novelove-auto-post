@@ -42,7 +42,8 @@ if (!function_exists('novelove_hub_css')) {
             . '.nlv-hub .nlv-hub-next-links a:hover{background:#fff0f4}'
             . '.nlv-hub-samples .nlv-hub-card{display:block;margin:0 0 .8em}'
             . '.nlv-hub-samples .related-entry-card-thumb img{display:block!important;width:160px;height:auto;max-width:100%}'
-            /* ハブ本文の DMM widget とサイドバー常設枠の衝突を避ける（page-id でも担保） */
+            /* ハブ本文の DMM widget とサイドバー常設枠の衝突を避ける */
+            . 'body.page-nlv-hub #dmm-random-ad-container,body.page-nlv-hub #dmm-random-tv-ad-container,'
             . 'body.page-hajimekata #dmm-random-ad-container,body.page-hajimekata #dmm-random-tv-ad-container,'
             . 'body.page-id-33566 #dmm-random-ad-container,body.page-id-33566 #dmm-random-tv-ad-container{display:none!important}'
             . '</style>';
@@ -56,16 +57,31 @@ if (!function_exists('novelove_hub_is_hajimekata_page')) {
     }
 }
 
+if (!function_exists('novelove_hub_is_store_guide_page')) {
+    function novelove_hub_is_store_guide_page() {
+        return is_page(array('lovecal-guide', 'dlsite-guide', 'dmmbooks-guide'));
+    }
+}
+
+if (!function_exists('novelove_hub_is_hub_page')) {
+    function novelove_hub_is_hub_page() {
+        return novelove_hub_is_hajimekata_page() || novelove_hub_is_store_guide_page();
+    }
+}
+
 add_filter('body_class', function ($classes) {
     if (novelove_hub_is_hajimekata_page()) {
         $classes[] = 'page-hajimekata';
+    }
+    if (novelove_hub_is_hub_page()) {
+        $classes[] = 'page-nlv-hub';
     }
     return $classes;
 });
 
 // ハブ本文で DMM widget を出すため、同ページのサイドバー常設枠は無効化（衝突で空白化するため）
 add_filter('pre_do_shortcode_tag', function ($return, $tag) {
-    if (!novelove_hub_is_hajimekata_page()) {
+    if (!novelove_hub_is_hub_page()) {
         return $return;
     }
     if (in_array($tag, array('novelove_random_dmm', 'novelove_random_dmm_tv'), true)) {
@@ -75,7 +91,7 @@ add_filter('pre_do_shortcode_tag', function ($return, $tag) {
 }, 10, 2);
 
 add_action('wp_head', function () {
-    if (!novelove_hub_is_hajimekata_page()) {
+    if (!novelove_hub_is_hub_page()) {
         return;
     }
     echo novelove_hub_css() . "\n";
@@ -103,7 +119,11 @@ if (!function_exists('novelove_hub_faq_jsonld')) {
             ),
             array(
                 'q' => '漫画・小説・ボイスって何が違いますか？',
-                'a' => 'お店によって扱っているジャンルが違います。DMMブックスは漫画と小説がメイン（ボイスは扱いなし）。らぶカルとDLsiteなら漫画・小説に加えてボイス作品もあります。',
+                'a' => 'お店によって扱っている形式が違います。DMMブックスは漫画と小説がメイン（ボイスは扱いなし）。らぶカルとDLsiteなら漫画・小説に加えてボイス作品もあります。',
+            ),
+            array(
+                'q' => 'お店ごとの細かい違いも知りたいです',
+                'a' => 'それぞれのお店だけをまとめたページもあります。DMMブックス／らぶカル／DLsiteのページで確認してください。',
             ),
             array(
                 'q' => 'スマホだけで読めますか？聴けますか？',
