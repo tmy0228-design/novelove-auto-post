@@ -565,7 +565,7 @@ DMMアフィリエイトAPIの仕様上、らぶカル（`lovecul.dmm.co.jp`）�
 - **効果の規模**: タイブレーク程度（100→101相当）。速度コストは無視できる。
 - **禁止**: 編集時に FIFU×関連サムネ回避（`post_thumbnail_html` priority 999）を消さないこと（v21.5.5）
 
-### 8-16. お店の選び方ハブ `/hajimekata/` (v21.7.35)
+### 8-16. お店の選び方ハブ `/hajimekata/` (v21.7.36)
 未登録ユーザー向けの店選び固定ページ（ID: **33566**、スラッグ `hajimekata`）。about／紹介者一覧とは役割を分け、**DMMブックス・らぶカル・DLsite の登録前比較**が本丸。
 
 - **構成**: 比較表 → 各店（箇条書き＋説明文＋登録バナー＋作品例）→ FAQ → ジャンル／ランキング内部リンク。
@@ -575,7 +575,8 @@ DMMアフィリエイトAPIの仕様上、らぶカル（`lovecul.dmm.co.jp`）�
 - **導線**:
   - フッターメニュー順: **お店の選び方 → お問い合わせ → プライバシーポリシー**（ヘッダーは6項目のまま）。
   - 通常の作品紹介記事末尾に動的CTA（`the_content`）。ランキング／まとめは除外。執筆時の本文埋め込みは禁止。
-- **旧URL**: `/bl-hajimekata/` は廃止寄り。本命は `/hajimekata/` のみ。
+- **ソース**: `content/hajimekata/hajimekata.html`（旧 `bl-hajimekata.html` / `tl-hajimekata.html` は廃止）。
+- **旧URL**: `/bl-hajimekata/` は廃止。`/tl-hajimekata/` も廃止（ゴミ箱。本命は `/hajimekata/` のみ）。
 
 
 ## 📢 第9章：広告設定とアライメント・デザイン統一仕様 (v21.3.15)

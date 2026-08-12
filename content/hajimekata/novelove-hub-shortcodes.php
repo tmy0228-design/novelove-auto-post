@@ -51,7 +51,7 @@ if (!function_exists('novelove_hub_css')) {
 
 if (!function_exists('novelove_hub_is_hajimekata_page')) {
     function novelove_hub_is_hajimekata_page() {
-        return is_page(array('hajimekata', 'bl-hajimekata', 'tl-hajimekata'))
+        return is_page(array('hajimekata'))
             || is_page(33566);
     }
 }
@@ -80,6 +80,68 @@ add_action('wp_head', function () {
     }
     echo novelove_hub_css() . "\n";
 }, 40);
+
+/**
+ * FAQPage構造化データ。
+ * 質問・回答は content/hajimekata/hajimekata.html の「登録の前によくある質問」と
+ * 手動で同期すること（本文を変更したらここも直す）。
+ */
+if (!function_exists('novelove_hub_faq_jsonld')) {
+    function novelove_hub_faq_jsonld() {
+        $qa = array(
+            array(
+                'q' => '登録は無料ですか？すぐお金がかかりますか？',
+                'a' => 'どのお店もアカウント作成は無料です。お金がかかるのは作品を買うときだけ。まずは登録だけでもOKです。',
+            ),
+            array(
+                'q' => '登録にクレジットカードは必要ですか？',
+                'a' => 'いいえ、3店ともクレジットカードは必須ではありません。メールアドレス（またはSNSアカウント）とパスワードがあれば登録できます。購入時もポイント購入やコンビニ決済など、カード以外の支払い方法を選べます。',
+            ),
+            array(
+                'q' => '無料や試し読みは、どこまで見られますか？',
+                'a' => 'お店や作品によってまちまちです。試し読み・サンプル・期間限定の無料公開など、形式はいろいろ。すべてが無料で読めるわけではないので、気になった作品のページで確認してみてください。',
+            ),
+            array(
+                'q' => '漫画・小説・ボイスって何が違いますか？',
+                'a' => 'お店によって扱っているジャンルが違います。DMMブックスは漫画と小説がメイン（ボイスは扱いなし）。らぶカルとDLsiteなら漫画・小説に加えてボイス作品もあります。',
+            ),
+            array(
+                'q' => 'スマホだけで読めますか？聴けますか？',
+                'a' => '主要なお店はスマホのブラウザやアプリで使えます。細かい対応機種はそれぞれの公式サイトでチェックしてみてください。',
+            ),
+            array(
+                'q' => '年齢確認はどうすればいいですか？',
+                'a' => '生年月日の入力や画面の案内に沿って進めれば、基本的にそれだけで完了します。身分証の提出が必要になるのは、一部の決済方法を選んだときなど限られたケースです。',
+            ),
+        );
+        $entities = array();
+        foreach ($qa as $item) {
+            $entities[] = array(
+                '@type'          => 'Question',
+                'name'           => $item['q'],
+                'acceptedAnswer' => array(
+                    '@type' => 'Answer',
+                    'text'  => $item['a'],
+                ),
+            );
+        }
+        $json_ld = array(
+            '@context'   => 'https://schema.org',
+            '@type'      => 'FAQPage',
+            'mainEntity' => $entities,
+        );
+        return '<script type="application/ld+json">'
+            . json_encode($json_ld, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            . '</script>';
+    }
+}
+
+add_action('wp_head', function () {
+    if (!novelove_hub_is_hajimekata_page()) {
+        return;
+    }
+    echo novelove_hub_faq_jsonld() . "\n";
+}, 41);
 
 if (!function_exists('novelove_hub_store_match')) {
     function novelove_hub_store_match($post_name, $store) {
