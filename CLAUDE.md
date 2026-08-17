@@ -133,6 +133,7 @@ GitHubのmainブランチに変更がpushされると、30分以内にサーバ�
    - DLsiteは収益・検索の本命（エース）。らぶカルは高単価サブ、DMM商業はおまけ（詳細は `SPECIFICATIONS.md` のプラットフォーム別ポジショニング）。
    - クロスサイト重複で片方を残すなら **原則 DLsite を残す**（先着・GSCだけで DMM/らぶカルを残さない）。
    - 迷ったらユーザーに確認。勝手に「先着＝正義」で DLsite を消すな。
+   - **読者向けUXには出さない。** ランキング末尾ナビ・ハブの店出口など、人が辿る導線は3店同等。DLsiteだけに寄せて他店への行き来を切るな。
 
 7. **WordPress記事の削除はゴミ箱のみ（force禁止）**
    - `wp post delete --force` / `wp_delete_post(..., true)` / REST `force=true` は使うな。
