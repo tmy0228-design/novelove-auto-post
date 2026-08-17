@@ -768,36 +768,35 @@ def process_ranking_articles(force_all=False):
                 final_content = content_html
                 
                 # 末尾ナビ (v21.7.45)
-                # 固定スラグ6本を「分配器」として機能させるため、AI生成に任せずコードで差し込む。
-                # 内訳: 同店の反対ジャンル → 他店の同ジャンル（3店相互） → 店別ガイド → お店の選び方。
-                # ランキングに登録バナーは載せない（登録導線はハブ／ガイド側の役割）。
+                # 上段: 同店の反対ジャンル + 同ジャンルの他2店（3店相互。並びは DLsite → らぶカル → DMM、自店除く）
+                # 下段: 店別ガイド ／ お店の選び方 を1行（登録バナーは載せない）
                 other_genre = "TL" if genre == "BL" else "BL"
-                other_slug = get_ranking_slug(site, other_genre)
-                other_url = f"{WP_SITE_URL}/{other_slug}/"
-                _now2 = datetime.now()
-                _wk2 = (_now2.day - 1) // 7 + 1
-
-                nav_items = [
-                    f'<li><a href="{other_url}">【{disp_site}】{other_genre}ピックアップ5選！厳選ランキング（{_now2.year}年{_now2.month}月第{_wk2}週）</a></li>'
+                ranking_items = [
+                    f'<li><a href="{WP_SITE_URL}/{get_ranking_slug(site, other_genre)}/">【{disp_site}】{other_genre}おすすめ5選</a></li>'
                 ]
                 for other_site in ("DLsite", "Lovecal", "DMM"):
                     if other_site == site:
                         continue
                     other_disp = site_labels.get(other_site, other_site)
-                    other_same = f"{WP_SITE_URL}/{get_ranking_slug(other_site, genre)}/"
-                    nav_items.append(f'<li><a href="{other_same}">【{other_disp}】{genre}ピックアップ5選！厳選ランキング</a></li>')
+                    ranking_items.append(
+                        f'<li><a href="{WP_SITE_URL}/{get_ranking_slug(other_site, genre)}/">【{other_disp}】{genre}おすすめ5選</a></li>'
+                    )
                 guide_slug = {"DLsite": "dlsite-guide", "Lovecal": "lovecal-guide", "DMM": "dmmbooks-guide"}.get(site)
                 guide_label = {"DLsite": "DLsite", "Lovecal": "らぶカル", "DMM": "DMMブックス"}.get(site, disp_site)
+                store_bits = []
                 if guide_slug:
-                    nav_items.append(f'<li><a href="{WP_SITE_URL}/{guide_slug}/">{guide_label}ってどんなお店？（登録前に読むガイド）</a></li>')
-                nav_items.append(f'<li><a href="{WP_SITE_URL}/hajimekata/">まだお店が決まっていない方へ（お店の選び方）</a></li>')
+                    store_bits.append(f'<a href="{WP_SITE_URL}/{guide_slug}/">{guide_label}のガイド</a>')
+                store_bits.append(f'<a href="{WP_SITE_URL}/hajimekata/">お店の選び方</a>')
+                store_line = " ／ ".join(store_bits)
 
                 cross_link = (
                     '<div style="border:1px solid #f0c0c0; border-radius:8px; padding:15px; margin:20px 0; background:#fff8f8;">\n'
-                    '<p style="margin:0 0 8px; font-weight:bold; color:#c0607f;">📚 あわせて読みたい</p>\n'
-                    '<ul style="margin:0; padding-left:1.3em;">\n'
-                    + "\n".join(nav_items) + "\n"
+                    '<p style="margin:0 0 8px; font-weight:bold; color:#c0607f;">📚 今週のピックアップ</p>\n'
+                    '<ul style="margin:0 0 12px; padding-left:1.3em;">\n'
+                    + "\n".join(ranking_items) + "\n"
                     '</ul>\n'
+                    '<p style="margin:0 0 4px; font-size:0.9em; font-weight:bold; color:#c0607f;">お店を決める</p>\n'
+                    f'<p style="margin:0; font-size:0.9em;">{store_line}</p>\n'
                     '</div>\n'
                 )
                 final_content += cross_link
