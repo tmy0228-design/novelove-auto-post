@@ -361,10 +361,14 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
     guest    = ゲスト（別ジャンル担当者）。Noneの場合は1名形式にフォールバック。
     v14.9.0: 挨拶ランダム化・吹き出しクラス厳格化・FACT_GUARD/NG_PHRASES/成人向け表現規制を追加。
     """
+    # v21.7.45: media を渡し、作品ごとに形式へ合った表現を書けるようにする（バッジと同じ判定を再利用）。
+    _media_labels = {"comic": "漫画", "novel": "小説", "voice": "ボイス", "doujin": "同人"}
     items_xml = ""
     for idx, item in enumerate(items):
         desc = mask_input(item.get("description", ""), level=1)[:300]
-        items_xml += f'\n<item rank="{idx+1}">\n  <title>{item["title"]}</title>\n  <description>{desc}...</description>\n</item>\n'
+        media_label = _media_labels.get(item.get("media_type", ""), "")
+        media_xml = f'\n  <media>{media_label}</media>' if media_label else ""
+        items_xml += f'\n<item rank="{idx+1}">\n  <title>{item["title"]}</title>{media_xml}\n  <description>{desc}...</description>\n</item>\n'
 
     # MC（左）の吹き出し
     mc_open  = f'<div class="speech-bubble-left"><img src="/wp-content/uploads/icons/{reviewer["face_image"]}.png" alt="{reviewer["name"]}" /><div class="speech-text">'
@@ -437,15 +441,18 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
 6. 2人の性格の違いと関係性に基づいた自然なテンポで会話を進めること。
 7. raw HTMLのみを出力。```やコードブロックは使わないこと。
 8. 直接的な性的単語（性器の名称・行為の直接名称）は使用禁止。官能的な比喩を使うこと。
-9. 紹介する作品には漫画、小説、音声作品（ボイス・ASMR）が含まれます。メディアタイプを特定する表現（「読む」「聴く」「本を開く」「耳を澄ます」など）は避け、どのメディアであっても違和感のない中立的な表現（「この作品を楽しむ」「チェックする」「体験する」など）で紹介してください。
+9. 紹介する作品には漫画・小説・ボイスが混在します。各作品の <media> に合った表現を使うこと（ボイス作品に「読む」、漫画に「聴く」等を使わない）。<media> が無い作品は、どのメディアでも違和感のない中立的な表現（「楽しむ」「チェックする」「体験する」など）にすること。
+10. 【禁止】「向かない人」「苦手な人は」「人を選ぶ」といった読者を振り分ける記述は書かないこと。ここは編集部が推す5作品なので、良さを具体的に伝えることだけに集中する。
 【冒頭の挨拶ルール】
 {mc_intro_rule}
 {guest_intro_rule}
-【記事の構成（合計文字数目標: 3,000〜3,500文字）】
+【記事の構成（合計文字数目標: 3,200〜3,800文字）】
 - 冒頭：2人のオープニングトーク（今週の作品への期待を簡潔に語る。合計2往復。）
 - 第5位〜第2位：各作品ごとに以下の順で構成すること（吹き出しは計2往復＝4発言のみ）:
   1. MCが作品への第一印象を吹き出し1発言で語る
-  2. 通常テキスト（<p>タグ）であらすじ・見どころを箇条書き（<ul><li>）2〜3点で紹介（吹き出し不使用）
+  2. 通常テキスト（吹き出し不使用）で、次の a → b をこの順に必ず置くこと:
+     a. <p><strong>こんな人に刺さる：</strong>（どんな好み・気分の人に向くかを1文。「BL好きな人」のような当たり前ではなく、この作品固有の要素＝関係性・シチュエーション・属性を必ず入れる）</p>
+     b. <ul><li>見どころ2〜3点</li></ul>（あらすじの丸写し・言い換えは禁止。「どこが良いのか」＝関係性の妙・シチュエーションの強さ・展開への期待を書く）
   3. ゲストがリアクション・推しポイントを吹き出し1発言で語る
   4. MCが締めのひと言を吹き出し1発言で語る
   ・各作品の前後に必ず HTML プレースホルダーを置くこと:
@@ -454,7 +461,7 @@ def format_ranking_prompt(site_name, genre, items, reviewer, guest=None):
     <div class="ranking-badge" style="font-size:1.6em;font-weight:bold;margin-bottom:15px;color:#ff4785;">[RANK_BADGE_{{rank}}]</div>
     <h3 style="margin-top:20px;font-size:1.3em;">[TITLE_{{rank}}]</h3>
     [REVIEW_LINK_{{rank}}]
-- 第1位：少し熱量多めで語る（吹き出しは計3往復＝6発言）。プレースホルダーは同様に配置。
+- 第1位：少し熱量多めで語る（吹き出しは計3往復＝6発言）。プレースホルダーと通常テキスト（a. こんな人に刺さる／b. 見どころ）も同様に配置すること。
 - 締め：2人で今週の感想と読者へのメッセージを語る（合計2往復）。
 【ランキングデータ】
 {items_xml}
@@ -760,17 +767,35 @@ def process_ranking_articles(force_all=False):
                 
                 final_content = content_html
                 
-                # 相互リンク (BL <=> TL)
+                # 末尾ナビ (v21.7.45)
+                # 固定スラグ6本を「分配器」として機能させるため、AI生成に任せずコードで差し込む。
+                # 内訳: 同店の反対ジャンル → (DLsite以外なら)DLsiteの同ジャンル → 店別ガイド → お店の選び方。
+                # ランキングに登録バナーは載せない（登録導線はハブ／ガイド側の役割）。
                 other_genre = "TL" if genre == "BL" else "BL"
                 other_slug = get_ranking_slug(site, other_genre)
                 other_url = f"{WP_SITE_URL}/{other_slug}/"
                 _now2 = datetime.now()
                 _wk2 = (_now2.day - 1) // 7 + 1
+
+                nav_items = [
+                    f'<li><a href="{other_url}">【{disp_site}】{other_genre}ピックアップ5選！厳選ランキング（{_now2.year}年{_now2.month}月第{_wk2}週）</a></li>'
+                ]
+                if site != "DLsite":
+                    dlsite_url = f"{WP_SITE_URL}/{get_ranking_slug('DLsite', genre)}/"
+                    nav_items.append(f'<li><a href="{dlsite_url}">【DLsite】{genre}ピックアップ5選！厳選ランキング</a></li>')
+                guide_slug = {"DLsite": "dlsite-guide", "Lovecal": "lovecal-guide", "DMM": "dmmbooks-guide"}.get(site)
+                guide_label = {"DLsite": "DLsite", "Lovecal": "らぶカル", "DMM": "DMMブックス"}.get(site, disp_site)
+                if guide_slug:
+                    nav_items.append(f'<li><a href="{WP_SITE_URL}/{guide_slug}/">{guide_label}ってどんなお店？（登録前に読むガイド）</a></li>')
+                nav_items.append(f'<li><a href="{WP_SITE_URL}/hajimekata/">まだお店が決まっていない方へ（お店の選び方）</a></li>')
+
                 cross_link = (
-                    f'<div style="border:1px solid #f0c0c0; border-radius:8px; padding:15px; margin:20px 0; background:#fff8f8;">\n'
-                    f'<p style="margin:0 0 8px; font-weight:bold; color:#c0607f;">📚 あわせて読みたい</p>\n'
-                    f'<p><a href="{other_url}">【{disp_site}】{other_genre}ピックアップ5選！厳選ランキング（{_now2.year}年{_now2.month}月第{_wk2}週）はこちら</a></p>\n'
-                    f'</div>\n'
+                    '<div style="border:1px solid #f0c0c0; border-radius:8px; padding:15px; margin:20px 0; background:#fff8f8;">\n'
+                    '<p style="margin:0 0 8px; font-weight:bold; color:#c0607f;">📚 あわせて読みたい</p>\n'
+                    '<ul style="margin:0; padding-left:1.3em;">\n'
+                    + "\n".join(nav_items) + "\n"
+                    '</ul>\n'
+                    '</div>\n'
                 )
                 final_content += cross_link
                 
