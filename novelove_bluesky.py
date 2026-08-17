@@ -172,42 +172,74 @@ def _parse_tags(wp_tags_str: str, exclude_extra=None) -> list:
     ]
 
 
+# Blueskyコメントのワンパターン化防止（soulの決めゼリフをそのまま渡さない）
+_BLUESKY_BANNED_PHRASES = (
+    "ねえ聞いて",
+    "ちょっと聞いて",
+    "胸きゅん不可避",
+    "胸きゅんが止まらない",
+    "胸きゅんしかない",
+    "胸きゅん大爆発",
+    "心臓がもたない",
+    "心臓もたない",
+    "心臓が持たない",
+    "強引なのに優しい",
+)
+
+
+def _bluesky_comment_is_templatey(comment: str) -> bool:
+    """定番フレーズに寄りすぎたコメントなら True。"""
+    if not comment:
+        return True
+    return any(p in comment for p in _BLUESKY_BANNED_PHRASES)
+
+
 def _generate_marika_comment(title: str, excerpt: str, genre_label: str) -> str:
     """
     DeepSeekで茉莉花の紹介コメント（80文字程度、2文以内）を生成する。
-    novelove_soul.pyのペルソナ設定を活用し、表現はAIに委ねる。
+    personality は soul から取るが、決めゼリフ付き tone は渡さない（ワンパターン化防止）。
     失敗時は空文字を返す（定型文は使用しない）。
     """
     if not DEEPSEEK_API_KEY:
         return ""
 
-    # novelove_soul.py から茉莉花のペルソナを取得
     marika = next((r for r in REVIEWERS if r["id"] == "marika"), None)
     personality = marika["personality"] if marika else ""
-    tone = marika["tone"] if marika else ""
     fp_line = first_person_prompt_line(marika) if marika else ""
     fp_block = f"【{fp_line}】\n" if fp_line else ""
 
+    # soul の tone（「ねえ聞いて」「胸きゅんすぎる」例示）は渡さない。温度感だけ残す。
+    bluesky_tone = (
+        "友達に布教するテンション高めの話し方。"
+        "甘さや溺愛は、その作品のあらすじに本当にある要素だけを拾う。"
+        "分析口調・冷静レビュー・決めゼリフの使い回しはしない。"
+    )
+
     safe_excerpt = (excerpt or "")[:120]
-    prompt = (
+    base_prompt = (
         f"あなたはSNSを担当している「茉莉花」です。\n"
         f"【キャラクター】\n{personality}\n"
-        f"【口調】\n{tone}\n"
+        f"【口調】\n{bluesky_tone}\n"
         f"{fp_block}\n"
         f"以下の作品をBlueskyで軽く紹介するコメントを書いてください。\n"
         f"ルール：\n"
-        f"・80文字程度、2文以内で\n"
-        f"・友達におすすめする感覚で、作品のあらすじに沿った具体的な魅力に触れること\n"
+        f"・80文字程度、2文以内\n"
+        f"・作品固有のシチュ・関係性・展開から入ること（汎用の煽りだけで始めない）\n"
+        f"・友達におすすめする感覚で、あらすじに沿った具体的な魅力に触れる\n"
         f"・他のライター名は出さない\n"
-        f"・一人称はキャラ設定どおりに固定すること\n"
-        f"・毎回同じような言い回しにならないよう、作品の内容に合わせて自由に表現すること\n\n"
+        f"・一人称はキャラ設定どおりに固定する\n"
+        f"・禁止（絶対に使わない）: "
+        f"「ねえ聞いて」「ちょっと聞いて」「胸きゅん不可避」「胸きゅんが止まらない」"
+        f"「心臓がもたない」「強引なのに優しい」および同種の定番フレーズ\n"
+        f"・「胸きゅん」「！！！」は多用しない。使うなら全体で1回まで\n"
+        f"・毎回入り方と締めを変えること\n\n"
         f"ジャンル: {genre_label}\n"
         f"タイトル: {title}\n"
         f"あらすじ: {safe_excerpt}\n\n"
-        f"出力: 茉莉花の紹介コメントのみ（前置き不要）"
+        f"出力: 茉莉花の紹介コメントのみ（前置き・見出し不要）"
     )
 
-    try:
+    def _call_once(prompt: str, temperature: float) -> str:
         resp = requests.post(
             DEEPSEEK_API_URL,
             headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
@@ -215,23 +247,39 @@ def _generate_marika_comment(title: str, excerpt: str, genre_label: str) -> str:
                 "model": "deepseek-v4-flash",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 200,
-                "temperature": 0.9,
+                "temperature": temperature,
                 "thinking": {"type": "disabled"},
             },
             timeout=15,
         )
-        if resp.status_code == 200:
-            comment = (resp.json()["choices"][0]["message"]["content"] or "").strip()
-            # カギカッコで囲まれている場合は除去
-            if comment.startswith("「") and comment.endswith("」"):
-                comment = comment[1:-1]
-            if len(comment) >= 5:
-                logger.info(f"🔵 Bluesky: 茉莉花コメント生成完了 ({len(comment)}字)")
-                return comment
-            else:
-                logger.warning("⚠️ Bluesky: 茉莉花コメントが短すぎる。コメントなしで投稿。")
-        else:
+        if resp.status_code != 200:
             logger.warning(f"⚠️ Bluesky: DeepSeek API エラー {resp.status_code}。コメントなしで投稿。")
+            return ""
+        comment = (resp.json()["choices"][0]["message"]["content"] or "").strip()
+        if comment.startswith("「") and comment.endswith("」"):
+            comment = comment[1:-1]
+        return comment.strip()
+
+    try:
+        comment = _call_once(base_prompt, 1.0)
+        if comment and _bluesky_comment_is_templatey(comment):
+            logger.info("🔵 Bluesky: 定番フレーズ検出 → 1回だけ再生成")
+            retry_prompt = (
+                base_prompt
+                + "\n\n直前の案は定番フレーズに寄りすぎました。"
+                "別の入り方で、あらすじの固有名詞や関係性だけを使って書き直してください。"
+            )
+            retry = _call_once(retry_prompt, 1.1)
+            if retry and not _bluesky_comment_is_templatey(retry):
+                comment = retry
+            elif retry and len(retry) >= 5:
+                # 再生成も定番なら、まだマシな方を採用（空よりは投稿する）
+                comment = retry
+
+        if len(comment) >= 5:
+            logger.info(f"🔵 Bluesky: 茉莉花コメント生成完了 ({len(comment)}字)")
+            return comment
+        logger.warning("⚠️ Bluesky: 茉莉花コメントが短すぎる。コメントなしで投稿。")
     except Exception as e:
         logger.warning(f"⚠️ Bluesky: 茉莉花コメント生成失敗（続行）: {e}")
 
