@@ -580,7 +580,7 @@ DMMアフィリエイトAPIの仕様上、らぶカル（`lovecul.dmm.co.jp`）�
 - **旧URL**: `/bl-hajimekata/` は廃止。`/tl-hajimekata/` も廃止（ゴミ箱。本命は `/hajimekata/` のみ）。
 - **下層への接続**: 各店ブロック末尾と FAQ から店別ガイド（8-17）へリンク。ハブ＝比較、ガイド＝深掘りで役割を分ける。
 
-### 8-17. 店別ガイド `/dmmbooks-guide/` `/lovecal-guide/` `/dlsite-guide/` (v21.7.40)
+### 8-17. 店別ガイド `/dmmbooks-guide/` `/lovecal-guide/` `/dlsite-guide/` (v21.7.42)
 店名ミドルワード（「らぶカル とは」等）で入ってきた層と、店を決めた層の登録着地ページ。ハブ（8-16）が横比較、ここが縦の深掘り。
 
 | スラッグ | WP ID | 担当 |
@@ -597,7 +597,7 @@ DMMアフィリエイトAPIの仕様上、らぶカル（`lovecul.dmm.co.jp`）�
   - **DLsite**: 同人が中心だが**商業BL・TLも扱う**。女性向け売り場が「がるまに」。アカウントは viviON ID。
   - **らぶカル**: 公式区分は **TL・乙女向け・BL** の同人。DMMアカウント共通。
   - **DMMブックス**: **幅広いジャンルの総合電子書籍ストア**で、そのなかに商業BL・TLが揃う。ボイスの扱いなし。
-- **SEO**: 当面 **noindex**（直リン確認用）。meta は Cocoon の `the_page_seo_title` / `the_page_meta_description`。本公開時に noindex を外す。
+- **SEO**: index対象（v21.7.42で noindex 解除）。meta は Cocoon の `the_page_seo_title` / `the_page_meta_description`。
 - **FAQPage構造化データ**: ハブのみ出力（`novelove_hub_faq_jsonld()`）。ガイド側は未出力。
 - **メニュー未設置**: フッター／ヘッダーには入れない。ハブと内部リンクからの到達を主にする。
 

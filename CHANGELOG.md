@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v21.7.42 — 店別ガイド3ページの noindex 解除 (2026-08-17)
+
+### ✨ seo(guide): `/lovecal-guide/` `/dlsite-guide/` `/dmmbooks-guide/` を index 対象へ
+- Cocoon `the_page_noindex` を削除。robots は `max-image-preview:large`（noindexなし）。
+- 役割確認済み: ハブ=`/hajimekata/` が横比較、ガイドが店別深掘り。双方向リンクあり。共通FAQはハブ、店固有FAQはガイド。
+- GSC上でハブに「らぶカル」系クエリの表示が出始めており、店名ミドルの受け皿としてガイド公開のタイミングと判断。
+
 ## v21.7.41 — Bluesky茉莉花コメントのワンパターン化を抑制 (2026-08-17)
 
 ### 🐛 fix(bluesky): 決めゼリフ依存の紹介文をやめる
