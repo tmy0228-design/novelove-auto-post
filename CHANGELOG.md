@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v21.7.44 — 日付アーカイブ noindex／検索 Disallow 整理／feed X-Robots (2026-08-17)
+
+### ✨ seo(noindex): 薄い複製・検索・feed の扱いを整理
+- **日付など「その他アーカイブ」**: Cocoon `other_archive_page_noindex=1`（`/2026/` `/2026/08/` 等が `noindex,follow`）。カテゴリ／タグ／タクソノミーは対象外のまま。
+- **検索**: `robots.txt` の `Disallow: /?s=` を削除。HTML の `noindex,follow` は維持（クローラが指令を読めるようにする）。
+- **feed**: `robots.txt` の `Disallow: /feed/` `*/feed/` は維持しつつ、子テーマ `functions.php` で `X-Robots-Tag: noindex, follow` を追加（他ボット向け保険）。
+- カテゴリ／タグの2ページ目 index 方針（v20.0.8）は変更しない。
+
 ## v21.7.43 — 始め方ハブの meta description を本文に合わせて修正 (2026-08-17)
 
 ### 🐛 fix(seo/hub): 削除済みのバナー誘導文言が meta に残っていた

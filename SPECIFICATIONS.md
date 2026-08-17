@@ -364,7 +364,9 @@ WordPress投稿成功直後に、Blueskyへ同内容の宣伝投稿を自動送�
 > - **旧データベースへの回帰禁止 (v18.1.3)**: v18.0.0でのDB統合後、十分な稼働実績が確認されたため、切り戻し用の旧DB群（`novelove.db`等）は完全に削除されました。今後は `novelove_unified.db` のみを正とします。絶対に過去のDB構造を復活させるようなコード変更を行わないこと。
 - **2ページ目以降の noindex 設定の禁止 (v20.0.8の決定)**: 過去の投稿記事へのクローラー巡回およびインデックス導線を維持するため、Cocoon のテーマ設定（`theme_mods_cocoon-child-master`）に含まれる「カテゴリ・タグ・アーカイブの2ページ目以降を noindex にする」設定（`paged_category_page_noindex`, `paged_tag_page_noindex`, `other_archive_page_noindex`）は常にオフ（無効）に維持すること。これらのオプションをオンにしてクローラーを遮断することを禁止する（Google の SEO ベストプラクティスに準拠）。
 - **タグページへのnoindex手動設定禁止 (v20.1.1の決定)**: 低件数タグの noindex 制御は `functions.php` の `is_noindex_page` フィルターにより完全動的に行われている（記事5件未満 → 自動noindex、5件以上 → 自動解除）。CocoonのテーマカスタマイザーやDB上で個別タグに noindex を手動設定すると二重適用・制御不能になるため禁止する。
-- **feed のクロール抑止 (`robots.txt`)**: 本番 `https://novelove.jp/robots.txt` で `Disallow: /feed/` と `Disallow: */feed/` を維持する（RSS/コメントフィードのインデックス汚染防止）。HTMLの `noindex` meta とは別経路。あわせて検索結果ページは `Disallow: /?s=`。添付ページは Cocoon `attachment_page_noindex=1`。
+- **その他アーカイブ（日付等）の noindex (v21.7.44)**: Cocoon `other_archive_page_noindex=1` を維持。`is_archive() && !is_category() && !is_tag() && !is_tax()`（例: `/2026/` `/2026/08/`）を noindex。カテゴリ／タグは含めない。
+- **検索ページ**: HTML は WP 標準の `noindex,follow`。`robots.txt` に `Disallow: /?s=` は置かない（v21.7.44。指令を読ませたいため）。
+- **feed のクロール抑止**: 本番 `robots.txt` で `Disallow: /feed/` と `Disallow: */feed/` を維持。加えて子テーマで feed に `X-Robots-Tag: noindex, follow`（v21.7.44。robots.txt を無視するボット向け）。添付ページは Cocoon `attachment_page_noindex=1`。
 
 ---
 
