@@ -769,7 +769,7 @@ def process_ranking_articles(force_all=False):
                 
                 # 末尾ナビ (v21.7.45)
                 # 固定スラグ6本を「分配器」として機能させるため、AI生成に任せずコードで差し込む。
-                # 内訳: 同店の反対ジャンル → (DLsite以外なら)DLsiteの同ジャンル → 店別ガイド → お店の選び方。
+                # 内訳: 同店の反対ジャンル → 他店の同ジャンル（3店相互） → 店別ガイド → お店の選び方。
                 # ランキングに登録バナーは載せない（登録導線はハブ／ガイド側の役割）。
                 other_genre = "TL" if genre == "BL" else "BL"
                 other_slug = get_ranking_slug(site, other_genre)
@@ -780,9 +780,12 @@ def process_ranking_articles(force_all=False):
                 nav_items = [
                     f'<li><a href="{other_url}">【{disp_site}】{other_genre}ピックアップ5選！厳選ランキング（{_now2.year}年{_now2.month}月第{_wk2}週）</a></li>'
                 ]
-                if site != "DLsite":
-                    dlsite_url = f"{WP_SITE_URL}/{get_ranking_slug('DLsite', genre)}/"
-                    nav_items.append(f'<li><a href="{dlsite_url}">【DLsite】{genre}ピックアップ5選！厳選ランキング</a></li>')
+                for other_site in ("DLsite", "Lovecal", "DMM"):
+                    if other_site == site:
+                        continue
+                    other_disp = site_labels.get(other_site, other_site)
+                    other_same = f"{WP_SITE_URL}/{get_ranking_slug(other_site, genre)}/"
+                    nav_items.append(f'<li><a href="{other_same}">【{other_disp}】{genre}ピックアップ5選！厳選ランキング</a></li>')
                 guide_slug = {"DLsite": "dlsite-guide", "Lovecal": "lovecal-guide", "DMM": "dmmbooks-guide"}.get(site)
                 guide_label = {"DLsite": "DLsite", "Lovecal": "らぶカル", "DMM": "DMMブックス"}.get(site, disp_site)
                 if guide_slug:
