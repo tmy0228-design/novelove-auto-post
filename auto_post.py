@@ -506,12 +506,29 @@ def post_to_wordpress(title, content, genre, image_url, excerpt="", seo_title=""
 # === メインロジック ===
 # --- [削除] 旧 main() 定義 (v11.4.14 にて統合・削除) ---
 
+def _is_deepseek_peak_jst(now=None) -> bool:
+    """
+    DeepSeek API のピーク時間帯（JST換算）かどうか。
+    公式ピーク UTC 01:00–04:00 / 06:00–10:00 → JST 10:00–13:00 / 15:00–19:00（半開区間）。
+    """
+    if now is None:
+        now = datetime.now(timezone(timedelta(hours=9)))
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone(timedelta(hours=9)))
+    else:
+        now = now.astimezone(timezone(timedelta(hours=9)))
+    h = now.hour
+    return (10 <= h < 13) or (15 <= h < 19)
+
+
 def _get_dynamic_cooldown() -> int:
     """
     v21.2.6: DBの投稿待ち在庫(pending)数に応じてクールダウン時間を動的に決定する。
-    - 在庫30件以上 -> 14分 (実効15分間隔 / 日最大96件: アクティブモード)
+    - 在庫30件以上 -> 5分 (実効15分間隔 / 日最大96件: アクティブモード)
     - 在庫10～29件 -> 25分 (実効30分間隔 / 日最大48件: 標準モード)
     - 在庫9件以下  -> 55分 (実効60分間隔 / 日最大24件: セーブモード)
+    v21.7.46: DeepSeekピーク帯（JST 10–13 / 15–19）は在庫判定に関わらず最低60分
+             （ピーク完全停止はせず、未審査在庫の枠落ちを避けつつ単価の高い時間の執筆を間引く）。
     エラー発生時はデフォルトの25分を返す。
     """
     try:
@@ -531,6 +548,20 @@ def _get_dynamic_cooldown() -> int:
         cooldown = 25   # 標準モード: 現状維持
     else:
         cooldown = 55   # セーブモード: 在庫枯渇防止
+
+    if _is_deepseek_peak_jst():
+        peak_floor = 60
+        if cooldown < peak_floor:
+            logger.info(
+                f"  [Dynamic Cooldown] 投稿待ち在庫: {count}件 -> ベース {cooldown}分 "
+                f"→ DeepSeekピーク帯のため {peak_floor}分"
+            )
+            return peak_floor
+        logger.info(
+            f"  [Dynamic Cooldown] 投稿待ち在庫: {count}件 -> クールダウン: {cooldown}分 "
+            f"（DeepSeekピーク帯・既に{peak_floor}分以上）"
+        )
+        return cooldown
 
     logger.info(f"  [Dynamic Cooldown] 投稿待ち在庫: {count}件 -> クールダウン: {cooldown}分")
     return cooldown

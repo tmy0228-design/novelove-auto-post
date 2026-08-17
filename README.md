@@ -101,7 +101,7 @@ DLsiteの一般向け同人作品（全年齢）を自動取得対象に追加�
 - **トレンド追加と重複排除**: トレンドタグ（ざまぁ、悪役令嬢等）を追加し、重複タグ（契約結婚等）を統合。新規・既存タグのCocoon SEOメタ情報を拡充。
 
 ### 13. テーマ別まとめ記事の自動生成 (v21.0.0 / スケジュール v21.3.12)
-- **週2回オートパイロット**: 水曜11:10にBL（`--force --genre=BL`）、金曜11:10にTL（`--force --genre=TL`）。
+- **週2回オートパイロット**: 水曜9:10にBL（`--force --genre=BL`）、金曜9:10にTL（`--force --genre=TL`）。
 - **クールダウン機能**: 過去90日間に使用されたタグ（クロスタグは要素に分解）を除外して重複投稿を完全防止。
 - **安全性とSEO**: あらすじ情報に基づく特化レビューの分割生成と、比較テーブル、タグアーカイブへのフッターリンク自動付与。
 
@@ -119,17 +119,17 @@ DLsiteの一般向け同人作品（全年齢）を自動取得対象に追加�
 
 ## ⏰ 定期実行設定 (cron)
 ```bash
-# 15分おきに通常投稿（実効間隔はDB在庫に応じた動的cooldown）
+# 15分おきに通常投稿（実効間隔はDB在庫に応じた動的cooldown。DeepSeekピーク帯は最低60分）
 */15 * * * * /opt/kusanagi/bin/python3 /home/kusanagi/scripts/auto_post.py >> /home/kusanagi/scripts/novelove_auto.log 2>&1
 
 # ランキング生成（毎日・固定スラグ6本を週次上書き）
-# ❗重要: BL（10:00）完了後にTLを処理するため、1日に2回起動必須。
-0 10 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove_rank.log 2>&1
-30 10 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove_rank.log 2>&1
+# ❗重要: BL（9:00）完了後にTLを処理するため、1日に2回起動必須。
+0 9 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove_rank.log 2>&1
+30 9 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove_rank.log 2>&1
 
-# 毎週水曜 11:10 に BLまとめ、金曜 11:10 に TLまとめを自動生成して投稿 (v21.3.12 / 本番正)
-10 11 * * 3 /opt/kusanagi/bin/python3 /home/kusanagi/scripts/novelove_curator.py --force --genre=BL >> /home/kusanagi/scripts/novelove_curator_bl.log 2>&1
-10 11 * * 5 /opt/kusanagi/bin/python3 /home/kusanagi/scripts/novelove_curator.py --force --genre=TL >> /home/kusanagi/scripts/novelove_curator_tl.log 2>&1
+# 毎週水曜 9:10 に BLまとめ、金曜 9:10 に TLまとめを自動生成して投稿 (v21.7.46)
+10 9 * * 3 /opt/kusanagi/bin/python3 /home/kusanagi/scripts/novelove_curator.py --force --genre=BL >> /home/kusanagi/scripts/novelove_curator_bl.log 2>&1
+10 9 * * 5 /opt/kusanagi/bin/python3 /home/kusanagi/scripts/novelove_curator.py --force --genre=TL >> /home/kusanagi/scripts/novelove_curator_tl.log 2>&1
 ```
 
 ## 📜 変更履歴
