@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## v21.7.43 — 始め方ハブの meta description を本文に合わせて修正 (2026-08-17)
+
+### 🐛 fix(seo/hub): 削除済みのバナー誘導文言が meta に残っていた
+- `/hajimekata/` の `the_page_meta_description` から「気になったお店のバナーからどうぞ」を削除。
+- 差し替え: 「登録前の不安やお店ごとの特徴も確認できます。」
+
 ## v21.7.42 — 店別ガイド3ページの noindex 解除 (2026-08-17)
 
 ### ✨ seo(guide): `/lovecal-guide/` `/dlsite-guide/` `/dmmbooks-guide/` を index 対象へ
