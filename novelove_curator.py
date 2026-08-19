@@ -34,7 +34,7 @@ from novelove_core import (
     acquire_lock, release_lock,
     purge_front_cache_after_post,
 )
-from novelove_soul import REVIEWERS, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS, AI_TAG_WHITELIST, first_person_prompt_line
+from novelove_soul import REVIEWERS, FACT_GUARD, NG_PHRASES, MOOD_PATTERNS, AI_TAG_WHITELIST, first_person_prompt_line, CURATION_TAG_SLUG_MAP, get_curation_slug
 from novelove_writer import _call_deepseek_raw
 from novelove_fetcher import mask_input
 
@@ -59,24 +59,38 @@ def _curator_attr_tags(tags):
     return out
 
 
-# === クールダウン処理 ===
-def get_cooldown_tags(conn, days=90):
-    """過去N日間に使用されたタグを取得して除外対象とする"""
+# === ラウンドロビン選定 (v21.8.0) ===
+def get_roundrobin_target(conn, genre_prefix: str) -> str:
+    """固定スラグの中で最終更新が最も古いもの（または未作成）を返す。
+    genre_prefix: 'bl' or 'tl'
+    戻り値: 固定スラグ文字列（例: 'bl-yandere'）または None（候補ゼロ）
+    """
     c = conn.cursor()
-    limit_date = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-    c.execute("SELECT wp_tags FROM novelove_posts WHERE post_type = 'curation' AND published_at >= ?", (limit_date,))
-    rows = c.fetchall()
-    
-    cooldown = set()
-    for (tag_str,) in rows:
-        if not tag_str:
-            continue
-        # クロスタグ等の複数タグ結合も考慮し、カンマおよび&でスプリット
-        for t in tag_str.replace("&", ",").split(","):
-            t_clean = t.strip()
-            if t_clean:
-                cooldown.add(t_clean)
-    return cooldown
+    # 既存の固定まとめスラグとその最終更新日時を取得
+    c.execute(
+        "SELECT product_id, published_at FROM novelove_posts "
+        "WHERE post_type = 'curation' AND status = 'published' "
+        "AND product_id LIKE ?",
+        (f"{genre_prefix}-%",)
+    )
+    existing = {row[0]: row[1] for row in c.fetchall()}
+
+    # 全候補スラグ（マッピング辞書から生成）
+    all_slugs = [
+        get_curation_slug(genre_prefix, tag)
+        for tag in CURATION_TAG_SLUG_MAP
+        if get_curation_slug(genre_prefix, tag)
+    ]
+
+    # 未作成スラグ → 最優先（作成日なし扱いで最古）
+    never_created = [s for s in all_slugs if s not in existing]
+    if never_created:
+        return never_created[0]  # リスト順（辞書定義順）で先頭
+
+    # 既存スラグを最終更新日時の昇順でソートして最古を返す
+    existing_slugs = [(s, existing[s]) for s in all_slugs if s in existing]
+    existing_slugs.sort(key=lambda x: x[1] or "")
+    return existing_slugs[0][0] if existing_slugs else None
 
 
 def _ensure_curation_work_ids_column(conn):
@@ -124,55 +138,57 @@ def _get_week_number():
     day = datetime.datetime.now().day
     return min(4, (day - 1) // 7 + 1)
 
-def _determine_genre_for_week(week, conn):
-    """週番号に応じたジャンルグループを返す"""
-    if week == 1:
-        return "BL"
-    elif week == 2:
-        return "TL"
-    elif week == 3:
-        # 前回と逆のジャンルにする
-        c = conn.cursor()
-        c.execute("SELECT genre FROM novelove_posts WHERE post_type = 'curation' ORDER BY published_at DESC LIMIT 1")
-        row = c.fetchone()
-        if row:
-            last = row[0]
-            if last == "bl-curation":
-                return "TL"
-            elif last == "tl-curation":
-                return "BL"
-        return "BL"  # 履歴なし時のデフォルト
-    elif week == 4:
-        return "cross"
-    return "BL"
-
-# === タグと作品の選定ロジック ===
+# === タグと作品の選定ロジック (v21.8.0: 固定スラグ・ラウンドロビン方式) ===
 def select_theme_and_works(conn, week, forced_tag=None, forced_genre=None):
-    """テーマ（タグ）と5作品を選定する。
+    """テーマ（タグ）・固定スラグ・5作品を選定する。
 
-    v21.5.6:
-      - まとめ未出演作品を優先し、未出演が5本未満のタグ/ペアはその回スキップして次候補へ。
-      - スキップしても90日クールダウンには入れない（新規が増えたら翌週以降また候補になる）。
-      - 全候補が尽きて1本も書けない場合は (None, [], genre) を返す → 呼び出し側でDiscord通知。
+    v21.8.0:
+      - 90日クールダウン廃止。固定スラグ×ラウンドロビンで全タグを均等に回す。
+      - ラウンドロビン: 最終更新が最も古い固定スラグのタグを選ぶ（未作成スラグを最優先）。
+      - 作品選定: 「まとめ未出演かつgsc_clicks低い順・同クリックは古い順」5本。
+      - 5本揃わない場合はそのタグをスキップして次候補へ。
+      - 全候補が尽きた場合は (None, None, [], genre) を返す → 呼び出し側でDiscord通知。
+    戻り値: (tag_name, fixed_slug, selected_works, genre_group)
     """
-    cooldown_tags = get_cooldown_tags(conn)
     featured_ids = get_curation_featured_ids(conn)
-    logger.info(f"[Curator] Cooldown tags: {cooldown_tags}")
     logger.info(f"[Curator] Already featured in curation: {len(featured_ids)} works")
     
-    # 1. 公開中の記事データをロード (wp_tags からロードし、post_type = 'regular' に限定)
+    # ジャンルの判定（--genre 優先、未指定は週番号で BL/TL 交互）
+    if forced_genre:
+        target_genre = forced_genre
+    else:
+        target_genre = "BL" if (week % 2 == 1) else "TL"
+
+    genre_group = target_genre
+    sub_genre_lower = "bl" if target_genre == "BL" else "tl"
+
+    # 公開中の通常記事をロード（inserted_at も取得してソートキーに使用）
     c = conn.cursor()
-    c.execute("""
-        SELECT product_id, title, genre, wp_tags, gsc_clicks, affiliate_url, image_url, site, release_date, description
+    cols = {row[1] for row in c.execute("PRAGMA table_info(novelove_posts)").fetchall()}
+    has_inserted_at = "inserted_at" in cols
+    ins_col = ", inserted_at" if has_inserted_at else ""
+    c.execute(f"""
+        SELECT product_id, title, genre, wp_tags, gsc_clicks, affiliate_url,
+               image_url, site, release_date, description{ins_col}
         FROM novelove_posts
         WHERE status = 'published' AND wp_tags != '' AND post_type = 'regular'
     """)
     rows = c.fetchall()
-    
+
     works = []
     for r in rows:
-        pid, title, genre, wp_tags_str, clicks, aff_url, img_url, site, r_date, desc = r
+        if has_inserted_at:
+            pid, title, genre, wp_tags_str, clicks, aff_url, img_url, site, r_date, desc, ins_at = r
+        else:
+            pid, title, genre, wp_tags_str, clicks, aff_url, img_url, site, r_date, desc = r
+            ins_at = ""
         tags = [t.strip() for t in wp_tags_str.split(",") if t.strip()]
+        is_target = (
+            ('bl' in genre.lower() and target_genre == "BL") or
+            ('tl' in genre.lower() and target_genre == "TL")
+        )
+        if not is_target:
+            continue
         works.append({
             "product_id": pid,
             "title": title,
@@ -183,158 +199,74 @@ def select_theme_and_works(conn, week, forced_tag=None, forced_genre=None):
             "image_url": img_url,
             "site": site,
             "release_date": r_date,
-            "description": desc
+            "description": desc,
+            "inserted_at": ins_at or "",
         })
-        
-    logger.info(f"[Curator] Loaded {len(works)} published works with tags.")
-    
-    # BL/TLの分類
-    bl_works = [w for w in works if 'bl' in w['genre'].lower()]
-    tl_works = [w for w in works if 'tl' in w['genre'].lower()]
-    
-    # ジャンルの判定
-    target_genre = None
-    if forced_genre:
-        target_genre = forced_genre
-    else:
-        target_genre = _determine_genre_for_week(week, conn)
-        
-    logger.info(f"[Curator] Target genre mode: {target_genre}")
-    
-    # 各タグがどの作品に紐付いているかをマッピング
-    tag_to_bl_works = collections.defaultdict(list)
-    tag_to_tl_works = collections.defaultdict(list)
-    
-    for w in bl_works:
-        for t in w['tags']:
-            tag_to_bl_works[t].append(w)
-            
-    for w in tl_works:
-        for t in w['tags']:
-            tag_to_tl_works[t].append(w)
-            
-    selected_tag = None
-    selected_works = []
-    genre_group = target_genre
-    
+
+    logger.info(f"[Curator] Loaded {len(works)} {target_genre} works.")
+
+    # タグ→作品マッピング（ホワイトリスト＆固定スラグ定義済みのタグのみ）
+    tag_to_works = collections.defaultdict(list)
+    for w in works:
+        for t in w["tags"]:
+            if t in AI_TAG_WHITELIST and t in CURATION_TAG_SLUG_MAP:
+                tag_to_works[t].append(w)
+
+    # 既存まとめの最終更新日時マップ（固定スラグ → published_at）
+    c.execute(
+        "SELECT product_id, published_at FROM novelove_posts "
+        "WHERE post_type = 'curation' AND status = 'published' AND product_id LIKE ?",
+        (f"{sub_genre_lower}-%",)
+    )
+    slug_last_updated = {row[0]: row[1] for row in c.fetchall()}
+
+    # ラウンドロビン: 未作成スラグを最優先、次に最終更新が古い順
+    def _slug_sort_key(tag):
+        slug = get_curation_slug(sub_genre_lower, tag)
+        last = slug_last_updated.get(slug)
+        if last is None:
+            return ("0", tag)
+        return ("1" + last, tag)
+
+    candidate_tags = [
+        tag for tag in CURATION_TAG_SLUG_MAP
+        if tag in tag_to_works and len(tag_to_works[tag]) >= 5
+    ]
+    candidate_tags.sort(key=_slug_sort_key)
+
+    # --tag 強制指定の場合は先頭に割り込み
     if forced_tag:
-        # タグが強制指定されている場合
-        selected_tag = forced_tag
-        forced_tags = [t.strip() for t in forced_tag.split(",") if t.strip()]
-        all_matching = [w for w in works if all(ft in w['tags'] for ft in forced_tags)]
-        picked = _select_five_unused_works(all_matching, featured_ids)
-        if not picked:
-            logger.warning(
-                f"[Curator] Forced tag '{selected_tag}' has only "
-                f"{sum(1 for w in all_matching if w['product_id'] not in featured_ids)} unused works (<5). Abort."
-            )
-            return None, [], genre_group
-        selected_works = picked
-        bl_count = sum(1 for w in all_matching if 'bl' in w['genre'].lower())
-        tl_count = sum(1 for w in all_matching if 'tl' in w['genre'].lower())
-        genre_group = "BL" if bl_count >= tl_count else "TL"
-        logger.info(f"[Curator] Forced tag '{selected_tag}' matched {len(all_matching)} works. Selecting {len(selected_works)} unused.")
-        
-    elif target_genre in ("BL", "TL"):
-        tag_map = tag_to_bl_works if target_genre == "BL" else tag_to_tl_works
-        
-        # 候補タグの分析
-        candidates = []
-        for tag, tag_w_list in tag_map.items():
-            if tag not in AI_TAG_WHITELIST:  # ★ ホワイトリストガード
-                continue
-            if tag in cooldown_tags:
-                continue
-            if len(tag_w_list) < 10:  # 通常タグは公開記事10件以上
-                continue
-            total_clicks = sum(w['clicks'] for w in tag_w_list)
-            candidates.append({
-                "tag": tag,
-                "total_clicks": total_clicks,
-                "work_count": len(tag_w_list),
-                "works": tag_w_list
-            })
-            
-        # クリック数の昇順（低い＝埋もれている）、同数なら作品数が多い方を優先
-        candidates.sort(key=lambda x: (x['total_clicks'], -x['work_count']))
-        
-        skipped = 0
-        for cand in candidates:
-            picked = _select_five_unused_works(cand["works"], featured_ids)
-            if not picked:
-                unused_n = sum(1 for w in cand["works"] if w["product_id"] not in featured_ids)
-                logger.info(
-                    f"[Curator] Skip tag '{cand['tag']}' (unused={unused_n}<5, "
-                    f"total={cand['work_count']}) → try next"
-                )
-                skipped += 1
-                continue
-            selected_tag = cand["tag"]
-            selected_works = picked
-            logger.info(
-                f"[Curator] Selected tag: '{selected_tag}' "
-                f"(Clicks: {cand['total_clicks']}, Works: {cand['work_count']}, "
-                f"unused_picked=5, skipped_tags={skipped})"
-            )
-            break
+        if forced_tag in CURATION_TAG_SLUG_MAP:
+            candidate_tags = [forced_tag] + [t for t in candidate_tags if t != forced_tag]
         else:
-            logger.warning(
-                f"[Curator] No candidate tags with 5+ unused works for {target_genre} "
-                f"(candidates={len(candidates)}, skipped_insufficient={skipped})."
-            )
-            
-    elif target_genre == "cross":
-        # クロスタグ（BLまたはTL内で、共通作品が5件以上ある2タグのペア）
-        cross_candidates = []
-        
-        for g_name, tag_map, genre_w_list in [("BL", tag_to_bl_works, bl_works), ("TL", tag_to_tl_works, tl_works)]:
-            # 5件以上の作品があるタグを抽出 (cooldown対象外 & ホワイトリスト内限定)
-            valid_tags = [tag for tag, tag_w in tag_map.items() if tag in AI_TAG_WHITELIST and len(tag_w) >= 5 and tag not in cooldown_tags]
-            
-            for i in range(len(valid_tags)):
-                for j in range(i+1, len(valid_tags)):
-                    t1, t2 = valid_tags[i], valid_tags[j]
-                    common = [w for w in genre_w_list if t1 in w['tags'] and t2 in w['tags']]
-                    if len(common) >= 5:
-                        total_clicks = sum(w['clicks'] for w in common)
-                        cross_candidates.append({
-                            "tags": (t1, t2),
-                            "genre": g_name,
-                            "total_clicks": total_clicks,
-                            "work_count": len(common),
-                            "works": common
-                        })
-                        
-        cross_candidates.sort(key=lambda x: (x['total_clicks'], -x['work_count']))
-        
-        skipped = 0
-        for cand in cross_candidates:
-            picked = _select_five_unused_works(cand["works"], featured_ids)
-            if not picked:
-                unused_n = sum(1 for w in cand["works"] if w["product_id"] not in featured_ids)
-                logger.info(
-                    f"[Curator] Skip cross '{cand['tags'][0]}+{cand['tags'][1]}' "
-                    f"(unused={unused_n}<5) → try next"
-                )
-                skipped += 1
-                continue
-            t1, t2 = cand["tags"]
-            sorted_tags = sorted([t1, t2])
-            selected_tag = f"{sorted_tags[0]},{sorted_tags[1]}"
-            genre_group = f"cross-{cand['genre'].lower()}"
-            selected_works = picked
-            logger.info(
-                f"[Curator] Selected cross tags: '{selected_tag}' ({genre_group}) "
-                f"(Clicks: {cand['total_clicks']}, Works: {cand['work_count']}, skipped_pairs={skipped})"
-            )
-            break
-        else:
-            logger.warning(
-                f"[Curator] No cross tag pairs with 5+ unused works "
-                f"(pairs={len(cross_candidates)}, skipped={skipped})."
-            )
-            
-    return selected_tag, selected_works, genre_group
+            logger.warning(f"[Curator] --tag '{forced_tag}' は CURATION_TAG_SLUG_MAP に未定義。無視します。")
+
+    selected_tag = None
+    selected_slug = None
+    selected_works = []
+
+    for tag in candidate_tags:
+        tag_works = tag_to_works[tag]
+        unused = [w for w in tag_works if w["product_id"] not in featured_ids]
+        # クリック昇順 → 古い順（同クリック時に古い記事を優先）
+        unused.sort(key=lambda x: (x["clicks"], x["inserted_at"]))
+        if len(unused) < 5:
+            logger.info(f"[Curator] Skip tag '{tag}' (unused={len(unused)}<5) → try next")
+            continue
+        selected_tag = tag
+        selected_slug = get_curation_slug(sub_genre_lower, tag)
+        selected_works = unused[:5]
+        last = slug_last_updated.get(selected_slug, "(新規)")
+        logger.info(
+            f"[Curator] Selected tag='{selected_tag}' slug='{selected_slug}' "
+            f"last_updated={last} unused_avail={len(unused)}"
+        )
+        break
+
+    if not selected_tag:
+        logger.warning(f"[Curator] No candidate tags with 5+ unused works for {target_genre}.")
+
+    return selected_tag, selected_slug, selected_works, genre_group
 
 # === AI執筆：導入コラム生成 ===
 def generate_intro_column(reviewer, tag_name, genre_group):
@@ -737,7 +669,7 @@ def _run_curator_logic(args):
     logger.info(f"[Curator] Calculated week number: {week}")
 
     # テーマと作品の選定
-    tag_name, selected_works, genre_group = select_theme_and_works(
+    tag_name, fixed_slug, selected_works, genre_group = select_theme_and_works(
         conn, week, forced_tag=args.tag, forced_genre=args.genre
     )
 
@@ -749,7 +681,7 @@ def _run_curator_logic(args):
         notify_discord(
             f"⚠️ **まとめ記事をスキップしました（候補ゼロ）**\n"
             f"指定モード: `{mode}` / 週番号: 第{week}週\n"
-            f"原因: クールダウン外かつ未出演5本以上のタグ/ペアが見つかりませんでした。\n"
+            f"原因: 未出演5本以上のタグが見つかりませんでした。\n"
             f"（個別タグの未出演不足スキップは正常動作。全候補が尽きたときだけこの通知が出ます）",
             username="📚 まとめ記事投稿くん",
         )
@@ -874,41 +806,32 @@ def _run_curator_logic(args):
         display_tag=display_tag, display_genre=display_genre
     )
 
-    # 修正17: タイトルの決定（動的件数）
+    # v21.8.0: タイトルの決定（「おすすめ」に変更・年付き）
     num = len(selected_works)
-    title = f"【まとめ】「{display_tag}」属性の隠れた名作{display_genre}作品{num}選"
+    current_year = datetime.datetime.now().year
+    title = f"【{current_year}年おすすめ】「{display_tag}」の{display_genre}作品{num}選"
 
-    # 修正6: まとめ記事専用のメタディスクリプション
-    excerpt_tags = tag_name.split(",") + [reviewer['name']]  # レビュアー名を追加（通常・ランキング記事と統一）
+    # まとめ記事専用のメタディスクリプション
+    excerpt_tags = [tag_name, reviewer['name']]
     excerpt = (
-        f"「{display_tag}」属性のおすすめ{display_genre}作品を厳選{num}選！"
-        f"Noveloveの{reviewer['name']}が、露出は低くとも魅力的な隠れた名作を"
-        f"テーマ特化の視点でご紹介します。"
+        f"「{display_tag}」属性のおすすめ{display_genre}作品を{num}選ご紹介！"
+        f"Noveloveの{reviewer['name']}がテーマ特化の視点で厳選しました。"
+        f"ジャンルの魅力をたっぷり堪能できる作品ばかりです。"
     )
     if len(excerpt) > 120:
         excerpt = excerpt[:118] + "…"
 
-    # 修正7: SEOタイトル（Google日本語表示枠: 約30〜35文字）
-    seo_title = f"【まとめ】「{display_tag}」属性の隠れた名作{display_genre}作品{num}選"
+    # SEOタイトル（Google日本語表示枠: 約30〜35文字）
+    seo_title = f"【{current_year}年】「{display_tag}」おすすめ{display_genre}作品{num}選"
     if len(seo_title) > 35:
-        seo_title = f"「{display_tag}」の隠れた名作{display_genre}{num}選"
+        seo_title = f"「{display_tag}」おすすめ{display_genre}{num}選【{current_year}】"
         if len(seo_title) > 35:
             seo_title = seo_title[:33] + "…"
 
-    # 修正9: スラッグの生成（時分まで含めて重複防止）
-    date_str = datetime.datetime.now().strftime("%Y%m%d-%H%M")
-    is_eng_tag = bool(re.match(r'^[a-zA-Z0-9\-_,]+$', tag_name))
+    # v21.8.0: 固定スラグを使用（既存記事は上書き、新規は新規作成）
     sub_genre_lower = "bl" if "bl" in genre_group.lower() else "tl"
-    if is_eng_tag:
-        slug_tag = tag_name.replace(",", "-").lower()
-    else:
-        slug_tag = f"w{week}"
-
-    # 先頭を bl-curation / tl-curation の正順かつ英語スラッグで統一
-    slug = f"{sub_genre_lower}-curation-{slug_tag}-{date_str}"
-    # v21.5.2: 長すぎる場合もジャンル接頭辞を落さない（旧 curation-{date}-{rand} は禁止）
-    if len(slug) > 100:
-        slug = f"{sub_genre_lower}-curation-{date_str}-{random.randint(1000, 9999)}"
+    slug = fixed_slug  # select_theme_and_works が返した固定スラグ
+    date_str = datetime.datetime.now().strftime("%Y%m%d-%H%M")
 
     # 修正2: FIFUサムネイル変換（A+C方式: 本文用=大きい画像、FIFU用=軽量サムネ）
     full_image_url = selected_works[0]['image_url']
@@ -933,77 +856,80 @@ def _run_curator_logic(args):
             logger.error(f"[Curator] Failed to save dry-run output: {e}")
     else:
         logger.info("[Curator] Publishing curation article to WordPress...")
-        # 遅延インポートによる循環参照の防止
         from auto_post import post_to_wordpress
 
-        # 投稿ジャンルの設定 (bl-curation / tl-curation)
         post_genre = f"{sub_genre_lower}-curation"
 
-        # 修正2: image_url と thumb_url を分離
+        # v21.8.0: 固定スラグで既存記事を上書き（overwrite=True）
         link, wp_post_id = post_to_wordpress(
             title=title,
             content=full_content,
             genre=post_genre,
-            image_url=full_image_url,   # 記事本文用（大きい画像）
+            image_url=full_image_url,
             excerpt=excerpt,
             seo_title=seo_title,
             slug=slug,
-            is_r18=True,  # まとめは基本R18属性作品も含むためTrue
+            is_r18=True,
             site_label=None,
             ai_tags=excerpt_tags,
             reviewer=reviewer['name'],
-            thumb_url=thumb_url          # FIFU用（軽量サムネ）
+            thumb_url=thumb_url,
+            overwrite=True,   # 固定スラグの既存記事を上書き
         )
 
         if wp_post_id:
             logger.info(f"[Curator] Published successfully! ID: {wp_post_id}, URL: {link}")
 
-            # v21.5.2: WPが -2 を付けた場合に備え、実URLのスラッグを product_id にする
+            # 固定スラグなので db_product_id = slug で固定（WPが -2 を付けることはない）
             db_product_id = slug
-            if link:
-                m_slug = re.search(r"https?://[^/]+/([^/]+)/?", str(link))
-                if m_slug and m_slug.group(1):
-                    db_product_id = m_slug.group(1)
-                    if db_product_id != slug:
-                        logger.warning(f"[Curator] WPスラッグが意図と異なります: intended={slug} actual={db_product_id}")
-
-            # WPタグはテーマ + レビュアー（v21.1.1）。ai_tags / original_tags はテーマのみ
             wp_tags_val = ",".join([t for t in excerpt_tags if t])
             featured_ids_csv = ",".join(w["product_id"] for w in selected_works)
 
-            # 修正8: DB INSERT改善（不要カラム削除、正確なデータ保存）
             _ensure_curation_work_ids_column(conn)
             c = conn.cursor()
             try:
-                c.execute("""
-                    INSERT INTO novelove_posts (
-                        product_id, title, genre, site, status, published_at, post_type,
-                        wp_post_id, wp_post_url, reviewer, wp_tags, ai_tags,
-                        article_pattern, image_url, is_protected, source_db,
-                        original_tags, description, curation_work_ids
-                    ) VALUES (?, ?, ?, 'Novelove', 'published', datetime('now', 'localtime'), 'curation',
-                              ?, ?, ?, ?, ?,
-                              'C', ?, 1, 'curation',
-                              ?, ?, ?)
-                """, (
-                    db_product_id, title, post_genre,
-                    wp_post_id, link, reviewer['name'], wp_tags_val, tag_name,
-                    full_image_url,
-                    tag_name, excerpt, featured_ids_csv
-                ))
-                
-                # === [v21.4.1] まとめ記事に選出された5作品を自動的に永久保護 (is_protected = 1) ===
-                for work in selected_works:
-                    c.execute(
-                        "UPDATE novelove_posts SET is_protected = 1 WHERE product_id = ?",
-                        (work['product_id'],)
-                    )
-                    logger.info(f"[Curator] Protected work: {work['title']} (ID: {work['product_id']})")
-                
+                # 既存レコードがあればUPDATE、なければINSERT
+                c.execute(
+                    "SELECT rowid FROM novelove_posts WHERE product_id = ? AND post_type = 'curation'",
+                    (db_product_id,)
+                )
+                existing_row = c.fetchone()
+                if existing_row:
+                    c.execute("""
+                        UPDATE novelove_posts SET
+                            title=?, wp_post_id=?, wp_post_url=?, reviewer=?,
+                            wp_tags=?, ai_tags=?, image_url=?, description=?,
+                            curation_work_ids=?, published_at=datetime('now','localtime')
+                        WHERE product_id=? AND post_type='curation'
+                    """, (
+                        title, wp_post_id, link, reviewer['name'],
+                        wp_tags_val, tag_name, full_image_url, excerpt,
+                        featured_ids_csv, db_product_id
+                    ))
+                    logger.info(f"[Curator] Updated existing DB record: {db_product_id}")
+                else:
+                    c.execute("""
+                        INSERT INTO novelove_posts (
+                            product_id, title, genre, site, status, published_at, post_type,
+                            wp_post_id, wp_post_url, reviewer, wp_tags, ai_tags,
+                            article_pattern, image_url, is_protected, source_db,
+                            original_tags, description, curation_work_ids
+                        ) VALUES (?, ?, ?, 'Novelove', 'published', datetime('now','localtime'), 'curation',
+                                  ?, ?, ?, ?, ?,
+                                  'C', ?, 0, 'curation',
+                                  ?, ?, ?)
+                    """, (
+                        db_product_id, title, post_genre,
+                        wp_post_id, link, reviewer['name'], wp_tags_val, tag_name,
+                        full_image_url,
+                        tag_name, excerpt, featured_ids_csv
+                    ))
+                    logger.info(f"[Curator] Inserted new DB record: {db_product_id}")
+
+                # v21.8.0: is_protected は付与しない（curation_work_ids で動的保護に移行）
                 conn.commit()
-                logger.info("[Curator] Curation post details saved and 5 works marked as protected in DB.")
+                logger.info("[Curator] DB saved. Works protected via curation_work_ids (no is_protected=1).")
             except Exception as e:
-                # 修正11: DB INSERT失敗時のDiscord通知
                 logger.error(f"[Curator] Failed to save curation details to DB: {e}")
                 notify_discord(
                     f"🚨 **まとめ記事のDB保存に失敗しました**\n"
@@ -1013,17 +939,16 @@ def _run_curator_logic(args):
                     username="🚨 警告通知"
                 )
 
-            # v21.7.18: トップ＋当該まとめ記事のみ限定パージ
             try:
                 purge_front_cache_after_post(link, background=True)
             except Exception as cache_err:
                 logger.warning(f"  [Cache] キャッシュクリア失敗（続行）: {cache_err}")
 
-            # 修正12: Discord通知（ジャンル・週・作品数を追加）
             disc_msg = (
-                f"📝 **テーマ別まとめ記事を自動投稿しました**\n"
+                f"📝 **テーマ別まとめ記事を更新しました（固定スラグ）**\n"
                 f"**タイトル**: {title}\n"
                 f"**テーマ（タグ）**: {tag_name}\n"
+                f"**スラグ**: `{slug}`\n"
                 f"**ジャンル**: {genre_group} / 第{week}週\n"
                 f"**選定作品数**: {len(selected_works)}件\n"
                 f"**担当レビュアー**: {reviewer['name']}\n"

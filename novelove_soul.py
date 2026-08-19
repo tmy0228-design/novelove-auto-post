@@ -54,6 +54,63 @@ TAGS_VOICE_ONLY = [
 # → 部分一致判定で「契約」が「契約結婚」より先にマッチする誤爆を防ぐ
 AI_TAG_WHITELIST = sorted(set(TAGS_COMMON + TAGS_VOICE_ONLY), key=len, reverse=True)
 
+# === まとめ記事固定スラグマッピング (v21.8.0) ===
+# キュレーションページの固定URL: bl-{slug} / tl-{slug}
+# WPタグスラグ（/tag/{slug}/）と一致させることでタグページとの一貫性を担保する。
+# タグを追加・変更した場合はこの辞書も必ず更新すること。
+CURATION_TAG_SLUG_MAP = {
+    # 共通タグ
+    "ハッピーエンド":       "happy-ending",
+    "オフィスラブ":         "office-romance",
+    "契約結婚":             "contract-marriage",
+    "オメガバース":         "omegaverse",
+    "マッサージ":           "massage",
+    "ケンカップル":         "bickering-couple",
+    "記憶喪失":             "amnesia",
+    "年下攻め":             "younger-top",
+    "幼なじみ":             "childhood-friends",
+    "ヤンデレ":             "yandere",
+    "スパダリ":             "super-darling",
+    "身分差":               "status-difference",
+    "御曹司":               "rich-heir",
+    "年の差":               "age-gap",
+    "独占欲":               "possessiveness",
+    "執着":                 "obsession",
+    "主従":                 "master-servant",
+    "転生":                 "reincarnation",
+    "再会":                 "reunion",
+    "一途":                 "devoted",
+    "運命":                 "fate",
+    "溺愛":                 "doting-love",
+    "初恋":                 "first-love",
+    "ざまぁ":               "zama",
+    "悪役令嬢":             "akuyaku-reijo",
+    "婚約破棄":             "konyaku-haki",
+    "異世界":               "isekai",
+    "健気":                 "kenage",
+    "身代わり":             "migawari",
+    # ボイス専用タグ
+    "シチュエーションボイス": "situation-voice",
+    "バイノーラル":         "binaural",
+    "ドラマCD":             "drama-cd",
+    "囁き声":               "whisper-voice",
+    "耳かき":               "ear-cleaning",
+    "添い寝":               "sleeping-together",
+    "耳舐め":               "ear-licking",
+    "吐息":                 "breath",
+    "ASMR":                 "asmr",
+    "KU100":                "ku100",
+}
+
+def get_curation_slug(genre_prefix: str, tag_name: str) -> str:
+    """まとめ記事の固定スラグを返す。genre_prefix は 'bl' or 'tl'。
+    マッピング未定義のタグは None を返す（候補から除外する）。
+    """
+    tag_slug = CURATION_TAG_SLUG_MAP.get(tag_name)
+    if not tag_slug:
+        return None
+    return f"{genre_prefix}-{tag_slug}"
+
 
 # === v11.3.5: プロンプト改善定数 ===
 

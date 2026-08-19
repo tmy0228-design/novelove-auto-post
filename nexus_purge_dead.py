@@ -135,6 +135,26 @@ def run_purge_dead(dry_run=False):
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    # === v21.8.0: 公開中まとめに掲載中の作品IDをパージ除外リストに追加 ===
+    # curation_work_ids に載っている product_id は「現在まとめに出演中」→ 保護対象
+    try:
+        curation_rows = c.execute(
+            "SELECT curation_work_ids FROM novelove_posts "
+            "WHERE post_type='curation' AND status='published' "
+            "AND curation_work_ids IS NOT NULL AND curation_work_ids != ''"
+        ).fetchall()
+        _cur_protected_ids: set = set()
+        for row in curation_rows:
+            for pid in str(row[0]).split(","):
+                pid = pid.strip()
+                if pid:
+                    _cur_protected_ids.add(pid)
+        if _cur_protected_ids:
+            logger.info(f"  [まとめ保護] 現在公開中まとめに掲載中: {len(_cur_protected_ids)}件 → パージ除外")
+    except Exception as _e:
+        logger.warning(f"  [まとめ保護] curation_work_ids 取得失敗（無視して続行）: {_e}")
+        _cur_protected_ids = set()
+
     # === ルールA: 公開45日以上 ＆ 未インデックス ===
     rule_a_rows = c.execute("""
         SELECT product_id, title, wp_post_id, wp_post_url, published_at,
@@ -164,9 +184,14 @@ def run_purge_dead(dry_run=False):
           AND published_at <= date('now', ? || ' days')
     """, (RULE_B_MAX_IMPRESSIONS, RULE_B_MAX_CLICKS, f"-{RULE_B_DAYS}")).fetchall()
 
-    # ルールBからルールAの重複を除外
+    # ルールBからルールAの重複を除外 + まとめ掲載中IDを除外
     rule_a_pids = {r['product_id'] for r in rule_a_rows}
-    rule_b_unique = [r for r in rule_b_rows if r['product_id'] not in rule_a_pids]
+    rule_a_rows = [r for r in rule_a_rows if r['product_id'] not in _cur_protected_ids]
+    rule_b_unique = [
+        r for r in rule_b_rows
+        if r['product_id'] not in rule_a_pids
+        and r['product_id'] not in _cur_protected_ids
+    ]
 
     logger.info(f"  [ルールA] 未インデックス({RULE_A_DAYS}日超): {len(rule_a_rows)}件")
     logger.info(f"  [ルールB] 低トラフィック({RULE_B_DAYS}日超): {len(rule_b_unique)}件")
