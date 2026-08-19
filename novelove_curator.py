@@ -59,40 +59,6 @@ def _curator_attr_tags(tags):
     return out
 
 
-# === ラウンドロビン選定 (v21.8.0) ===
-def get_roundrobin_target(conn, genre_prefix: str) -> str:
-    """固定スラグの中で最終更新が最も古いもの（または未作成）を返す。
-    genre_prefix: 'bl' or 'tl'
-    戻り値: 固定スラグ文字列（例: 'bl-yandere'）または None（候補ゼロ）
-    """
-    c = conn.cursor()
-    # 既存の固定まとめスラグとその最終更新日時を取得
-    c.execute(
-        "SELECT product_id, published_at FROM novelove_posts "
-        "WHERE post_type = 'curation' AND status = 'published' "
-        "AND product_id LIKE ?",
-        (f"{genre_prefix}-%",)
-    )
-    existing = {row[0]: row[1] for row in c.fetchall()}
-
-    # 全候補スラグ（マッピング辞書から生成）
-    all_slugs = [
-        get_curation_slug(genre_prefix, tag)
-        for tag in CURATION_TAG_SLUG_MAP
-        if get_curation_slug(genre_prefix, tag)
-    ]
-
-    # 未作成スラグ → 最優先（作成日なし扱いで最古）
-    never_created = [s for s in all_slugs if s not in existing]
-    if never_created:
-        return never_created[0]  # リスト順（辞書定義順）で先頭
-
-    # 既存スラグを最終更新日時の昇順でソートして最古を返す
-    existing_slugs = [(s, existing[s]) for s in all_slugs if s in existing]
-    existing_slugs.sort(key=lambda x: x[1] or "")
-    return existing_slugs[0][0] if existing_slugs else None
-
-
 def _ensure_curation_work_ids_column(conn):
     """まとめ出演IDカラムが無ければ追加する（旧DB互換）"""
     c = conn.cursor()
@@ -119,18 +85,6 @@ def get_curation_featured_ids(conn):
                 featured.add(pid)
     return featured
 
-
-def _select_five_unused_works(works, featured_ids):
-    """
-    まとめ未出演作品をクリック昇順で最大5本選ぶ。
-    未出演が5本未満なら None（そのタグ/ペアはスキップ対象）。
-    スキップしてもタグの90日クールダウンには入れない。
-    """
-    unused = [w for w in works if w["product_id"] not in featured_ids]
-    unused.sort(key=lambda x: x["clicks"])
-    if len(unused) < 5:
-        return None
-    return unused[:5]
 
 # === 週番号とジャンル選定 ===
 def _get_week_number():
