@@ -1,4 +1,4 @@
-# Novelove 自動投稿システム (v21.0.0)
+# Novelove 自動投稿システム (v21.8.0)
 
 > [!IMPORTANT]
 > **開発・修正時の注意**: 作業を開始する前に、必ず `git pull origin main` で最新版をプルしてから作業を行ってください。
@@ -30,7 +30,7 @@ BL・TL の女性向け作品（漫画・小説・同人）を全自動で紹介
 | `nexus_gsc.py` | 【Nexus】Google Search Consoleと連携した「死に記事」自動検知バッチ |
 | `nexus_purge_dead.py` | 【Nexus】GSCデータに基づく死に記事の自動パージ（殿堂入り保護付き） |
 | `novelove_bluesky.py` | Bluesky自動投稿モジュール。記事公開時にBlueskyへ自動連携投稿 |
-| `novelove_curator.py` | テーマ別まとめ記事自動生成バッチ。低クリックタグ・作品から自動生成して投稿（v21.0.0新設） |
+| `novelove_curator.py` | テーマ別まとめ記事（固定スラグ×ラウンドロビン・週4）。低クリックタグから5作品選定して上書き投稿（v21.8.0） |
 
 ## 🤖 AIライター（5名）
 | ID | 名前 | 担当ジャンル | 性格 |
@@ -52,7 +52,7 @@ FANZAの同人新フロア「らぶカル」のBL/TLコンテンツを既存パ�
 - 投稿時には「FANZA」ではなく「らぶカル」独立タグを自動付与（SEO用Description設定済み）
 
 ### 1. 2名掛け合いランキング記事
-毎週末のランキング記事をMC＋ゲストの**掛け合い（吹き出し対話）形式**で生成。
+固定スラグ6本（BL/TL×3店）を**毎日9:00/9:30**に週次上書き更新。MC＋ゲストの**掛け合い（吹き出し対話）形式**で生成。
 5名×4名=全10通りの関係性を `novelove_soul.py` の `RELATIONSHIPS` 辞書で定義し、プロンプトに自動注入します。
 
 ### 2. AI SEOメタ自動生成・付与
@@ -67,7 +67,7 @@ Googleの「Scaled Content Abuse（テンプレート量産）」ペナルティ
 ### 4. 多段ガードレールと関所（Cooldown）システム
 - **サーキットブレーカー**: 連続エラー3回 or 5分超過で自動停止 → Discord緊急通知（`emergency_stop.lock`生成）
 - **関所（冷却機能）**: SQLiteのロックエラーを防ぐため、cron多重起動時の安全弁として冷却ロジックを実装。
-- **クールダウン**: 通常投稿の実効間隔はDB在庫に応じた動的cooldown（cronは本番 `*/15`）。ランキング記事は固定スラグ6本を週次上書きし、`published_at` のISO週一致で二重投稿を防止。
+- **クールダウン**: 通常投稿の実効間隔はDB在庫に応じた動的cooldown（cronは本番 `*/15`）。DeepSeekピーク帯（JST 10–13 / 15–19）は最低60分。ランキング記事は固定スラグ6本を毎日上書き。
 - **重複防止**: DB全件 + WordPressの公開記事タイトルとの照合により二重投稿を100%排除し、SQLite固有の `ORDER BY 0` エラーも防ぐ堅牢なSQL構造。
 
 ### 5. DLsite一般同人（全年齢）自動取得 (v20.0.0)
@@ -100,10 +100,12 @@ DLsiteの一般向け同人作品（全年齢）を自動取得対象に追加�
 ### 12. AIタグホワイトリスト大規模整理とメタ設定 (v20.1.0)
 - **トレンド追加と重複排除**: トレンドタグ（ざまぁ、悪役令嬢等）を追加し、重複タグ（契約結婚等）を統合。新規・既存タグのCocoon SEOメタ情報を拡充。
 
-### 13. テーマ別まとめ記事の自動生成 (v21.0.0 / スケジュール v21.3.12)
-- **週2回オートパイロット**: 水曜9:10にBL（`--force --genre=BL`）、金曜9:10にTL（`--force --genre=TL`）。
-- **クールダウン機能**: 過去90日間に使用されたタグ（クロスタグは要素に分解）を除外して重複投稿を完全防止。
-- **安全性とSEO**: あらすじ情報に基づく特化レビューの分割生成と、比較テーブル、タグアーカイブへのフッターリンク自動付与。
+### 13. テーマ別まとめ記事 (v21.8.0)
+- **週4オートパイロット**: 月・水 9:10 BL / 金・日 9:10 TL（`--force --genre=BL|TL`）。
+- **固定スラグ×ラウンドロビン**: タグごとに `bl-yandere` 等の固定URLを持ち、最終更新が古いタグから上書き更新（90日クールダウン廃止）。
+- **作品選定**: まとめ未出演かつ `gsc_clicks` 低い順で5本。揃わないタグはスキップして次候補へ。
+- **移行期の設計**: 一括移行直後で未上書きの記事は `curation_work_ids` を空のままにし、掲載作品の `is_protected=1` をパージ保険とする。次回 curator 上書き時に `curation_work_ids` を記録。
+- **安全性とSEO**: あらすじに基づく特化レビュー、比較テーブル、タグアーカイブへのフッターリンク自動付与。
 
 ## 🤖 AIモデル構成 (v21.0.0)
 | 役割 | モデル |
@@ -115,7 +117,7 @@ DLsiteの一般向け同人作品（全年齢）を自動取得対象に追加�
 ## 🔄 作業フロー
 1. ローカルで修正・検証を行う。
 2. `git push origin main` で GitHub へ反映。
-3. サーバー（Kusanagi）側で `git pull` を実行して最新版へ更新。
+3. サーバーは `auto_deploy.sh`（30分ごと）が自動同期。急ぎの場合は手動で `git pull`。
 
 ## ⏰ 定期実行設定 (cron)
 ```bash
@@ -127,9 +129,11 @@ DLsiteの一般向け同人作品（全年齢）を自動取得対象に追加�
 0 9 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove_rank.log 2>&1
 30 9 * * * cd /home/kusanagi/scripts && /opt/kusanagi/bin/python3 auto_post.py --ranking >> /home/kusanagi/scripts/novelove_rank.log 2>&1
 
-# 毎週水曜 9:10 に BLまとめ、金曜 9:10 に TLまとめを自動生成して投稿 (v21.7.46)
+# まとめ記事（週4: 月・水=BL、金・日=TL）— v21.8.0 固定スラグ×ラウンドロビン
+10 9 * * 1 /opt/kusanagi/bin/python3 /home/kusanagi/scripts/novelove_curator.py --force --genre=BL >> /home/kusanagi/scripts/novelove_curator_bl.log 2>&1
 10 9 * * 3 /opt/kusanagi/bin/python3 /home/kusanagi/scripts/novelove_curator.py --force --genre=BL >> /home/kusanagi/scripts/novelove_curator_bl.log 2>&1
 10 9 * * 5 /opt/kusanagi/bin/python3 /home/kusanagi/scripts/novelove_curator.py --force --genre=TL >> /home/kusanagi/scripts/novelove_curator_tl.log 2>&1
+10 9 * * 0 /opt/kusanagi/bin/python3 /home/kusanagi/scripts/novelove_curator.py --force --genre=TL >> /home/kusanagi/scripts/novelove_curator_tl.log 2>&1
 ```
 
 ## 📜 変更履歴

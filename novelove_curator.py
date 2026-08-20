@@ -70,12 +70,17 @@ def _ensure_curation_work_ids_column(conn):
 
 
 def get_curation_featured_ids(conn):
-    """過去のまとめに出演済みの通常作品 product_id 集合を返す。"""
+    """公開中まとめに掲載中の通常作品 product_id 集合を返す。
+
+    スラグ固定化前後で記事の中身は同じなので、公開中まとめはすべて同等に扱う。
+    deleted な旧スラグ行は対象外（purge と同じく status='published'）。
+    """
     _ensure_curation_work_ids_column(conn)
     c = conn.cursor()
     c.execute(
         "SELECT curation_work_ids FROM novelove_posts "
-        "WHERE post_type = 'curation' AND curation_work_ids IS NOT NULL AND curation_work_ids != ''"
+        "WHERE post_type = 'curation' AND status = 'published' "
+        "AND curation_work_ids IS NOT NULL AND curation_work_ids != ''"
     )
     featured = set()
     for (ids_str,) in c.fetchall():
